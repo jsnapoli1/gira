@@ -1,0 +1,183 @@
+export interface User {
+  id: number;
+  email: string;
+  display_name: string;
+  avatar_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Board {
+  id: number;
+  name: string;
+  description: string;
+  owner_id: number;
+  columns: Column[];
+  swimlanes: Swimlane[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Column {
+  id: number;
+  board_id: number;
+  name: string;
+  position: number;
+  state: string;
+}
+
+export interface Swimlane {
+  id: number;
+  board_id: number;
+  name: string;
+  repo_owner: string;
+  repo_name: string;
+  designator: string;
+  position: number;
+  color: string;
+}
+
+export interface Sprint {
+  id: number;
+  board_id: number;
+  name: string;
+  goal: string;
+  start_date: string | null;
+  end_date: string | null;
+  status: 'planning' | 'active' | 'completed';
+  created_at: string;
+  updated_at: string;
+}
+
+export type IssueType = 'epic' | 'story' | 'task' | 'subtask';
+
+export interface Card {
+  id: number;
+  board_id: number;
+  swimlane_id: number;
+  column_id: number;
+  sprint_id: number | null;
+  parent_id: number | null;
+  issue_type: IssueType;
+  gitea_issue_id: number;
+  title: string;
+  description: string;
+  state: string;
+  story_points: number | null;
+  priority: 'highest' | 'high' | 'medium' | 'low' | 'lowest';
+  due_date: string | null;
+  time_estimate: number | null;
+  labels: Label[];
+  assignees: User[];
+  children?: Card[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Label {
+  id: number;
+  name: string;
+  color: string;
+}
+
+export interface SprintMetrics {
+  sprint_id: number;
+  date: string;
+  total_points: number;
+  completed_points: number;
+  remaining_points: number;
+  total_cards: number;
+  completed_cards: number;
+}
+
+export interface VelocityPoint {
+  sprint_name: string;
+  completed_points: number;
+  total_points: number;
+}
+
+export interface Repository {
+  id: number;
+  name: string;
+  full_name: string;
+  owner: {
+    id: number;
+    login: string;
+  };
+}
+
+export interface AuthResponse {
+  user: User;
+  token: string;
+}
+
+export interface Comment {
+  id: number;
+  card_id: number;
+  user_id: number;
+  body: string;
+  user?: {
+    id: number;
+    email: string;
+    display_name: string;
+    avatar_url: string;
+  };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Attachment {
+  id: number;
+  card_id: number;
+  user_id: number;
+  filename: string;
+  size: number;
+  mime_type: string;
+  user?: {
+    id: number;
+    email: string;
+    display_name: string;
+    avatar_url: string;
+  };
+  created_at: string;
+}
+
+export type CustomFieldType = 'text' | 'number' | 'date' | 'select' | 'checkbox';
+
+export interface CustomFieldDefinition {
+  id: number;
+  board_id: number;
+  name: string;
+  field_type: CustomFieldType;
+  options: string; // JSON array for select options
+  required: boolean;
+  position: number;
+  created_at: string;
+}
+
+export interface CustomFieldValue {
+  id: number;
+  card_id: number;
+  field_id: number;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NotificationType = 'assignment' | 'mention' | 'update' | 'comment';
+
+export interface Notification {
+  id: number;
+  user_id: number;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link: string;
+  read: boolean;
+  created_at: string;
+}
+
+export interface NotificationsResponse {
+  notifications: Notification[];
+  unread_count: number;
+}

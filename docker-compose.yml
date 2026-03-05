@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  zira:
+    build:
+      context: .
+      args:
+        GIT_SHA: local
+    ports:
+      - "8080:8080"
+    volumes:
+      - zira-data:/app/data
+    environment:
+      - PORT=8080
+      - DB_PATH=/app/data/zira.db
+    restart: unless-stopped
+
+volumes:
+  zira-data:
+    driver: local

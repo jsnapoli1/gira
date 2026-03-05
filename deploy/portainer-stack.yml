@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  zira:
+    image: gitea.zonit.com/jackn/zira:${GIT_SHA:-latest}
+    pull_policy: always
+    container_name: zira-${GIT_SHA:-latest}
+    ports:
+      - "8080:8080"
+    volumes:
+      - zira-data:/app/data
+    environment:
+      - PORT=8080
+      - DB_PATH=/app/data/zira.db
+      - JWT_SECRET=${JWT_SECRET:-}
+      - GITEA_URL=${GITEA_URL:-}
+      - GITEA_API_KEY=${GITEA_API_KEY:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.zira.rule=Host(`zira.local`)"
+      - "traefik.http.services.zira.loadbalancer.server.port=8080"
+
+volumes:
+  zira-data:
+    driver: local
+
+networks:
+  default:
+    external: false

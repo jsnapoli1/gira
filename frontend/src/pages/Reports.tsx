@@ -1,0 +1,345 @@
+import { useState, useEffect } from 'react';
+import { Layout } from '../components/Layout';
+import { boards as boardsApi, metrics, sprints as sprintsApi } from '../api/client';
+import { Board, Sprint, SprintMetrics, VelocityPoint } from '../types';
+import {
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Area,
+  AreaChart,
+} from 'recharts';
+import { TrendingDown, TrendingUp, Activity } from 'lucide-react';
+
+export function Reports() {
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [selectedBoard, setSelectedBoard] = useState<Board | null>(null);
+  const [sprints, setSprints] = useState<Sprint[]>([]);
+  const [selectedSprint, setSelectedSprint] = useState<Sprint | null>(null);
+  const [burndownData, setBurndownData] = useState<SprintMetrics[]>([]);
+  const [velocityData, setVelocityData] = useState<VelocityPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadBoards();
+  }, []);
+
+  useEffect(() => {
+    if (selectedBoard) {
+      loadBoardData(selectedBoard.id);
+    }
+  }, [selectedBoard]);
+
+  useEffect(() => {
+    if (selectedSprint) {
+      loadSprintMetrics(selectedSprint.id);
+    }
+  }, [selectedSprint]);
+
+  const loadBoards = async () => {
+    try {
+      const data = await boardsApi.list();
+      setBoards(data || []);
+      if (data?.length > 0) {
+        setSelectedBoard(data[0]);
+      }
+    } catch (err) {
+      console.error('Failed to load boards:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadBoardData = async (boardId: number) => {
+    try {
+      const [sprintsData, velocityResponse] = await Promise.all([
+        sprintsApi.list(boardId),
+        metrics.velocity(boardId).catch(() => []),
+      ]);
+      setSprints(sprintsData || []);
+      setVelocityData(velocityResponse || []);
+
+      // Select active sprint or most recent
+      const active = sprintsData?.find((s: Sprint) => s.status === 'active');
+      const completed = sprintsData?.filter((s: Sprint) => s.status === 'completed') || [];
+      setSelectedSprint(active || completed[0] || null);
+    } catch (err) {
+      console.error('Failed to load board data:', err);
+    }
+  };
+
+  const loadSprintMetrics = async (sprintId: number) => {
+    try {
+      const data = await metrics.burndown(sprintId);
+      setBurndownData(data || []);
+    } catch (err) {
+      console.error('Failed to load sprint metrics:', err);
+    }
+  };
+
+  // Calculate ideal burndown line
+  const getIdealBurndown = () => {
+    if (burndownData.length === 0 || !selectedSprint) return [];
+    const startPoints = burndownData[0]?.total_points || 0;
+    const totalDays = burndownData.length;
+
+    return burndownData.map((_, index) => ({
+      date: burndownData[index]?.date || `Day ${index + 1}`,
+      ideal: Math.max(0, startPoints - (startPoints * (index / (totalDays - 1 || 1)))),
+      remaining: burndownData[index]?.remaining_points || 0,
+    }));
+  };
+
+  const burndownChartData = getIdealBurndown();
+
+  // Calculate average velocity
+  const avgVelocity = velocityData.length > 0
+    ? Math.round(velocityData.reduce((sum, v) => sum + v.completed_points, 0) / velocityData.length)
+    : 0;
+
+  // Calculate sprint completion percentage
+  const sprintCompletion = burndownData.length > 0
+    ? Math.round(
+        ((burndownData[burndownData.length - 1]?.completed_points || 0) /
+          (burndownData[burndownData.length - 1]?.total_points || 1)) *
+          100
+      )
+    : 0;
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="loading">Loading reports...</div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout>
+      <div className="reports-page">
+        <div className="page-header">
+          <h1>Reports</h1>
+          <div className="reports-filters">
+            <select
+              value={selectedBoard?.id || ''}
+              onChange={(e) => {
+                const board = boards.find((b) => b.id === parseInt(e.target.value));
+                setSelectedBoard(board || null);
+              }}
+            >
+              <option value="">Select a board...</option>
+              {boards.map((board) => (
+                <option key={board.id} value={board.id}>
+                  {board.name}
+                </option>
+              ))}
+            </select>
+
+            {selectedBoard && sprints.length > 0 && (
+              <select
+                value={selectedSprint?.id || ''}
+                onChange={(e) => {
+                  const sprint = sprints.find((s) => s.id === parseInt(e.target.value));
+                  setSelectedSprint(sprint || null);
+                }}
+              >
+                {sprints.map((sprint) => (
+                  <option key={sprint.id} value={sprint.id}>
+                    {sprint.name} ({sprint.status})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+
+        {!selectedBoard ? (
+          <div className="empty-state">
+            <Activity size={48} />
+            <h2>Select a board to view reports</h2>
+            <p>Choose a board from the dropdown above to see sprint metrics and velocity charts.</p>
+          </div>
+        ) : sprints.length === 0 ? (
+          <div className="empty-state">
+            <Activity size={48} />
+            <h2>No sprints found</h2>
+            <p>Create sprints in your board to start tracking velocity and burndown.</p>
+          </div>
+        ) : (
+          <>
+            {/* Summary Cards */}
+            <div className="metrics-summary">
+              <div className="metric-card">
+                <div className="metric-icon">
+                  <TrendingDown size={24} />
+                </div>
+                <div className="metric-content">
+                  <span className="metric-label">Sprint Completion</span>
+                  <span className="metric-value">{sprintCompletion}%</span>
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-icon">
+                  <TrendingUp size={24} />
+                </div>
+                <div className="metric-content">
+                  <span className="metric-label">Avg Velocity</span>
+                  <span className="metric-value">{avgVelocity} pts</span>
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-icon">
+                  <Activity size={24} />
+                </div>
+                <div className="metric-content">
+                  <span className="metric-label">Completed Sprints</span>
+                  <span className="metric-value">
+                    {sprints.filter((s) => s.status === 'completed').length}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Charts Grid */}
+            <div className="charts-grid">
+              {/* Burndown Chart */}
+              <div className="chart-card">
+                <h3>Sprint Burndown</h3>
+                {burndownChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={burndownChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={(value) =>
+                          new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        }
+                      />
+                      <YAxis />
+                      <Tooltip
+                        labelFormatter={(value) => new Date(value as string).toLocaleDateString()}
+                        formatter={(value, name) => [
+                          `${value} pts`,
+                          name === 'ideal' ? 'Ideal' : 'Remaining',
+                        ]}
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="ideal"
+                        stroke="#9ca3af"
+                        strokeDasharray="5 5"
+                        dot={false}
+                        name="Ideal"
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="remaining"
+                        stroke="#6366f1"
+                        fill="#6366f1"
+                        fillOpacity={0.3}
+                        name="Remaining"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="chart-empty">
+                    <p>No data available for this sprint</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Velocity Chart */}
+              <div className="chart-card">
+                <h3>Velocity Trend</h3>
+                {velocityData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={velocityData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="sprint_name" />
+                      <YAxis />
+                      <Tooltip
+                        formatter={(value, name) => [
+                          `${value} pts`,
+                          name === 'completed_points' ? 'Completed' : 'Committed',
+                        ]}
+                      />
+                      <Legend />
+                      <Bar
+                        dataKey="total_points"
+                        fill="#e5e7eb"
+                        name="Committed"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="completed_points"
+                        fill="#6366f1"
+                        name="Completed"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="chart-empty">
+                    <p>Complete sprints to see velocity data</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Cumulative Flow Diagram */}
+              <div className="chart-card wide">
+                <h3>Cumulative Flow</h3>
+                {burndownData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={burndownData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={(value) =>
+                          new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        }
+                      />
+                      <YAxis />
+                      <Tooltip
+                        labelFormatter={(value) => new Date(value).toLocaleDateString()}
+                      />
+                      <Legend />
+                      <Area
+                        type="monotone"
+                        dataKey="remaining_points"
+                        stackId="1"
+                        stroke="#f97316"
+                        fill="#f97316"
+                        fillOpacity={0.6}
+                        name="Remaining"
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="completed_points"
+                        stackId="1"
+                        stroke="#22c55e"
+                        fill="#22c55e"
+                        fillOpacity={0.6}
+                        name="Completed"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="chart-empty">
+                    <p>No data available</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </Layout>
+  );
+}
