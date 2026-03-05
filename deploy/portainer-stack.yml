@@ -13,8 +13,8 @@ services:
       - PORT=8080
       - DB_PATH=/app/data/zira.db
       - JWT_SECRET=${JWT_SECRET:-}
-      - GITEA_URL=${GITEA_URL:-}
-      - GITEA_API_KEY=${GITEA_API_KEY:-}
+      - GITEA_URL=${GITEA_URL}
+      - GITEA_API_KEY=${GITEA_API_KEY}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8080/healthz"]
