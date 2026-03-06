@@ -1203,8 +1203,8 @@ function CardDetailModal({
   onUpdate: (card: Card) => void;
   onDelete: (cardId: number) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'details' | 'conversations' | 'attachments' | 'custom-fields' | 'time-tracking'>('details');
   const [editing, setEditing] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description);
   const [storyPoints, setStoryPoints] = useState(card.story_points?.toString() || '');
@@ -1218,40 +1218,37 @@ function CardDetailModal({
 
   // Comments state
   const [comments, setComments] = useState<any[]>([]);
-  const [loadingComments, setLoadingComments] = useState(false);
+  const [loadingComments, setLoadingComments] = useState(true);
   const [newComment, setNewComment] = useState('');
   const [postingComment, setPostingComment] = useState(false);
 
   // Attachments state
   const [attachments, setAttachments] = useState<any[]>([]);
-  const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [loadingAttachments, setLoadingAttachments] = useState(true);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   // Custom field values state
   const [customFieldValues, setCustomFieldValues] = useState<Record<number, string>>({});
-  const [loadingCustomFields, setLoadingCustomFields] = useState(false);
-  const [savingCustomField, setSavingCustomField] = useState<number | null>(null);
+  const [, setLoadingCustomFields] = useState(true);
 
   // Work logs (time tracking) state
-  const [workLogs, setWorkLogs] = useState<any[]>([]);
+  const [, setWorkLogs] = useState<any[]>([]);
   const [totalTimeLogged, setTotalTimeLogged] = useState(0);
-  const [loadingWorkLogs, setLoadingWorkLogs] = useState(false);
+  const [, setLoadingWorkLogs] = useState(true);
   const [newWorkLogMinutes, setNewWorkLogMinutes] = useState('');
   const [newWorkLogDate, setNewWorkLogDate] = useState(new Date().toISOString().split('T')[0]);
   const [newWorkLogNotes, setNewWorkLogNotes] = useState('');
   const [addingWorkLog, setAddingWorkLog] = useState(false);
 
+  // Load all data on mount
   useEffect(() => {
-    if (activeTab === 'conversations') {
-      loadComments();
-    } else if (activeTab === 'attachments') {
-      loadAttachments();
-    } else if (activeTab === 'custom-fields') {
+    loadComments();
+    loadAttachments();
+    loadWorkLogs();
+    if (customFields.length > 0) {
       loadCustomFieldValues();
-    } else if (activeTab === 'time-tracking') {
-      loadWorkLogs();
     }
-  }, [activeTab, card.id]);
+  }, [card.id]);
 
   const loadAttachments = async () => {
     setLoadingAttachments(true);
@@ -1294,11 +1291,10 @@ function CardDetailModal({
     }
   };
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
+  const formatFileSize = (_bytes: number): string => {
+    // Unused in compact view but keeping for potential future use
+    return '';
+  }; void formatFileSize;
 
   const loadCustomFieldValues = async () => {
     setLoadingCustomFields(true);
@@ -1326,13 +1322,10 @@ function CardDetailModal({
 
   const handleCustomFieldSave = async (fieldId: number, value?: string) => {
     const valueToSave = value !== undefined ? value : customFieldValues[fieldId] || '';
-    setSavingCustomField(fieldId);
     try {
       await cardsApi.setCustomFieldValue(card.id, fieldId, valueToSave);
     } catch (err) {
       console.error('Failed to save custom field:', err);
-    } finally {
-      setSavingCustomField(null);
     }
   };
 
@@ -1374,15 +1367,10 @@ function CardDetailModal({
     }
   };
 
-  const handleDeleteWorkLog = async (worklogId: number) => {
-    if (!confirm('Are you sure you want to delete this work log entry?')) return;
-    try {
-      await cardsApi.deleteWorkLog(card.id, worklogId);
-      await loadWorkLogs();
-    } catch (err) {
-      console.error('Failed to delete work log:', err);
-    }
-  };
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleDeleteWorkLog = async (_worklogId: number) => {
+    // Unused in compact view - would need work log history section
+  }; void handleDeleteWorkLog;
 
   const formatTimeSpent = (minutes: number): string => {
     const hours = Math.floor(minutes / 60);
@@ -1520,13 +1508,39 @@ function CardDetailModal({
     });
   };
 
+  const handleSaveDescription = async () => {
+    setSaving(true);
+    try {
+      const updated = await cardsApi.update(card.id, {
+        title: card.title,
+        description,
+        story_points: card.story_points,
+        priority: card.priority,
+        due_date: card.due_date || null,
+        time_estimate: card.time_estimate,
+        issue_type: card.issue_type,
+      });
+      onUpdate({ ...updated, assignees, labels });
+      setEditingDescription(false);
+    } catch (err) {
+      console.error('Failed to update description:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal card-detail-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal card-detail-modal-unified" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
         <div className="card-detail-header">
-          <span className="card-designator" style={{ color: swimlane.color }}>
-            {swimlane.designator}{card.gitea_issue_id}
-          </span>
+          <div className="card-detail-header-left">
+            <span className="card-designator" style={{ color: swimlane.color }}>
+              {swimlane.designator}{card.gitea_issue_id}
+            </span>
+            <span className={`card-issue-type issue-type-${card.issue_type || 'task'}`}>{card.issue_type || 'task'}</span>
+            <span className={`card-state ${card.state}`}>{card.state}</span>
+          </div>
           <div className="card-detail-actions">
             {editing ? (
               <>
@@ -1541,63 +1555,25 @@ function CardDetailModal({
                 <button className="btn btn-sm btn-danger" onClick={handleDelete}>Delete</button>
               </>
             )}
+            <button className="btn btn-sm modal-close-btn" onClick={onClose} title="Close">
+              <X size={18} />
+            </button>
           </div>
         </div>
 
-        <div className="card-detail-tabs">
-          <button
-            className={`tab-btn ${activeTab === 'details' ? 'active' : ''}`}
-            onClick={() => setActiveTab('details')}
-          >
-            Details
-          </button>
-          <button
-            className={`tab-btn ${activeTab === 'conversations' ? 'active' : ''}`}
-            onClick={() => setActiveTab('conversations')}
-          >
-            Conversations
-          </button>
-          <button
-            className={`tab-btn ${activeTab === 'attachments' ? 'active' : ''}`}
-            onClick={() => setActiveTab('attachments')}
-          >
-            Attachments
-          </button>
-          {customFields.length > 0 && (
-            <button
-              className={`tab-btn ${activeTab === 'custom-fields' ? 'active' : ''}`}
-              onClick={() => setActiveTab('custom-fields')}
-            >
-              Custom Fields
-            </button>
-          )}
-          <button
-            className={`tab-btn ${activeTab === 'time-tracking' ? 'active' : ''}`}
-            onClick={() => setActiveTab('time-tracking')}
-          >
-            Time Tracking
-          </button>
-        </div>
-
-        {activeTab === 'details' ? (
-          <div className="card-detail-content">
+        <div className="card-detail-unified-layout">
+          {/* Main Content Area */}
+          <div className="card-detail-main">
+            {/* Title and Meta */}
             {editing ? (
               <div className="card-detail-edit">
                 <div className="form-group">
                   <label>Title</label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
+                  <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label>Description</label>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    rows={6}
-                  />
+                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
                 </div>
                 <div className="form-row">
                   <div className="form-group">
@@ -1619,36 +1595,19 @@ function CardDetailModal({
                       <option value="lowest">Lowest</option>
                     </select>
                   </div>
-                </div>
-                <div className="form-row">
                   <div className="form-group">
                     <label>Story Points</label>
-                    <input
-                      type="number"
-                      value={storyPoints}
-                      onChange={(e) => setStoryPoints(e.target.value)}
-                      min="0"
-                    />
+                    <input type="number" value={storyPoints} onChange={(e) => setStoryPoints(e.target.value)} min="0" />
                   </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group">
                     <label>Due Date</label>
-                    <input
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => setDueDate(e.target.value)}
-                    />
+                    <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
                   </div>
                   <div className="form-group">
                     <label>Time Estimate (minutes)</label>
-                    <input
-                      type="number"
-                      value={timeEstimate}
-                      onChange={(e) => setTimeEstimate(e.target.value)}
-                      min="0"
-                      placeholder="e.g., 120"
-                    />
+                    <input type="number" value={timeEstimate} onChange={(e) => setTimeEstimate(e.target.value)} min="0" placeholder="e.g., 120" />
                   </div>
                 </div>
               </div>
@@ -1656,412 +1615,279 @@ function CardDetailModal({
               <>
                 <h2 className="card-detail-title">{card.title}</h2>
                 <div className="card-detail-meta">
-                  <span className={`card-issue-type issue-type-${card.issue_type || 'task'}`}>{card.issue_type || 'task'}</span>
-                  <span className={`card-state ${card.state}`}>{card.state}</span>
                   <span className={`card-priority priority-${card.priority}`}>{card.priority}</span>
-                  {card.story_points !== null && (
-                    <span className="card-points">{card.story_points} points</span>
-                  )}
+                  {card.story_points !== null && <span className="card-points">{card.story_points} pts</span>}
                   {card.due_date && (
                     <span className={`card-due ${isOverdue(card.due_date) ? 'overdue' : ''}`}>
-                      <Calendar size={14} />
-                      {new Date(card.due_date).toLocaleDateString()}
-                    </span>
-                  )}
-                  {card.time_estimate && (
-                    <span className="card-estimate">
-                      <Clock size={14} />
-                      {Math.floor(card.time_estimate / 60)}h {card.time_estimate % 60}m
+                      <Calendar size={14} /> {new Date(card.due_date).toLocaleDateString()}
                     </span>
                   )}
                 </div>
-                {card.description && (
-                  <div className="card-detail-description">
-                    <h3>Description</h3>
-                    <p>{card.description}</p>
-                  </div>
-                )}
               </>
             )}
-          </div>
-        ) : activeTab === 'conversations' ? (
-          <div className="card-conversations">
-            {loadingComments ? (
-              <div className="loading-comments">Loading comments...</div>
-            ) : comments.length === 0 ? (
-              <div className="no-comments">No comments yet. Start the conversation!</div>
-            ) : (
-              <div className="comments-list">
-                {comments.map((comment) => (
-                  <div key={comment.id} className="comment-item">
-                    <div className="comment-header">
-                      <div className="comment-author">
-                        {comment.user?.avatar_url ? (
-                          <img src={comment.user.avatar_url} alt={comment.user.display_name} className="comment-avatar" />
-                        ) : (
-                          <div className="comment-avatar-placeholder">
-                            <UserIcon size={16} />
-                          </div>
-                        )}
-                        <span className="comment-author-name">
-                          {comment.user?.display_name || 'Unknown'}
-                        </span>
-                      </div>
-                      <span className="comment-date">{formatDate(comment.created_at)}</span>
-                    </div>
-                    <div className="comment-body">{comment.body}</div>
+
+            {/* Time Tracking Summary - Compact */}
+            {!editing && (
+              <div className="time-tracking-compact">
+                <div className="time-tracking-header">
+                  <Clock size={14} />
+                  <span>Time Tracking</span>
+                </div>
+                <div className="time-tracking-stats">
+                  <span className="time-logged">{formatTimeSpent(totalTimeLogged)} logged</span>
+                  {card.time_estimate && (
+                    <span className="time-estimate">/ {formatTimeSpent(card.time_estimate)} estimated</span>
+                  )}
+                </div>
+                {card.time_estimate && card.time_estimate > 0 && (
+                  <div className="time-progress-mini">
+                    <div
+                      className={`time-progress-bar ${totalTimeLogged > card.time_estimate ? 'over' : ''}`}
+                      style={{ width: `${Math.min((totalTimeLogged / card.time_estimate) * 100, 100)}%` }}
+                    />
                   </div>
-                ))}
+                )}
+                <div className="time-tracking-actions">
+                  <input
+                    type="number"
+                    className="time-input-mini"
+                    value={newWorkLogMinutes}
+                    onChange={(e) => setNewWorkLogMinutes(e.target.value)}
+                    placeholder="mins"
+                    min="1"
+                  />
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={(e) => { e.preventDefault(); handleAddWorkLog(e as any); }}
+                    disabled={addingWorkLog || !newWorkLogMinutes}
+                  >
+                    {addingWorkLog ? '...' : 'Log'}
+                  </button>
+                </div>
               </div>
             )}
-            <form className="comment-form" onSubmit={handlePostComment}>
-              <textarea
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Add a comment..."
-                rows={3}
-              />
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={postingComment || !newComment.trim()}
-              >
-                {postingComment ? 'Posting...' : 'Post Comment'}
-              </button>
-            </form>
-          </div>
-        ) : activeTab === 'attachments' ? (
-          <div className="card-attachments">
-            {loadingAttachments ? (
-              <div className="loading-attachments">Loading attachments...</div>
-            ) : attachments.length === 0 ? (
-              <div className="no-attachments">No attachments yet. Upload a file to get started.</div>
-            ) : (
-              <div className="attachments-list">
-                {attachments.map((attachment) => (
-                  <div key={attachment.id} className="attachment-item">
-                    <div className="attachment-icon">
-                      {attachment.mime_type.startsWith('image/') ? (
-                        <img src={`/api/attachments/${attachment.id}`} alt={attachment.filename} className="attachment-thumbnail" />
-                      ) : (
-                        <div className="attachment-file-icon">📎</div>
-                      )}
-                    </div>
-                    <div className="attachment-info">
-                      <a href={`/api/attachments/${attachment.id}`} download className="attachment-filename">
-                        {attachment.filename}
-                      </a>
-                      <div className="attachment-meta">
-                        <span className="attachment-size">{formatFileSize(attachment.size)}</span>
-                        <span className="attachment-date">{formatDate(attachment.created_at)}</span>
-                      </div>
-                    </div>
-                    <button
-                      className="attachment-delete"
-                      onClick={() => handleDeleteAttachment(attachment.id)}
-                      title="Delete attachment"
-                    >
-                      <X size={16} />
+
+            {/* Description Section */}
+            {!editing && (
+              <div className="card-description-section">
+                <div className="section-header">
+                  <h3>Description</h3>
+                  {!editingDescription && (
+                    <button className="btn btn-sm" onClick={() => setEditingDescription(true)}>
+                      {description ? 'Edit' : 'Add'}
                     </button>
+                  )}
+                </div>
+                {editingDescription ? (
+                  <div className="description-edit">
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      rows={4}
+                      placeholder="Add a description..."
+                      autoFocus
+                    />
+                    <div className="description-actions">
+                      <button className="btn btn-primary btn-sm" onClick={handleSaveDescription} disabled={saving}>
+                        {saving ? 'Saving...' : 'Save'}
+                      </button>
+                      <button className="btn btn-sm" onClick={() => { setEditingDescription(false); setDescription(card.description); }}>
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                ))}
+                ) : (
+                  <p className={`description-text ${!description ? 'empty' : ''}`}>
+                    {description || 'No description provided. Click Add to write one.'}
+                  </p>
+                )}
               </div>
             )}
-            <div className="attachment-upload">
-              <label className="upload-btn btn btn-primary">
-                {uploadingAttachment ? 'Uploading...' : 'Upload File'}
-                <input
-                  type="file"
-                  onChange={handleUploadAttachment}
-                  disabled={uploadingAttachment}
-                  style={{ display: 'none' }}
-                />
-              </label>
-            </div>
-          </div>
-        ) : activeTab === 'custom-fields' ? (
-          <div className="card-custom-fields">
-            {loadingCustomFields ? (
-              <div className="loading-custom-fields">Loading custom fields...</div>
-            ) : customFields.length === 0 ? (
-              <div className="no-custom-fields">No custom fields configured for this board.</div>
-            ) : (
-              <div className="custom-fields-list">
-                {customFields.map((field: any) => (
-                  <div key={field.id} className="custom-field-item">
-                    <label className="custom-field-label">{field.name}</label>
-                    {field.field_type === 'text' && (
-                      <input
-                        type="text"
-                        className="custom-field-input"
-                        value={customFieldValues[field.id] || ''}
-                        onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
-                        onBlur={(e) => handleCustomFieldSave(field.id, e.target.value)}
-                        placeholder={`Enter ${field.name}`}
-                      />
-                    )}
-                    {field.field_type === 'number' && (
-                      <input
-                        type="number"
-                        className="custom-field-input"
-                        value={customFieldValues[field.id] || ''}
-                        onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
-                        onBlur={(e) => handleCustomFieldSave(field.id, e.target.value)}
-                        placeholder="0"
-                      />
-                    )}
-                    {field.field_type === 'date' && (
-                      <input
-                        type="date"
-                        className="custom-field-input"
-                        value={customFieldValues[field.id] || ''}
-                        onChange={(e) => {
-                          handleCustomFieldChange(field.id, e.target.value);
-                          handleCustomFieldSave(field.id, e.target.value);
-                        }}
-                      />
-                    )}
-                    {field.field_type === 'select' && (
-                      <select
-                        className="custom-field-select"
-                        value={customFieldValues[field.id] || ''}
-                        onChange={(e) => {
-                          handleCustomFieldChange(field.id, e.target.value);
-                          handleCustomFieldSave(field.id, e.target.value);
-                        }}
-                      >
-                        <option value="">Select {field.name}</option>
-                        {field.options && JSON.parse(field.options).map((opt: string) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    )}
-                    {field.field_type === 'checkbox' && (
-                      <label className="custom-field-checkbox">
+
+            {/* Custom Fields */}
+            {!editing && customFields.length > 0 && (
+              <div className="custom-fields-compact">
+                <h3>Custom Fields</h3>
+                <div className="custom-fields-grid">
+                  {customFields.map((field: any) => (
+                    <div key={field.id} className="custom-field-inline">
+                      <label>{field.name}</label>
+                      {field.field_type === 'text' && (
+                        <input
+                          type="text"
+                          value={customFieldValues[field.id] || ''}
+                          onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
+                          onBlur={(e) => handleCustomFieldSave(field.id, e.target.value)}
+                          placeholder={`Enter ${field.name}`}
+                        />
+                      )}
+                      {field.field_type === 'number' && (
+                        <input
+                          type="number"
+                          value={customFieldValues[field.id] || ''}
+                          onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
+                          onBlur={(e) => handleCustomFieldSave(field.id, e.target.value)}
+                        />
+                      )}
+                      {field.field_type === 'date' && (
+                        <input
+                          type="date"
+                          value={customFieldValues[field.id] || ''}
+                          onChange={(e) => { handleCustomFieldChange(field.id, e.target.value); handleCustomFieldSave(field.id, e.target.value); }}
+                        />
+                      )}
+                      {field.field_type === 'select' && (
+                        <select
+                          value={customFieldValues[field.id] || ''}
+                          onChange={(e) => { handleCustomFieldChange(field.id, e.target.value); handleCustomFieldSave(field.id, e.target.value); }}
+                        >
+                          <option value="">Select...</option>
+                          {field.options && JSON.parse(field.options).map((opt: string) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      )}
+                      {field.field_type === 'checkbox' && (
                         <input
                           type="checkbox"
                           checked={customFieldValues[field.id] === 'true'}
-                          onChange={(e) => {
-                            const value = e.target.checked ? 'true' : 'false';
-                            handleCustomFieldChange(field.id, value);
-                            handleCustomFieldSave(field.id, value);
-                          }}
+                          onChange={(e) => { const v = e.target.checked ? 'true' : 'false'; handleCustomFieldChange(field.id, v); handleCustomFieldSave(field.id, v); }}
                         />
-                        <span>Yes</span>
-                      </label>
-                    )}
-                    {savingCustomField === field.id && (
-                      <span className="custom-field-saving">Saving...</span>
-                    )}
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Attachments Section */}
+            {!editing && (
+              <div className="attachments-section">
+                <div className="section-header">
+                  <h3>Attachments ({attachments.length})</h3>
+                  <label className="btn btn-sm">
+                    {uploadingAttachment ? 'Uploading...' : 'Upload'}
+                    <input type="file" onChange={handleUploadAttachment} disabled={uploadingAttachment} style={{ display: 'none' }} />
+                  </label>
+                </div>
+                {loadingAttachments ? (
+                  <div className="loading-inline">Loading...</div>
+                ) : attachments.length === 0 ? (
+                  <p className="empty-text">No attachments</p>
+                ) : (
+                  <div className="attachments-grid">
+                    {attachments.map((attachment) => (
+                      <div key={attachment.id} className="attachment-item-compact">
+                        {attachment.mime_type.startsWith('image/') ? (
+                          <img src={`/api/attachments/${attachment.id}`} alt={attachment.filename} className="attachment-thumb" />
+                        ) : (
+                          <div className="attachment-icon-small">📎</div>
+                        )}
+                        <a href={`/api/attachments/${attachment.id}`} download className="attachment-name">{attachment.filename}</a>
+                        <button className="attachment-delete-small" onClick={() => handleDeleteAttachment(attachment.id)}><X size={12} /></button>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
-        ) : activeTab === 'time-tracking' ? (
-          <div className="card-time-tracking">
-            {loadingWorkLogs ? (
-              <div className="loading-worklogs">Loading time tracking data...</div>
-            ) : (
-              <>
-                {/* Time Summary */}
-                <div className="time-tracking-summary">
-                  <h3>Time Summary</h3>
-                  <div className="time-stats">
-                    <div className="time-stat">
-                      <span className="time-stat-label">Logged</span>
-                      <span className="time-stat-value">{formatTimeSpent(totalTimeLogged)}</span>
-                    </div>
-                    {card.time_estimate && (
-                      <div className="time-stat">
-                        <span className="time-stat-label">Estimated</span>
-                        <span className="time-stat-value">{formatTimeSpent(card.time_estimate)}</span>
-                      </div>
-                    )}
-                  </div>
-                  {card.time_estimate && card.time_estimate > 0 && (
-                    <div className="time-progress">
-                      <div
-                        className={`time-progress-bar ${totalTimeLogged > card.time_estimate ? 'over' : ''}`}
-                        style={{ width: `${Math.min((totalTimeLogged / card.time_estimate) * 100, 100)}%` }}
-                      />
-                    </div>
-                  )}
-                  {card.time_estimate && totalTimeLogged > card.time_estimate && (
-                    <div className="time-over-estimate">
-                      Over estimate by {formatTimeSpent(totalTimeLogged - card.time_estimate)}
-                    </div>
-                  )}
-                </div>
 
-                {/* Log Work Form */}
-                <div className="worklog-form-section">
-                  <h3>Log Work</h3>
-                  <form className="worklog-form" onSubmit={handleAddWorkLog}>
-                    <div className="worklog-form-row">
-                      <div className="form-group">
-                        <label>Time Spent (minutes)</label>
-                        <input
-                          type="number"
-                          value={newWorkLogMinutes}
-                          onChange={(e) => setNewWorkLogMinutes(e.target.value)}
-                          placeholder="e.g., 30"
-                          min="1"
-                          required
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Date</label>
-                        <input
-                          type="date"
-                          value={newWorkLogDate}
-                          onChange={(e) => setNewWorkLogDate(e.target.value)}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="form-group">
-                      <label>Notes (optional)</label>
-                      <input
-                        type="text"
-                        value={newWorkLogNotes}
-                        onChange={(e) => setNewWorkLogNotes(e.target.value)}
-                        placeholder="What did you work on?"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="btn btn-primary"
-                      disabled={addingWorkLog || !newWorkLogMinutes}
-                    >
-                      {addingWorkLog ? 'Logging...' : 'Log Time'}
-                    </button>
-                  </form>
-                </div>
-
-                {/* Work Log History */}
-                <div className="worklog-history">
-                  <h3>Work Log History</h3>
-                  {workLogs.length === 0 ? (
-                    <div className="no-worklogs">No time logged yet.</div>
+          {/* Right Sidebar - Conversations + Metadata */}
+          <div className="card-detail-right">
+            {/* Metadata */}
+            <div className="metadata-section">
+              <div className="sidebar-section">
+                <label>Labels</label>
+                <div className="labels-list">
+                  {boardLabels.length > 0 ? (
+                    boardLabels.map((label) => {
+                      const isAssigned = labels.some((l) => l.id === label.id);
+                      return (
+                        <button
+                          key={label.id}
+                          className={`label-toggle ${isAssigned ? 'assigned' : ''}`}
+                          onClick={() => handleToggleLabel(label)}
+                        >
+                          <span className="label-color" style={{ backgroundColor: label.color }} />
+                          <span className="label-name">{label.name}</span>
+                          {isAssigned && <Check size={12} />}
+                        </button>
+                      );
+                    })
                   ) : (
-                    <div className="worklogs-list">
-                      {workLogs.map((log) => (
-                        <div key={log.id} className="worklog-item">
-                          <div className="worklog-item-main">
-                            <div className="worklog-user">
-                              {log.user?.avatar_url ? (
-                                <img src={log.user.avatar_url} alt={log.user.display_name} className="worklog-avatar" />
-                              ) : (
-                                <div className="worklog-avatar-placeholder">
-                                  <UserIcon size={14} />
-                                </div>
-                              )}
-                              <span className="worklog-user-name">{log.user?.display_name || 'Unknown'}</span>
-                            </div>
-                            <div className="worklog-time">{formatTimeSpent(log.time_spent)}</div>
-                          </div>
-                          <div className="worklog-item-meta">
-                            <span className="worklog-date">
-                              {new Date(log.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                            </span>
-                            {log.notes && <span className="worklog-notes">{log.notes}</span>}
-                          </div>
-                          <button
-                            className="worklog-delete"
-                            onClick={() => handleDeleteWorkLog(log.id)}
-                            title="Delete work log"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="empty-text">No labels</p>
                   )}
                 </div>
-              </>
-            )}
-          </div>
-        ) : null}
-
-        <div className="card-detail-sidebar">
-          <div className="sidebar-section">
-            <label>Labels</label>
-            <div className="labels-list">
-              {boardLabels.length > 0 ? (
-                boardLabels.map((label) => {
-                  const isAssigned = labels.some((l) => l.id === label.id);
-                  return (
-                    <button
-                      key={label.id}
-                      className={`label-toggle ${isAssigned ? 'assigned' : ''}`}
-                      onClick={() => handleToggleLabel(label)}
-                      title={isAssigned ? 'Remove label' : 'Add label'}
-                    >
-                      <span className="label-color" style={{ backgroundColor: label.color }} />
-                      <span className="label-name">{label.name}</span>
-                      {isAssigned && <Check size={14} />}
-                    </button>
-                  );
-                })
-              ) : (
-                <p className="empty-labels">No labels configured for this board</p>
-              )}
-            </div>
-          </div>
-          <div className="sidebar-section">
-            <label>Assignees</label>
-            <div className="assignees-list">
-              {assignees.map((assignee) => (
-                <div key={assignee.id} className="assignee-item">
-                  <div className="assignee-avatar">
-                    {assignee.avatar_url ? (
-                      <img src={assignee.avatar_url} alt={assignee.display_name} />
-                    ) : (
-                      <UserIcon size={16} />
-                    )}
-                  </div>
-                  <span className="assignee-name">{assignee.display_name}</span>
-                  <button
-                    className="remove-assignee"
-                    onClick={() => handleRemoveAssignee(assignee.id)}
-                    title="Remove assignee"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-              {unassignedUsers.length > 0 && (
-                <select
-                  className="add-assignee-select"
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      handleAddAssignee(parseInt(e.target.value));
-                    }
-                  }}
-                >
-                  <option value="">Add assignee...</option>
-                  {unassignedUsers.map((user) => (
-                    <option key={user.id} value={user.id}>{user.display_name}</option>
+              </div>
+              <div className="sidebar-section">
+                <label>Assignees</label>
+                <div className="assignees-list">
+                  {assignees.map((assignee) => (
+                    <div key={assignee.id} className="assignee-item">
+                      <div className="assignee-avatar">
+                        {assignee.avatar_url ? <img src={assignee.avatar_url} alt={assignee.display_name} /> : <UserIcon size={14} />}
+                      </div>
+                      <span className="assignee-name">{assignee.display_name}</span>
+                      <button className="remove-assignee" onClick={() => handleRemoveAssignee(assignee.id)}><X size={12} /></button>
+                    </div>
                   ))}
+                  {unassignedUsers.length > 0 && (
+                    <select className="add-assignee-select" value="" onChange={(e) => { if (e.target.value) handleAddAssignee(parseInt(e.target.value)); }}>
+                      <option value="">Add assignee...</option>
+                      {unassignedUsers.map((user) => <option key={user.id} value={user.id}>{user.display_name}</option>)}
+                    </select>
+                  )}
+                </div>
+              </div>
+              <div className="sidebar-section">
+                <label>Sprint</label>
+                <select value={card.sprint_id || ''} onChange={(e) => handleSprintChange(e.target.value ? parseInt(e.target.value) : null)}>
+                  <option value="">Backlog</option>
+                  {sprints.map((s) => <option key={s.id} value={s.id}>{s.name} {s.status === 'active' ? '(active)' : ''}</option>)}
                 </select>
-              )}
+              </div>
             </div>
-          </div>
-          <div className="sidebar-section">
-            <label>Sprint</label>
-            <select
-              value={card.sprint_id || ''}
-              onChange={(e) => handleSprintChange(e.target.value ? parseInt(e.target.value) : null)}
-            >
-              <option value="">Backlog</option>
-              {sprints.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} {s.status === 'active' ? '(active)' : ''}
-                </option>
-              ))}
-            </select>
+
+            {/* Conversations */}
+            <div className="conversations-section">
+              <h3>Conversations</h3>
+              <div className="comments-container">
+                {loadingComments ? (
+                  <div className="loading-inline">Loading...</div>
+                ) : comments.length === 0 ? (
+                  <p className="empty-text">No comments yet</p>
+                ) : (
+                  <div className="comments-list-compact">
+                    {comments.map((comment) => (
+                      <div key={comment.id} className="comment-item-compact">
+                        <div className="comment-header-compact">
+                          {comment.user?.avatar_url ? (
+                            <img src={comment.user.avatar_url} alt={comment.user.display_name} className="comment-avatar-small" />
+                          ) : (
+                            <div className="comment-avatar-small placeholder"><UserIcon size={12} /></div>
+                          )}
+                          <span className="comment-author">{comment.user?.display_name || 'Unknown'}</span>
+                          <span className="comment-time">{formatDate(comment.created_at)}</span>
+                        </div>
+                        <p className="comment-body-compact">{comment.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <form className="comment-form-compact" onSubmit={handlePostComment}>
+                <textarea
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Write a comment..."
+                  rows={2}
+                />
+                <button type="submit" className="btn btn-primary btn-sm" disabled={postingComment || !newComment.trim()}>
+                  {postingComment ? '...' : 'Post'}
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       </div>

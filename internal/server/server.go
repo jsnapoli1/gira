@@ -545,13 +545,21 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.GiteaURL == "" || req.GiteaAPIKey == "" {
-		http.Error(w, "gitea_url and gitea_api_key are required", http.StatusBadRequest)
+	if req.GiteaURL == "" {
+		http.Error(w, "gitea_url is required", http.StatusBadRequest)
+		return
+	}
+
+	// If API key is empty and config is already set, keep the existing key
+	if req.GiteaAPIKey == "" && !s.Config.IsConfigured() {
+		http.Error(w, "gitea_api_key is required for initial configuration", http.StatusBadRequest)
 		return
 	}
 
 	s.Config.GiteaURL = req.GiteaURL
-	s.Config.GiteaAPIKey = req.GiteaAPIKey
+	if req.GiteaAPIKey != "" {
+		s.Config.GiteaAPIKey = req.GiteaAPIKey
+	}
 	s.updateClient()
 
 	if err := s.Config.SaveToFile(); err != nil {
@@ -2263,10 +2271,17 @@ func (s *Server) handleAttachmentDownload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Set headers for download
+	// Read file and serve with proper headers
+	data, err := os.ReadFile(attachment.StorePath)
+	if err != nil {
+		http.Error(w, "Failed to read attachment", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", attachment.MimeType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", attachment.Filename))
-	http.ServeFile(w, r, attachment.StorePath)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, attachment.Filename))
+	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(data)), 10))
+	w.Write(data)
 }
 
 func getAttachmentsDir() string {

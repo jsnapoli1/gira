@@ -73,6 +73,11 @@ func (c *Config) SaveToFile() error {
 }
 
 func (c *Config) configPath() string {
+	// If DB_PATH is set (Docker deployment), use the same directory for config
+	if dbPath := os.Getenv("DB_PATH"); dbPath != "" {
+		return filepath.Join(filepath.Dir(dbPath), "config.json")
+	}
+	// Default to ~/.config/zira/config.json for local development
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "zira", "config.json")
 }

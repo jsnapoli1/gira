@@ -1304,9 +1304,422 @@ body {
   border-color: var(--text);
 }
 
-/* Card Detail Modal */
+/* Card Detail Modal - Legacy */
 .card-detail-modal {
   max-width: 700px;
+}
+
+/* Card Detail Modal - Unified Layout */
+.card-detail-modal-unified {
+  max-width: 1100px;
+  width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-detail-modal-unified .card-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+  flex-shrink: 0;
+}
+
+.card-detail-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.card-detail-unified-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1.5rem;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.card-detail-main {
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.card-detail-right {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  padding-left: 1.5rem;
+}
+
+/* Time Tracking Compact */
+.time-tracking-compact {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.time-tracking-compact .time-tracking-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.time-tracking-stats {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.time-tracking-stats .time-logged {
+  font-weight: 600;
+}
+
+.time-tracking-stats .time-estimate {
+  color: var(--text-secondary);
+}
+
+.time-progress-mini {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.time-tracking-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.time-input-mini {
+  width: 60px;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+/* Description Section */
+.card-description-section {
+  margin-bottom: 1.25rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.description-text {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+.description-text.empty {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.description-edit textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  resize: vertical;
+  margin-bottom: 0.5rem;
+}
+
+.description-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Custom Fields Compact */
+.custom-fields-compact {
+  margin-bottom: 1.25rem;
+}
+
+.custom-fields-compact h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.custom-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.custom-field-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.custom-field-inline label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.custom-field-inline input,
+.custom-field-inline select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+/* Attachments Section */
+.attachments-section {
+  margin-bottom: 1rem;
+}
+
+.attachments-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.attachment-item-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg);
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.attachment-thumb {
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.attachment-icon-small {
+  font-size: 1rem;
+}
+
+.attachment-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.attachment-name:hover {
+  text-decoration: underline;
+}
+
+.attachment-delete-small {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.15rem;
+  display: flex;
+  align-items: center;
+}
+
+.attachment-delete-small:hover {
+  color: #dc2626;
+}
+
+/* Metadata Section in Sidebar */
+.metadata-section {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.metadata-section .sidebar-section {
+  margin-bottom: 0.75rem;
+}
+
+.metadata-section .sidebar-section:last-child {
+  margin-bottom: 0;
+}
+
+.metadata-section .sidebar-section label {
+  font-size: 0.7rem;
+  margin-bottom: 0.35rem;
+}
+
+.metadata-section .labels-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.metadata-section .label-toggle {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.metadata-section .assignee-item {
+  padding: 0.25rem 0;
+}
+
+.metadata-section .assignee-avatar {
+  width: 20px;
+  height: 20px;
+}
+
+.metadata-section select {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+/* Conversations Section */
+.conversations-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.conversations-section h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.comments-container {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+}
+
+.comments-list-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.comment-item-compact {
+  background: var(--bg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+
+.comment-header-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.comment-avatar-small {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.comment-avatar-small.placeholder {
+  background: var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.comment-header-compact .comment-author {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.comment-header-compact .comment-time {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.comment-body-compact {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.comment-form-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.comment-form-compact textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  resize: none;
+}
+
+.comment-form-compact .btn {
+  align-self: flex-end;
+}
+
+/* Loading and Empty States */
+.loading-inline {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+.empty-text {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0;
+  padding: 0.25rem 0;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .card-detail-unified-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .card-detail-right {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 1rem;
+  }
 }
 
 .card-detail-header {
