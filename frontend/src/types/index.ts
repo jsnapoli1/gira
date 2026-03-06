@@ -3,9 +3,14 @@ export interface User {
   email: string;
   display_name: string;
   avatar_url: string;
+  is_admin: boolean;
   created_at: string;
   updated_at: string;
 }
+
+export type BoardRole = 'admin' | 'member' | 'viewer';
+
+export type RepoSource = 'default_gitea' | 'custom_gitea' | 'github';
 
 export interface Board {
   id: number;
@@ -30,6 +35,8 @@ export interface Swimlane {
   id: number;
   board_id: number;
   name: string;
+  repo_source: RepoSource;
+  repo_url: string;
   repo_owner: string;
   repo_name: string;
   designator: string;

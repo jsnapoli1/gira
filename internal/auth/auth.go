@@ -21,8 +21,9 @@ var (
 )
 
 type Claims struct {
-	UserID int64  `json:"user_id"`
-	Email  string `json:"email"`
+	UserID  int64  `json:"user_id"`
+	Email   string `json:"email"`
+	IsAdmin bool   `json:"is_admin"`
 	jwt.RegisteredClaims
 }
 
@@ -49,8 +50,9 @@ func CheckPassword(password, hash string) bool {
 
 func GenerateToken(user *models.User) (string, error) {
 	claims := Claims{
-		UserID: user.ID,
-		Email:  user.Email,
+		UserID:  user.ID,
+		Email:   user.Email,
+		IsAdmin: user.IsAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

@@ -16,8 +16,18 @@ import (
 	"github.com/jsnapoli/zira/internal/config"
 	"github.com/jsnapoli/zira/internal/database"
 	"github.com/jsnapoli/zira/internal/gitea"
+	"github.com/jsnapoli/zira/internal/github"
 	"github.com/jsnapoli/zira/internal/models"
 )
+
+// RepoClient defines the interface for repository clients (Gitea, GitHub)
+type RepoClient interface {
+	GetRepos() ([]interface{}, error)
+	GetIssues(owner, repo string) ([]interface{}, error)
+	CreateIssue(owner, repo, title, body string) (interface{}, error)
+	UpdateIssue(owner, repo string, number int64, title, body string) error
+	UpdateIssueState(owner, repo string, number int64, state string) error
+}
 
 type Server struct {
 	Config  *config.Config
@@ -48,6 +58,40 @@ func (s *Server) updateClient() {
 	}
 }
 
+// getGiteaClientForSwimlane returns the appropriate Gitea client for a swimlane
+func (s *Server) getGiteaClientForSwimlane(swimlane *models.Swimlane) (*gitea.Client, error) {
+	switch swimlane.RepoSource {
+	case "default_gitea", "":
+		return s.Client, nil
+	case "custom_gitea":
+		token, err := s.DB.GetSwimlaneCredential(swimlane.ID)
+		if err != nil {
+			return nil, err
+		}
+		if token == "" {
+			return nil, fmt.Errorf("no credentials for custom gitea swimlane")
+		}
+		return gitea.NewClient(swimlane.RepoURL, token), nil
+	default:
+		return nil, fmt.Errorf("unsupported repo source for Gitea client: %s", swimlane.RepoSource)
+	}
+}
+
+// getGitHubClientForSwimlane returns a GitHub client for a swimlane
+func (s *Server) getGitHubClientForSwimlane(swimlane *models.Swimlane) (*github.Client, error) {
+	if swimlane.RepoSource != "github" {
+		return nil, fmt.Errorf("swimlane is not a GitHub source")
+	}
+	token, err := s.DB.GetSwimlaneCredential(swimlane.ID)
+	if err != nil {
+		return nil, err
+	}
+	if token == "" {
+		return nil, fmt.Errorf("no credentials for GitHub swimlane")
+	}
+	return github.NewClient(token), nil
+}
+
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
@@ -56,9 +100,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/auth/login", s.handleLogin)
 	mux.HandleFunc("/api/auth/me", s.handleMe)
 
-	// Config routes
+	// Config routes (POST requires admin)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/config/status", s.handleConfigStatus)
+
+	// Admin routes
+	mux.HandleFunc("/api/admin/users", s.requireAdmin(s.handleAdminUsers))
 
 	// Gitea API routes
 	mux.HandleFunc("/api/repos", s.requireAuth(s.handleRepos))
@@ -164,6 +211,54 @@ func (s *Server) requireConfig(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		next(w, r)
+	}
+}
+
+// requireAdmin wraps a handler to require app-level admin privileges
+func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		user := getUserFromContext(r.Context())
+		if user == nil || !user.IsAdmin {
+			http.Error(w, "Admin access required", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
+}
+
+// requireBoardRole wraps a handler to require a minimum board role
+// The board must be loaded into context before calling this middleware
+func (s *Server) requireBoardRole(minRole models.BoardRole, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		role := getBoardRoleFromContext(r.Context())
+		user := getUserFromContext(r.Context())
+
+		// App admins can access any board
+		if user != nil && user.IsAdmin {
+			next(w, r)
+			return
+		}
+
+		// Check role hierarchy
+		switch minRole {
+		case models.BoardRoleViewer:
+			if role.CanView() {
+				next(w, r)
+				return
+			}
+		case models.BoardRoleMember:
+			if role.CanEditCards() {
+				next(w, r)
+				return
+			}
+		case models.BoardRoleAdmin:
+			if role.CanEditBoard() {
+				next(w, r)
+				return
+			}
+		}
+
+		http.Error(w, "Insufficient permissions", http.StatusForbidden)
 	}
 }
 
@@ -322,6 +417,30 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// POST requires admin authentication
+	token := auth.ExtractTokenFromRequest(r)
+	if token == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	claims, err := auth.ValidateToken(token)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := s.DB.GetUserByID(claims.UserID)
+	if err != nil || user == nil {
+		http.Error(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
+	if !user.IsAdmin {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+
 	var req struct {
 		GiteaURL    string `json:"gitea_url"`
 		GiteaAPIKey string `json:"gitea_api_key"`
@@ -350,19 +469,60 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
-	if !s.Config.IsConfigured() {
-		http.Error(w, "Gitea not configured", http.StatusPreconditionRequired)
-		return
+	source := r.URL.Query().Get("source")
+	token := r.URL.Query().Get("token")
+	customURL := r.URL.Query().Get("url")
+
+	// Default to default_gitea
+	if source == "" {
+		source = "default_gitea"
 	}
 
-	repos, err := s.Client.GetRepos()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	switch source {
+	case "default_gitea":
+		if !s.Config.IsConfigured() {
+			http.Error(w, "Gitea not configured", http.StatusPreconditionRequired)
+			return
+		}
+		repos, err := s.Client.GetRepos()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(repos)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repos)
+	case "custom_gitea":
+		if token == "" || customURL == "" {
+			http.Error(w, "token and url required for custom_gitea", http.StatusBadRequest)
+			return
+		}
+		client := gitea.NewClient(customURL, token)
+		repos, err := client.GetRepos()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(repos)
+
+	case "github":
+		if token == "" {
+			http.Error(w, "token required for github", http.StatusBadRequest)
+			return
+		}
+		client := github.NewClient(token)
+		repos, err := client.GetRepos()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(repos)
+
+	default:
+		http.Error(w, "invalid source parameter", http.StatusBadRequest)
+	}
 }
 
 func (s *Server) handleIssues(w http.ResponseWriter, r *http.Request) {
@@ -508,16 +668,29 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check membership
-	isMember, _, err := s.DB.IsBoardMember(boardID, user.ID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Check membership and determine role
+	var boardRole models.BoardRole
+	if user.IsAdmin {
+		// App admins get full admin access to any board
+		boardRole = models.BoardRoleAdmin
+	} else if board.OwnerID == user.ID {
+		// Board owner is always admin
+		boardRole = models.BoardRoleAdmin
+	} else {
+		isMember, role, err := s.DB.IsBoardMember(boardID, user.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !isMember {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
+		boardRole = models.BoardRole(role)
 	}
-	if !isMember && board.OwnerID != user.ID {
-		http.Error(w, "Access denied", http.StatusForbidden)
-		return
-	}
+
+	// Store board role in context for sub-handlers
+	r = r.WithContext(setBoardRoleContext(r.Context(), boardRole))
 
 	// Handle sub-routes
 	if len(parts) > 1 {
@@ -545,10 +718,20 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
+		// Viewer+ can view board
+		if !boardRole.CanView() {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(board)
 
 	case "PUT":
+		// Admin only can edit board settings
+		if !boardRole.CanEditBoard() {
+			http.Error(w, "Admin access required", http.StatusForbidden)
+			return
+		}
 		var req struct {
 			Name        string `json:"name"`
 			Description string `json:"description"`
@@ -567,6 +750,11 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(board)
 
 	case "DELETE":
+		// Admin only can delete board
+		if !boardRole.CanEditBoard() {
+			http.Error(w, "Admin access required", http.StatusForbidden)
+			return
+		}
 		if err := s.DB.DeleteBoard(boardID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -579,6 +767,8 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBoardSwimlanes(w http.ResponseWriter, r *http.Request, board *models.Board, subParts []string) {
+	boardRole := getBoardRoleFromContext(r.Context())
+
 	// Handle /boards/:id/swimlanes/:swimlaneId
 	if len(subParts) > 0 {
 		swimlaneID, err := strconv.ParseInt(subParts[0], 10, 64)
@@ -589,6 +779,11 @@ func (s *Server) handleBoardSwimlanes(w http.ResponseWriter, r *http.Request, bo
 
 		switch r.Method {
 		case "DELETE":
+			// Admin only can delete swimlanes
+			if !boardRole.CanEditBoard() {
+				http.Error(w, "Admin access required", http.StatusForbidden)
+				return
+			}
 			if err := s.DB.DeleteSwimlane(swimlaneID); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -602,6 +797,11 @@ func (s *Server) handleBoardSwimlanes(w http.ResponseWriter, r *http.Request, bo
 
 	switch r.Method {
 	case "GET":
+		// Viewer+ can view swimlanes
+		if !boardRole.CanView() {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
 		swimlanes, err := s.DB.GetBoardSwimlanes(board.ID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -611,12 +811,20 @@ func (s *Server) handleBoardSwimlanes(w http.ResponseWriter, r *http.Request, bo
 		json.NewEncoder(w).Encode(swimlanes)
 
 	case "POST":
+		// Admin only can create swimlanes
+		if !boardRole.CanEditBoard() {
+			http.Error(w, "Admin access required", http.StatusForbidden)
+			return
+		}
 		var req struct {
 			Name       string `json:"name"`
+			RepoSource string `json:"repo_source"`
+			RepoURL    string `json:"repo_url"`
 			RepoOwner  string `json:"repo_owner"`
 			RepoName   string `json:"repo_name"`
 			Designator string `json:"designator"`
 			Color      string `json:"color"`
+			APIToken   string `json:"api_token"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -625,10 +833,20 @@ func (s *Server) handleBoardSwimlanes(w http.ResponseWriter, r *http.Request, bo
 		if req.Color == "" {
 			req.Color = "#6366f1"
 		}
-		swimlane, err := s.DB.CreateSwimlane(board.ID, req.Name, req.RepoOwner, req.RepoName, req.Designator, req.Color)
+		if req.RepoSource == "" {
+			req.RepoSource = "default_gitea"
+		}
+		swimlane, err := s.DB.CreateSwimlaneWithSource(board.ID, req.Name, req.RepoSource, req.RepoURL, req.RepoOwner, req.RepoName, req.Designator, req.Color)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		// Store credentials if provided for non-default sources
+		if req.APIToken != "" && req.RepoSource != "default_gitea" {
+			if err := s.DB.SetSwimlaneCredential(swimlane.ID, req.APIToken); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -640,6 +858,8 @@ func (s *Server) handleBoardSwimlanes(w http.ResponseWriter, r *http.Request, bo
 }
 
 func (s *Server) handleBoardColumns(w http.ResponseWriter, r *http.Request, board *models.Board, subParts []string) {
+	boardRole := getBoardRoleFromContext(r.Context())
+
 	// Handle /boards/:id/columns/:columnId and /boards/:id/columns/:columnId/reorder
 	if len(subParts) > 0 {
 		columnID, err := strconv.ParseInt(subParts[0], 10, 64)
@@ -651,6 +871,11 @@ func (s *Server) handleBoardColumns(w http.ResponseWriter, r *http.Request, boar
 		// Handle reorder
 		if len(subParts) > 1 && subParts[1] == "reorder" {
 			if r.Method == "POST" {
+				// Admin only can reorder columns
+				if !boardRole.CanEditBoard() {
+					http.Error(w, "Admin access required", http.StatusForbidden)
+					return
+				}
 				var req struct {
 					Position int `json:"position"`
 				}
@@ -669,6 +894,11 @@ func (s *Server) handleBoardColumns(w http.ResponseWriter, r *http.Request, boar
 
 		switch r.Method {
 		case "DELETE":
+			// Admin only can delete columns
+			if !boardRole.CanEditBoard() {
+				http.Error(w, "Admin access required", http.StatusForbidden)
+				return
+			}
 			if err := s.DB.DeleteColumn(columnID); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -682,6 +912,11 @@ func (s *Server) handleBoardColumns(w http.ResponseWriter, r *http.Request, boar
 
 	switch r.Method {
 	case "GET":
+		// Viewer+ can view columns
+		if !boardRole.CanView() {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
 		columns, err := s.DB.GetBoardColumns(board.ID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -691,6 +926,11 @@ func (s *Server) handleBoardColumns(w http.ResponseWriter, r *http.Request, boar
 		json.NewEncoder(w).Encode(columns)
 
 	case "POST":
+		// Admin only can create columns
+		if !boardRole.CanEditBoard() {
+			http.Error(w, "Admin access required", http.StatusForbidden)
+			return
+		}
 		var req struct {
 			Name  string `json:"name"`
 			State string `json:"state"`
@@ -714,6 +954,8 @@ func (s *Server) handleBoardColumns(w http.ResponseWriter, r *http.Request, boar
 }
 
 func (s *Server) handleBoardMembers(w http.ResponseWriter, r *http.Request, board *models.Board, subParts []string) {
+	boardRole := getBoardRoleFromContext(r.Context())
+
 	// Handle DELETE /boards/:id/members/:userId
 	if len(subParts) > 0 {
 		userID, err := strconv.ParseInt(subParts[0], 10, 64)
@@ -723,6 +965,11 @@ func (s *Server) handleBoardMembers(w http.ResponseWriter, r *http.Request, boar
 		}
 
 		if r.Method == "DELETE" {
+			// Admin only can remove members
+			if !boardRole.CanEditBoard() {
+				http.Error(w, "Admin access required", http.StatusForbidden)
+				return
+			}
 			if err := s.DB.RemoveBoardMember(board.ID, userID); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -734,6 +981,11 @@ func (s *Server) handleBoardMembers(w http.ResponseWriter, r *http.Request, boar
 
 	switch r.Method {
 	case "GET":
+		// Viewer+ can view members
+		if !boardRole.CanView() {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
 		members, err := s.DB.GetBoardMembers(board.ID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -743,6 +995,11 @@ func (s *Server) handleBoardMembers(w http.ResponseWriter, r *http.Request, boar
 		json.NewEncoder(w).Encode(members)
 
 	case "POST":
+		// Admin only can add members
+		if !boardRole.CanEditBoard() {
+			http.Error(w, "Admin access required", http.StatusForbidden)
+			return
+		}
 		var req struct {
 			UserID int64  `json:"user_id"`
 			Role   string `json:"role"`
@@ -2111,4 +2368,74 @@ func (s *Server) handleNotification(w http.ResponseWriter, r *http.Request) {
 // Helper function to create notifications
 func (s *Server) createNotification(userID int64, notificationType, title, message, link string) {
 	s.DB.CreateNotification(userID, notificationType, title, message, link)
+}
+
+// Admin handlers
+
+func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		// List all users with admin status
+		users, err := s.DB.ListUsers()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(users)
+
+	case "PUT":
+		// Set/unset admin status for a user
+		var req struct {
+			UserID  int64 `json:"user_id"`
+			IsAdmin bool  `json:"is_admin"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Prevent removing the last admin
+		if !req.IsAdmin {
+			adminCount, err := s.DB.CountAdmins()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Check if the user being demoted is currently an admin
+			user, err := s.DB.GetUserByID(req.UserID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if user == nil {
+				http.Error(w, "User not found", http.StatusNotFound)
+				return
+			}
+
+			if user.IsAdmin && adminCount <= 1 {
+				http.Error(w, "Cannot remove the last admin", http.StatusBadRequest)
+				return
+			}
+		}
+
+		if err := s.DB.SetUserAdmin(req.UserID, req.IsAdmin); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Return updated user
+		user, err := s.DB.GetUserByID(req.UserID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(user)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

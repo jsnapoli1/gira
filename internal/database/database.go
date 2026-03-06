@@ -267,5 +267,32 @@ func (d *DB) migrate() error {
 	d.Exec(`ALTER TABLE cards ADD COLUMN due_date DATETIME`)
 	d.Exec(`ALTER TABLE cards ADD COLUMN time_estimate INTEGER`)
 
+	// Add is_admin column to users (ignore error if already exists)
+	d.Exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`)
+
+	// Add multi-repo support columns to swimlanes (ignore errors if already exist)
+	d.Exec(`ALTER TABLE swimlanes ADD COLUMN repo_source TEXT DEFAULT 'default_gitea'`)
+	d.Exec(`ALTER TABLE swimlanes ADD COLUMN repo_url TEXT DEFAULT ''`)
+
+	// Create swimlane_credentials table for storing API tokens
+	d.Exec(`CREATE TABLE IF NOT EXISTS swimlane_credentials (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		swimlane_id INTEGER UNIQUE NOT NULL,
+		api_token TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (swimlane_id) REFERENCES swimlanes(id) ON DELETE CASCADE
+	)`)
+
+	// Bootstrap: If no admins exist and users exist, promote first user to admin
+	var adminCount int
+	d.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin = 1`).Scan(&adminCount)
+	if adminCount == 0 {
+		var userCount int
+		d.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&userCount)
+		if userCount > 0 {
+			d.Exec(`UPDATE users SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM users)`)
+		}
+	}
+
 	return nil
 }

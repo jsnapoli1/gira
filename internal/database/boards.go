@@ -121,7 +121,7 @@ func (d *DB) GetBoardColumns(boardID int64) ([]models.Column, error) {
 
 func (d *DB) GetBoardSwimlanes(boardID int64) ([]models.Swimlane, error) {
 	rows, err := d.Query(
-		`SELECT id, board_id, name, repo_owner, repo_name, designator, position, color
+		`SELECT id, board_id, name, COALESCE(repo_source, 'default_gitea'), COALESCE(repo_url, ''), repo_owner, repo_name, designator, position, color
 		 FROM swimlanes WHERE board_id = ? ORDER BY position`,
 		boardID,
 	)
@@ -133,7 +133,7 @@ func (d *DB) GetBoardSwimlanes(boardID int64) ([]models.Swimlane, error) {
 	swimlanes := []models.Swimlane{}
 	for rows.Next() {
 		var sl models.Swimlane
-		if err := rows.Scan(&sl.ID, &sl.BoardID, &sl.Name, &sl.RepoOwner, &sl.RepoName, &sl.Designator, &sl.Position, &sl.Color); err != nil {
+		if err := rows.Scan(&sl.ID, &sl.BoardID, &sl.Name, &sl.RepoSource, &sl.RepoURL, &sl.RepoOwner, &sl.RepoName, &sl.Designator, &sl.Position, &sl.Color); err != nil {
 			return nil, fmt.Errorf("failed to scan swimlane: %w", err)
 		}
 		swimlanes = append(swimlanes, sl)
@@ -188,6 +188,10 @@ func (d *DB) DeleteBoard(id int64) error {
 }
 
 func (d *DB) CreateSwimlane(boardID int64, name, repoOwner, repoName, designator, color string) (*models.Swimlane, error) {
+	return d.CreateSwimlaneWithSource(boardID, name, "default_gitea", "", repoOwner, repoName, designator, color)
+}
+
+func (d *DB) CreateSwimlaneWithSource(boardID int64, name, repoSource, repoURL, repoOwner, repoName, designator, color string) (*models.Swimlane, error) {
 	// Get next position
 	var maxPos sql.NullInt64
 	d.QueryRow(`SELECT MAX(position) FROM swimlanes WHERE board_id = ?`, boardID).Scan(&maxPos)
@@ -197,9 +201,9 @@ func (d *DB) CreateSwimlane(boardID int64, name, repoOwner, repoName, designator
 	}
 
 	result, err := d.Exec(
-		`INSERT INTO swimlanes (board_id, name, repo_owner, repo_name, designator, position, color)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		boardID, name, repoOwner, repoName, designator, position, color,
+		`INSERT INTO swimlanes (board_id, name, repo_source, repo_url, repo_owner, repo_name, designator, position, color)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		boardID, name, repoSource, repoURL, repoOwner, repoName, designator, position, color,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create swimlane: %w", err)
@@ -210,6 +214,8 @@ func (d *DB) CreateSwimlane(boardID int64, name, repoOwner, repoName, designator
 		ID:         id,
 		BoardID:    boardID,
 		Name:       name,
+		RepoSource: repoSource,
+		RepoURL:    repoURL,
 		RepoOwner:  repoOwner,
 		RepoName:   repoName,
 		Designator: designator,
@@ -359,4 +365,51 @@ func (d *DB) IsBoardMember(boardID, userID int64) (bool, string, error) {
 		return false, "", err
 	}
 	return true, role, nil
+}
+
+// SetSwimlaneCredential stores an API token for a swimlane
+func (d *DB) SetSwimlaneCredential(swimlaneID int64, apiToken string) error {
+	_, err := d.Exec(
+		`INSERT OR REPLACE INTO swimlane_credentials (swimlane_id, api_token) VALUES (?, ?)`,
+		swimlaneID, apiToken,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set swimlane credential: %w", err)
+	}
+	return nil
+}
+
+// GetSwimlaneCredential retrieves the API token for a swimlane
+func (d *DB) GetSwimlaneCredential(swimlaneID int64) (string, error) {
+	var token string
+	err := d.QueryRow(
+		`SELECT api_token FROM swimlane_credentials WHERE swimlane_id = ?`,
+		swimlaneID,
+	).Scan(&token)
+
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get swimlane credential: %w", err)
+	}
+	return token, nil
+}
+
+// GetSwimlaneByID retrieves a swimlane by ID
+func (d *DB) GetSwimlaneByID(id int64) (*models.Swimlane, error) {
+	var sl models.Swimlane
+	err := d.QueryRow(
+		`SELECT id, board_id, name, COALESCE(repo_source, 'default_gitea'), COALESCE(repo_url, ''), repo_owner, repo_name, designator, position, color
+		 FROM swimlanes WHERE id = ?`,
+		id,
+	).Scan(&sl.ID, &sl.BoardID, &sl.Name, &sl.RepoSource, &sl.RepoURL, &sl.RepoOwner, &sl.RepoName, &sl.Designator, &sl.Position, &sl.Color)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get swimlane: %w", err)
+	}
+	return &sl, nil
 }

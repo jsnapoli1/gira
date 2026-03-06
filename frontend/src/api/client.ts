@@ -84,7 +84,16 @@ export const boards = {
 
   // Swimlanes
   getSwimlanes: (boardId: number) => request<any[]>(`/boards/${boardId}/swimlanes`),
-  addSwimlane: (boardId: number, data: { name: string; repo_owner: string; repo_name: string; designator: string; color?: string }) =>
+  addSwimlane: (boardId: number, data: {
+    name: string;
+    repo_source?: 'default_gitea' | 'custom_gitea' | 'github';
+    repo_url?: string;
+    repo_owner: string;
+    repo_name: string;
+    designator: string;
+    color?: string;
+    api_token?: string;
+  }) =>
     request<any>(`/boards/${boardId}/swimlanes`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -283,11 +292,21 @@ export const metrics = {
   velocity: (boardId: number) => request<any[]>(`/metrics/velocity?board_id=${boardId}`),
 };
 
-// Gitea
-export const gitea = {
-  getRepos: () => request<any[]>('/repos'),
+// Repos (supports multiple sources)
+export const repos = {
+  getRepos: (source?: 'default_gitea' | 'custom_gitea' | 'github', token?: string, url?: string) => {
+    const params = new URLSearchParams();
+    if (source) params.set('source', source);
+    if (token) params.set('token', token);
+    if (url) params.set('url', url);
+    const query = params.toString();
+    return request<any[]>(`/repos${query ? `?${query}` : ''}`);
+  },
   getIssues: (owner: string, repo: string) => request<any[]>(`/issues?owner=${owner}&repo=${repo}`),
 };
+
+// Backwards compatibility alias
+export const gitea = repos;
 
 // Users
 export const users = {
@@ -300,4 +319,14 @@ export const notifications = {
   markRead: (id: number) => request<any>(`/notifications/${id}`, { method: 'PUT' }),
   markAllRead: () => request<void>('/notifications?action=mark-all-read', { method: 'POST' }),
   delete: (id: number) => request<void>(`/notifications/${id}`, { method: 'DELETE' }),
+};
+
+// Admin
+export const admin = {
+  listUsers: () => request<any[]>('/admin/users'),
+  setUserAdmin: (userId: number, isAdmin: boolean) =>
+    request<any>('/admin/users', {
+      method: 'PUT',
+      body: JSON.stringify({ user_id: userId, is_admin: isAdmin }),
+    }),
 };

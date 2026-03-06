@@ -8,8 +8,33 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	DisplayName  string    `json:"display_name"`
 	AvatarURL    string    `json:"avatar_url"`
+	IsAdmin      bool      `json:"is_admin"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// BoardRole represents a user's role on a board
+type BoardRole string
+
+const (
+	BoardRoleAdmin  BoardRole = "admin"
+	BoardRoleMember BoardRole = "member"
+	BoardRoleViewer BoardRole = "viewer"
+)
+
+// CanEditBoard returns true if the role can edit board settings (admin only)
+func (r BoardRole) CanEditBoard() bool {
+	return r == BoardRoleAdmin
+}
+
+// CanEditCards returns true if the role can create/edit cards (admin + member)
+func (r BoardRole) CanEditCards() bool {
+	return r == BoardRoleAdmin || r == BoardRoleMember
+}
+
+// CanView returns true if the role can view the board (all roles)
+func (r BoardRole) CanView() bool {
+	return r == BoardRoleAdmin || r == BoardRoleMember || r == BoardRoleViewer
 }
 
 type Board struct {
@@ -35,6 +60,8 @@ type Swimlane struct {
 	ID         int64  `json:"id"`
 	BoardID    int64  `json:"board_id"`
 	Name       string `json:"name"`
+	RepoSource string `json:"repo_source"` // "default_gitea", "custom_gitea", "github"
+	RepoURL    string `json:"repo_url"`    // Base URL (empty for default_gitea)
 	RepoOwner  string `json:"repo_owner"`
 	RepoName   string `json:"repo_name"`
 	Designator string `json:"designator"` // Prefix for cards in this lane (e.g., "PROJ-")
