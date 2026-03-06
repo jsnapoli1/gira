@@ -283,6 +283,21 @@ func (d *DB) migrate() error {
 		FOREIGN KEY (swimlane_id) REFERENCES swimlanes(id) ON DELETE CASCADE
 	)`)
 
+	// Create user_credentials table for user-level API credentials
+	d.Exec(`CREATE TABLE IF NOT EXISTS user_credentials (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL,
+		provider TEXT NOT NULL,
+		provider_url TEXT DEFAULT '',
+		api_token TEXT NOT NULL,
+		display_name TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		UNIQUE(user_id, provider, provider_url)
+	)`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_user_credentials_user ON user_credentials(user_id)`)
+
 	// Bootstrap: If no admins exist and users exist, promote first user to admin
 	var adminCount int
 	d.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin = 1`).Scan(&adminCount)

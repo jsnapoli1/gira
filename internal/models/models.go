@@ -195,3 +195,15 @@ type Notification struct {
 	Read      bool      `json:"read"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// UserCredential stores user-level API credentials for Gitea/GitHub
+type UserCredential struct {
+	ID          int64     `json:"id"`
+	UserID      int64     `json:"user_id"`
+	Provider    string    `json:"provider"`     // "gitea" or "github"
+	ProviderURL string    `json:"provider_url"` // Base URL (empty for GitHub)
+	APIToken    string    `json:"-"`            // Never expose in JSON
+	DisplayName string    `json:"display_name"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}

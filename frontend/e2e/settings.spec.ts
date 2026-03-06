@@ -27,13 +27,21 @@ test.describe('Settings', () => {
     await expect(page.locator('.profile-info h3')).toContainText('Settings Test User');
   });
 
-  test('should display Gitea configuration section', async ({ page }) => {
+  test('should display Global Gitea configuration section for admin', async ({ page }) => {
+    // First user is auto-promoted to admin
     await page.goto('/settings');
 
-    // Should show Gitea section
-    await expect(page.locator('.settings-section h2:has-text("Gitea Connection")')).toBeVisible();
+    // Should show Global Gitea section (admin only)
+    await expect(page.locator('.settings-section h2:has-text("Global Gitea Connection")')).toBeVisible();
     await expect(page.locator('#giteaUrl')).toBeVisible();
     await expect(page.locator('#giteaApiKey')).toBeVisible();
+  });
+
+  test('should display user credentials section', async ({ page }) => {
+    await page.goto('/settings');
+
+    // Should show user credentials section
+    await expect(page.locator('.settings-section h2:has-text("Your API Credentials")')).toBeVisible();
   });
 
   test.skip('should save Gitea configuration', async ({ page }) => {

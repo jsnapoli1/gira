@@ -59,37 +59,89 @@ func (s *Server) updateClient() {
 }
 
 // getGiteaClientForSwimlane returns the appropriate Gitea client for a swimlane
-func (s *Server) getGiteaClientForSwimlane(swimlane *models.Swimlane) (*gitea.Client, error) {
+// Priority: swimlane credentials > user credentials > global config
+func (s *Server) getGiteaClientForSwimlane(swimlane *models.Swimlane, userID int64) (*gitea.Client, error) {
 	switch swimlane.RepoSource {
 	case "default_gitea", "":
-		return s.Client, nil
-	case "custom_gitea":
+		// 1. Check swimlane-specific credentials
 		token, err := s.DB.GetSwimlaneCredential(swimlane.ID)
 		if err != nil {
 			return nil, err
 		}
-		if token == "" {
-			return nil, fmt.Errorf("no credentials for custom gitea swimlane")
+		if token != "" {
+			return gitea.NewClient(s.Config.GiteaURL, token, s.Config.GiteaInsecureTLS), nil
 		}
-		return gitea.NewClient(swimlane.RepoURL, token, s.Config.GiteaInsecureTLS), nil
+
+		// 2. Check user credentials for the default Gitea
+		if userID > 0 {
+			userCred, err := s.DB.GetUserCredential(userID, "gitea", s.Config.GiteaURL)
+			if err != nil {
+				return nil, err
+			}
+			if userCred != nil && userCred.APIToken != "" {
+				return gitea.NewClient(s.Config.GiteaURL, userCred.APIToken, s.Config.GiteaInsecureTLS), nil
+			}
+		}
+
+		// 3. Fall back to global config
+		return s.Client, nil
+
+	case "custom_gitea":
+		// 1. Check swimlane-specific credentials
+		token, err := s.DB.GetSwimlaneCredential(swimlane.ID)
+		if err != nil {
+			return nil, err
+		}
+		if token != "" {
+			return gitea.NewClient(swimlane.RepoURL, token, s.Config.GiteaInsecureTLS), nil
+		}
+
+		// 2. Check user credentials for this custom Gitea URL
+		if userID > 0 {
+			userCred, err := s.DB.GetUserCredential(userID, "gitea", swimlane.RepoURL)
+			if err != nil {
+				return nil, err
+			}
+			if userCred != nil && userCred.APIToken != "" {
+				return gitea.NewClient(swimlane.RepoURL, userCred.APIToken, s.Config.GiteaInsecureTLS), nil
+			}
+		}
+
+		return nil, fmt.Errorf("no credentials for custom gitea swimlane")
+
 	default:
 		return nil, fmt.Errorf("unsupported repo source for Gitea client: %s", swimlane.RepoSource)
 	}
 }
 
 // getGitHubClientForSwimlane returns a GitHub client for a swimlane
-func (s *Server) getGitHubClientForSwimlane(swimlane *models.Swimlane) (*github.Client, error) {
+// Priority: swimlane credentials > user credentials
+func (s *Server) getGitHubClientForSwimlane(swimlane *models.Swimlane, userID int64) (*github.Client, error) {
 	if swimlane.RepoSource != "github" {
 		return nil, fmt.Errorf("swimlane is not a GitHub source")
 	}
+
+	// 1. Check swimlane-specific credentials
 	token, err := s.DB.GetSwimlaneCredential(swimlane.ID)
 	if err != nil {
 		return nil, err
 	}
-	if token == "" {
-		return nil, fmt.Errorf("no credentials for GitHub swimlane")
+	if token != "" {
+		return github.NewClient(token), nil
 	}
-	return github.NewClient(token), nil
+
+	// 2. Check user credentials for GitHub
+	if userID > 0 {
+		userCred, err := s.DB.GetUserCredential(userID, "github", "")
+		if err != nil {
+			return nil, err
+		}
+		if userCred != nil && userCred.APIToken != "" {
+			return github.NewClient(userCred.APIToken), nil
+		}
+	}
+
+	return nil, fmt.Errorf("no credentials for GitHub swimlane")
 }
 
 func (s *Server) Start() error {
@@ -132,6 +184,11 @@ func (s *Server) Start() error {
 
 	// User routes
 	mux.HandleFunc("/api/users", s.requireAuth(s.handleUsers))
+
+	// User credentials routes
+	mux.HandleFunc("/api/user/credentials", s.requireAuth(s.handleUserCredentials))
+	mux.HandleFunc("/api/user/credentials/", s.requireAuth(s.handleUserCredential))
+	mux.HandleFunc("/api/user/credentials/test", s.requireAuth(s.handleTestCredential))
 
 	// Attachment download route (separate from card routes for direct file access)
 	mux.HandleFunc("/api/attachments/", s.requireAuth(s.handleAttachmentDownload))
@@ -1335,17 +1392,45 @@ func (s *Server) handleCards(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Create issue in Gitea if configured
+		// Create issue in the appropriate provider
 		var giteaIssueID int64 = 0
-		if s.Config.IsConfigured() {
-			giteaIssue, err := s.Client.CreateIssue(swimlane.RepoOwner, swimlane.RepoName, req.Title, req.Description)
+		user := getUserFromContext(r.Context())
+
+		switch swimlane.RepoSource {
+		case "github":
+			client, err := s.getGitHubClientForSwimlane(swimlane, user.ID)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("Failed to create Gitea issue: %v", err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("Failed to get GitHub client: %v", err), http.StatusInternalServerError)
 				return
 			}
-			giteaIssueID = giteaIssue.Number
-		} else {
-			// Generate a local issue ID based on existing cards count
+			issue, err := client.CreateIssue(swimlane.RepoOwner, swimlane.RepoName, req.Title, req.Description)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to create GitHub issue: %v", err), http.StatusInternalServerError)
+				return
+			}
+			giteaIssueID = issue.Number
+
+		case "default_gitea", "custom_gitea", "":
+			client, err := s.getGiteaClientForSwimlane(swimlane, user.ID)
+			if err != nil {
+				// If no client available, generate local ID
+				cards, _ := s.DB.ListCardsForBoard(req.BoardID)
+				giteaIssueID = int64(len(cards) + 1)
+			} else if client != nil {
+				giteaIssue, err := client.CreateIssue(swimlane.RepoOwner, swimlane.RepoName, req.Title, req.Description)
+				if err != nil {
+					http.Error(w, fmt.Sprintf("Failed to create Gitea issue: %v", err), http.StatusInternalServerError)
+					return
+				}
+				giteaIssueID = giteaIssue.Number
+			} else {
+				// Generate a local issue ID based on existing cards count
+				cards, _ := s.DB.ListCardsForBoard(req.BoardID)
+				giteaIssueID = int64(len(cards) + 1)
+			}
+
+		default:
+			// Generate a local issue ID
 			cards, _ := s.DB.ListCardsForBoard(req.BoardID)
 			giteaIssueID = int64(len(cards) + 1)
 		}
@@ -1439,14 +1524,22 @@ func (s *Server) handleCard(w http.ResponseWriter, r *http.Request) {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				// Also update Gitea issue state
-				if s.Config.IsConfigured() {
-					swimlanes, _ := s.DB.GetBoardSwimlanes(card.BoardID)
-					for _, sl := range swimlanes {
-						if sl.ID == card.SwimlaneID {
-							s.Client.UpdateIssueState(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, req.State)
-							break
+				// Also update issue state in the appropriate provider
+				user := getUserFromContext(r.Context())
+				swimlanes, _ := s.DB.GetBoardSwimlanes(card.BoardID)
+				for _, sl := range swimlanes {
+					if sl.ID == card.SwimlaneID {
+						switch sl.RepoSource {
+						case "github":
+							if client, err := s.getGitHubClientForSwimlane(&sl, user.ID); err == nil {
+								client.UpdateIssueState(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, req.State)
+							}
+						default:
+							if client, err := s.getGiteaClientForSwimlane(&sl, user.ID); err == nil && client != nil {
+								client.UpdateIssueState(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, req.State)
+							}
 						}
+						break
 					}
 				}
 				w.WriteHeader(http.StatusOK)
@@ -1543,14 +1636,22 @@ func (s *Server) handleCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Update Gitea issue
-		if s.Config.IsConfigured() {
-			swimlanes, _ := s.DB.GetBoardSwimlanes(card.BoardID)
-			for _, sl := range swimlanes {
-				if sl.ID == card.SwimlaneID {
-					s.Client.UpdateIssue(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, req.Title, req.Description)
-					break
+		// Update issue in the appropriate provider
+		user := getUserFromContext(r.Context())
+		swimlanes, _ := s.DB.GetBoardSwimlanes(card.BoardID)
+		for _, sl := range swimlanes {
+			if sl.ID == card.SwimlaneID {
+				switch sl.RepoSource {
+				case "github":
+					if client, err := s.getGitHubClientForSwimlane(&sl, user.ID); err == nil {
+						client.UpdateIssue(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, req.Title, req.Description)
+					}
+				default:
+					if client, err := s.getGiteaClientForSwimlane(&sl, user.ID); err == nil && client != nil {
+						client.UpdateIssue(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, req.Title, req.Description)
+					}
 				}
+				break
 			}
 		}
 
@@ -2438,4 +2539,229 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// User credential handlers
+
+// UserCredentialResponse is the response format for credentials (without token)
+type UserCredentialResponse struct {
+	ID          int64  `json:"id"`
+	Provider    string `json:"provider"`
+	ProviderURL string `json:"provider_url"`
+	DisplayName string `json:"display_name"`
+	HasToken    bool   `json:"has_token"`
+	CreatedAt   string `json:"created_at"`
+}
+
+func (s *Server) handleUserCredentials(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+
+	switch r.Method {
+	case "GET":
+		// List all credentials for the user (tokens masked)
+		creds, err := s.DB.GetUserCredentials(user.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Convert to response format (without tokens)
+		resp := make([]UserCredentialResponse, len(creds))
+		for i, c := range creds {
+			resp[i] = UserCredentialResponse{
+				ID:          c.ID,
+				Provider:    c.Provider,
+				ProviderURL: c.ProviderURL,
+				DisplayName: c.DisplayName,
+				HasToken:    c.APIToken != "",
+				CreatedAt:   c.CreatedAt.Format(time.RFC3339),
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+
+	case "POST":
+		// Create a new credential
+		var req struct {
+			Provider    string `json:"provider"`
+			ProviderURL string `json:"provider_url"`
+			APIToken    string `json:"api_token"`
+			DisplayName string `json:"display_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Provider == "" || req.APIToken == "" {
+			http.Error(w, "provider and api_token are required", http.StatusBadRequest)
+			return
+		}
+
+		if req.Provider != "gitea" && req.Provider != "github" {
+			http.Error(w, "provider must be 'gitea' or 'github'", http.StatusBadRequest)
+			return
+		}
+
+		// GitHub doesn't need a URL
+		if req.Provider == "github" {
+			req.ProviderURL = ""
+		}
+
+		cred, err := s.DB.CreateOrUpdateUserCredential(user.ID, req.Provider, req.ProviderURL, req.APIToken, req.DisplayName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := UserCredentialResponse{
+			ID:          cred.ID,
+			Provider:    cred.Provider,
+			ProviderURL: cred.ProviderURL,
+			DisplayName: cred.DisplayName,
+			HasToken:    true,
+			CreatedAt:   cred.CreatedAt.Format(time.RFC3339),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(resp)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleUserCredential(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+
+	// Parse credential ID from path
+	path := strings.TrimPrefix(r.URL.Path, "/api/user/credentials/")
+	parts := strings.Split(path, "/")
+	if parts[0] == "" {
+		http.Error(w, "Credential ID required", http.StatusBadRequest)
+		return
+	}
+
+	credID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid credential ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get credential and verify ownership
+	cred, err := s.DB.GetUserCredentialByID(credID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if cred == nil || cred.UserID != user.ID {
+		http.Error(w, "Credential not found", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case "GET":
+		resp := UserCredentialResponse{
+			ID:          cred.ID,
+			Provider:    cred.Provider,
+			ProviderURL: cred.ProviderURL,
+			DisplayName: cred.DisplayName,
+			HasToken:    cred.APIToken != "",
+			CreatedAt:   cred.CreatedAt.Format(time.RFC3339),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+
+	case "PUT":
+		var req struct {
+			APIToken    string `json:"api_token"`
+			DisplayName string `json:"display_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		updated, err := s.DB.UpdateUserCredential(credID, user.ID, req.APIToken, req.DisplayName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := UserCredentialResponse{
+			ID:          updated.ID,
+			Provider:    updated.Provider,
+			ProviderURL: updated.ProviderURL,
+			DisplayName: updated.DisplayName,
+			HasToken:    updated.APIToken != "",
+			CreatedAt:   updated.CreatedAt.Format(time.RFC3339),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+
+	case "DELETE":
+		if err := s.DB.DeleteUserCredential(credID, user.ID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleTestCredential(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Provider    string `json:"provider"`
+		ProviderURL string `json:"provider_url"`
+		APIToken    string `json:"api_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Provider == "" || req.APIToken == "" {
+		http.Error(w, "provider and api_token are required", http.StatusBadRequest)
+		return
+	}
+
+	var testErr error
+	switch req.Provider {
+	case "gitea":
+		if req.ProviderURL == "" {
+			http.Error(w, "provider_url is required for Gitea", http.StatusBadRequest)
+			return
+		}
+		client := gitea.NewClient(req.ProviderURL, req.APIToken, s.Config.GiteaInsecureTLS)
+		_, testErr = client.GetRepos()
+	case "github":
+		client := github.NewClient(req.APIToken)
+		_, testErr = client.GetRepos()
+	default:
+		http.Error(w, "provider must be 'gitea' or 'github'", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if testErr != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": testErr.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Connection successful",
+	})
 }

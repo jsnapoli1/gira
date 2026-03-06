@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
-import { config } from '../api/client';
+import { config, credentials } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Check, AlertCircle } from 'lucide-react';
+import { Check, AlertCircle, Plus, Trash2, Key } from 'lucide-react';
+import { AddCredentialModal } from '../components/AddCredentialModal';
+import type { UserCredential } from '../types';
 
 export function Settings() {
   const { user } = useAuth();
@@ -13,8 +15,14 @@ export function Settings() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
+  // User credentials state
+  const [userCredentials, setUserCredentials] = useState<UserCredential[]>([]);
+  const [showAddCredential, setShowAddCredential] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
   useEffect(() => {
     loadConfig();
+    loadCredentials();
   }, []);
 
   const loadConfig = async () => {
@@ -26,6 +34,28 @@ export function Settings() {
       }
     } catch (err) {
       console.error('Failed to load config:', err);
+    }
+  };
+
+  const loadCredentials = async () => {
+    try {
+      const creds = await credentials.list();
+      setUserCredentials(creds || []);
+    } catch (err) {
+      console.error('Failed to load credentials:', err);
+    }
+  };
+
+  const handleDeleteCredential = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this credential?')) return;
+    setDeletingId(id);
+    try {
+      await credentials.delete(id);
+      setUserCredentials(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Failed to delete credential:', err);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -76,11 +106,62 @@ export function Settings() {
             </div>
           </section>
 
-          {/* Gitea Configuration */}
+          {/* User API Credentials */}
           <section className="settings-section">
-            <h2>Gitea Connection</h2>
+            <h2>Your API Credentials</h2>
             <p className="section-description">
-              Connect Zira to your Gitea instance to sync issues and repositories.
+              Connect your personal Gitea or GitHub accounts to access private repositories.
+              These credentials are used when no swimlane-specific credentials are set.
+            </p>
+
+            {userCredentials.length > 0 ? (
+              <div className="credentials-list">
+                {userCredentials.map(cred => (
+                  <div key={cred.id} className="credential-item">
+                    <div className="credential-info">
+                      <div className="credential-icon">
+                        <Key size={20} />
+                      </div>
+                      <div className="credential-details">
+                        <span className="credential-name">
+                          {cred.display_name || (cred.provider === 'github' ? 'GitHub' : cred.provider_url)}
+                        </span>
+                        <span className="credential-provider">
+                          {cred.provider === 'github' ? 'GitHub' : `Gitea - ${cred.provider_url}`}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-icon btn-danger"
+                      onClick={() => handleDeleteCredential(cred.id)}
+                      disabled={deletingId === cred.id}
+                      title="Delete credential"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-state">No API credentials configured yet.</p>
+            )}
+
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowAddCredential(true)}
+            >
+              <Plus size={16} />
+              Add Credential
+            </button>
+          </section>
+
+          {/* Gitea Configuration (Admin Only) */}
+          {user?.is_admin && (
+          <section className="settings-section">
+            <h2>Global Gitea Connection</h2>
+            <p className="section-description">
+              Configure the default Gitea instance for all users. This is used as a fallback
+              when users don't have their own credentials configured.
             </p>
 
             {configured && (
@@ -141,6 +222,7 @@ export function Settings() {
               </div>
             </form>
           </section>
+          )}
 
           {/* About */}
           <section className="settings-section">
@@ -157,6 +239,13 @@ export function Settings() {
           </section>
         </div>
       </div>
+
+      {showAddCredential && (
+        <AddCredentialModal
+          onClose={() => setShowAddCredential(false)}
+          onSaved={loadCredentials}
+        />
+      )}
     </Layout>
   );
 }

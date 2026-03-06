@@ -204,3 +204,12 @@ export interface WorkLogsResponse {
   total_logged: number; // total minutes logged
   time_estimate: number | null; // estimated minutes
 }
+
+export interface UserCredential {
+  id: number;
+  provider: 'gitea' | 'github';
+  provider_url: string;
+  display_name: string;
+  has_token: boolean;
+  created_at: string;
+}

@@ -330,3 +330,16 @@ export const admin = {
       body: JSON.stringify({ user_id: userId, is_admin: isAdmin }),
     }),
 };
+
+// User Credentials
+export const credentials = {
+  list: () => request<any[]>('/user/credentials'),
+  create: (data: { provider: string; provider_url?: string; api_token: string; display_name?: string }) =>
+    request<any>('/user/credentials', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: number, data: { api_token?: string; display_name?: string }) =>
+    request<any>(`/user/credentials/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: number) =>
+    request(`/user/credentials/${id}`, { method: 'DELETE' }),
+  test: (data: { provider: string; provider_url?: string; api_token: string }) =>
+    request<{ success: boolean; message: string }>('/user/credentials/test', { method: 'POST', body: JSON.stringify(data) }),
+};
