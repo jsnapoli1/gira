@@ -7,11 +7,11 @@ services:
       args:
         GIT_SHA: local
     ports:
-      - "8080:8080"
+      - "9002:9002"
     volumes:
       - zira-data:/app/data
     environment:
-      - PORT=8080
+      - PORT=9002
       - DB_PATH=/app/data/zira.db
     restart: unless-stopped
 

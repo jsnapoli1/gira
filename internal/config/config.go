@@ -18,7 +18,7 @@ func Load() (*Config, error) {
 	giteaURL := os.Getenv("GITEA_URL")
 	giteaAPIKey := os.Getenv("GITEA_API_KEY")
 	
-	port := 8080
+	port := 9002
 	if p := os.Getenv("PORT"); p != "" {
 		fmt.Sscanf(p, "%d", &port)
 	}
@@ -33,7 +33,7 @@ func Load() (*Config, error) {
 	if cfg.GiteaURL == "" || cfg.GiteaAPIKey == "" {
 		if err := cfg.LoadFromFile(); err == nil {
 			// Config file loaded successfully
-			if port != 8080 {
+			if port != 9002 {
 				cfg.Port = port // Env var overrides file
 			}
 		}

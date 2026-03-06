@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'cd .. && go run cmd/zira/main.go',
-      url: 'http://localhost:8080/api/config/status',
+      url: 'http://localhost:9002/api/config/status',
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
     },
