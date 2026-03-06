@@ -35,6 +35,7 @@ type Server struct {
 	DB      *database.DB
 	Port    int
 	Version string
+	SSEHub  *SSEHub
 }
 
 func New(cfg *config.Config, db *database.DB, version string) *Server {
@@ -49,6 +50,7 @@ func New(cfg *config.Config, db *database.DB, version string) *Server {
 		DB:      db,
 		Port:    cfg.Port,
 		Version: version,
+		SSEHub:  NewSSEHub(),
 	}
 }
 
@@ -168,7 +170,16 @@ func (s *Server) Start() error {
 
 	// Board routes
 	mux.HandleFunc("/api/boards", s.requireAuth(s.handleBoards))
-	mux.HandleFunc("/api/boards/", s.requireAuth(s.handleBoard))
+	// SSE route for real-time board updates (must be before /api/boards/ to match first)
+	mux.HandleFunc("/api/boards/", func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is an SSE events request
+		if strings.HasSuffix(r.URL.Path, "/events") {
+			s.handleBoardSSE(w, r)
+			return
+		}
+		// Otherwise, use the regular board handler (with auth)
+		s.requireAuth(s.handleBoard)(w, r)
+	})
 
 	// Sprint routes
 	mux.HandleFunc("/api/sprints", s.requireAuth(s.handleSprints))
@@ -203,9 +214,8 @@ func (s *Server) Start() error {
 	// Health check route (for Docker/Portainer)
 	mux.HandleFunc("/healthz", s.handleHealthz)
 
-	// Serve frontend static files
-	fs := http.FileServer(http.Dir("./frontend/dist"))
-	mux.Handle("/", fs)
+	// Serve frontend static files with SPA fallback
+	mux.HandleFunc("/", s.handleSPA)
 
 	addr := fmt.Sprintf(":%d", s.Port)
 	log.Printf("Server starting on %s", addr)
@@ -215,6 +225,33 @@ func (s *Server) Start() error {
 		log.Println("Waiting for configuration via UI")
 	}
 	return http.ListenAndServe(addr, s.corsMiddleware(mux))
+}
+
+// handleSPA serves the frontend with SPA fallback for client-side routing
+func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
+	// Static file directory
+	staticDir := "./frontend/dist"
+
+	// Clean the path
+	path := r.URL.Path
+	if path == "/" {
+		path = "/index.html"
+	}
+
+	// Try to serve the file directly
+	filePath := filepath.Join(staticDir, path)
+
+	// Check if file exists
+	info, err := os.Stat(filePath)
+	if err == nil && !info.IsDir() {
+		// File exists, serve it
+		http.ServeFile(w, r, filePath)
+		return
+	}
+
+	// File doesn't exist - serve index.html for SPA routing
+	// This handles routes like /boards/1, /settings, etc.
+	http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
@@ -1479,6 +1516,15 @@ func (s *Server) handleCards(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Broadcast card_created event
+		s.SSEHub.Broadcast(BoardEvent{
+			Type:      "card_created",
+			BoardID:   card.BoardID,
+			Payload:   card,
+			Timestamp: time.Now(),
+			UserID:    user.ID,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(card)
@@ -1542,6 +1588,16 @@ func (s *Server) handleCard(w http.ResponseWriter, r *http.Request) {
 						break
 					}
 				}
+
+				// Broadcast card_moved event
+				s.SSEHub.Broadcast(BoardEvent{
+					Type:      "card_moved",
+					BoardID:   card.BoardID,
+					Payload:   map[string]interface{}{"card_id": cardID, "column_id": req.ColumnID, "state": req.State},
+					Timestamp: time.Now(),
+					UserID:    user.ID,
+				})
+
 				w.WriteHeader(http.StatusOK)
 				return
 			}
@@ -1655,14 +1711,35 @@ func (s *Server) handleCard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Broadcast card_updated event
+		s.SSEHub.Broadcast(BoardEvent{
+			Type:      "card_updated",
+			BoardID:   card.BoardID,
+			Payload:   card,
+			Timestamp: time.Now(),
+			UserID:    user.ID,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(card)
 
 	case "DELETE":
+		user := getUserFromContext(r.Context())
+		boardID := card.BoardID
 		if err := s.DB.DeleteCard(cardID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		// Broadcast card_deleted event
+		s.SSEHub.Broadcast(BoardEvent{
+			Type:      "card_deleted",
+			BoardID:   boardID,
+			Payload:   map[string]interface{}{"card_id": cardID},
+			Timestamp: time.Now(),
+			UserID:    user.ID,
+		})
+
 		w.WriteHeader(http.StatusNoContent)
 
 	default:

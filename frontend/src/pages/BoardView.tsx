@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { boards as boardsApi, cards as cardsApi, sprints as sprintsApi, gitea, users as usersApi } from '../api/client';
 import { Board, Card, Column, Swimlane, Sprint, Repository, User, Label } from '../types';
+import { useBoardSSE } from '../hooks/useBoardSSE';
 import {
   DndContext,
   DragOverlay,
@@ -256,6 +257,45 @@ export function BoardView() {
       },
     })
   );
+
+  // SSE event handlers for real-time updates
+  const handleCardCreated = useCallback((card: Card) => {
+    setCards((prev) => {
+      // Avoid duplicates (in case we created the card ourselves)
+      if (prev.some((c) => c.id === card.id)) {
+        return prev;
+      }
+      return [...prev, card];
+    });
+  }, []);
+
+  const handleCardUpdated = useCallback((card: Card) => {
+    setCards((prev) => prev.map((c) => (c.id === card.id ? card : c)));
+    // Also update selectedCard if it's the one being viewed
+    setSelectedCard((prev) => (prev?.id === card.id ? card : prev));
+  }, []);
+
+  const handleCardMoved = useCallback((cardId: number, columnId: number, state: string) => {
+    setCards((prev) =>
+      prev.map((c) => (c.id === cardId ? { ...c, column_id: columnId, state } : c))
+    );
+  }, []);
+
+  const handleCardDeleted = useCallback((cardId: number) => {
+    setCards((prev) => prev.filter((c) => c.id !== cardId));
+    // Close modal if the deleted card was selected
+    setSelectedCard((prev) => (prev?.id === cardId ? null : prev));
+  }, []);
+
+  // Connect to SSE for real-time board updates
+  useBoardSSE({
+    boardId: boardId ? parseInt(boardId) : 0,
+    onCardCreated: handleCardCreated,
+    onCardUpdated: handleCardUpdated,
+    onCardMoved: handleCardMoved,
+    onCardDeleted: handleCardDeleted,
+    enabled: !!boardId && !loading,
+  });
 
   useEffect(() => {
     loadBoard();
