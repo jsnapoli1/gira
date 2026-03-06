@@ -347,7 +347,12 @@ func (d *DB) LogWork(cardID, userID int64, timeSpent int, date time.Time, notes 
 
 func (d *DB) GetWorkItems(cardID int64) ([]models.WorkItem, error) {
 	rows, err := d.Query(
-		`SELECT id, card_id, user_id, time_spent, date, notes FROM work_items WHERE card_id = ? ORDER BY date DESC`,
+		`SELECT w.id, w.card_id, w.user_id, w.time_spent, w.date, w.notes,
+		        u.id, u.email, u.display_name, u.avatar_url
+		 FROM work_items w
+		 LEFT JOIN users u ON w.user_id = u.id
+		 WHERE w.card_id = ?
+		 ORDER BY w.date DESC`,
 		cardID,
 	)
 	if err != nil {
@@ -358,10 +363,42 @@ func (d *DB) GetWorkItems(cardID int64) ([]models.WorkItem, error) {
 	var items []models.WorkItem
 	for rows.Next() {
 		var w models.WorkItem
-		if err := rows.Scan(&w.ID, &w.CardID, &w.UserID, &w.TimeSpent, &w.Date, &w.Notes); err != nil {
+		var user models.User
+		if err := rows.Scan(&w.ID, &w.CardID, &w.UserID, &w.TimeSpent, &w.Date, &w.Notes,
+			&user.ID, &user.Email, &user.DisplayName, &user.AvatarURL); err != nil {
 			return nil, err
 		}
+		w.User = &user
 		items = append(items, w)
 	}
 	return items, nil
+}
+
+func (d *DB) GetTotalTimeLogged(cardID int64) (int, error) {
+	var total int
+	err := d.QueryRow(
+		`SELECT COALESCE(SUM(time_spent), 0) FROM work_items WHERE card_id = ?`,
+		cardID,
+	).Scan(&total)
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (d *DB) DeleteWorkLog(id int64) error {
+	_, err := d.Exec(`DELETE FROM work_items WHERE id = ?`, id)
+	return err
+}
+
+func (d *DB) GetWorkLogByID(id int64) (*models.WorkItem, error) {
+	var w models.WorkItem
+	err := d.QueryRow(
+		`SELECT id, card_id, user_id, time_spent, date, notes FROM work_items WHERE id = ?`,
+		id,
+	).Scan(&w.ID, &w.CardID, &w.UserID, &w.TimeSpent, &w.Date, &w.Notes)
+	if err != nil {
+		return nil, err
+	}
+	return &w, nil
 }
