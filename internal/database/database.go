@@ -270,6 +270,10 @@ func (d *DB) migrate() error {
 	// Add is_admin column to users (ignore error if already exists)
 	d.Exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`)
 
+	// Add comment_id to attachments for linking images to comments
+	d.Exec(`ALTER TABLE attachments ADD COLUMN comment_id INTEGER REFERENCES comments(id) ON DELETE SET NULL`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_attachments_comment ON attachments(comment_id)`)
+
 	// Add multi-repo support columns to swimlanes (ignore errors if already exist)
 	d.Exec(`ALTER TABLE swimlanes ADD COLUMN repo_source TEXT DEFAULT 'default_gitea'`)
 	d.Exec(`ALTER TABLE swimlanes ADD COLUMN repo_url TEXT DEFAULT ''`)

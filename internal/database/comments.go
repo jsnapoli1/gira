@@ -86,6 +86,14 @@ func (d *DB) GetCommentsForCard(cardID int64) ([]models.Comment, error) {
 		comments = []models.Comment{}
 	}
 
+	// Load attachments for each comment
+	for i := range comments {
+		attachments, err := d.GetAttachmentsForComment(comments[i].ID)
+		if err == nil {
+			comments[i].Attachments = attachments
+		}
+	}
+
 	return comments, nil
 }
 

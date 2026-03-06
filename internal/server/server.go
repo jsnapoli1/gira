@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -1871,14 +1872,15 @@ func (s *Server) handleCardComments(w http.ResponseWriter, r *http.Request, card
 		}
 
 		var req struct {
-			Body string `json:"body"`
+			Body          string  `json:"body"`
+			AttachmentIDs []int64 `json:"attachment_ids"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
-		if req.Body == "" {
-			http.Error(w, "Comment body is required", http.StatusBadRequest)
+		if req.Body == "" && len(req.AttachmentIDs) == 0 {
+			http.Error(w, "Comment body or attachments required", http.StatusBadRequest)
 			return
 		}
 
@@ -1888,11 +1890,31 @@ func (s *Server) handleCardComments(w http.ResponseWriter, r *http.Request, card
 			return
 		}
 
-		// Notify card assignees about the new comment (except the commenter)
-		assignees, _ := s.DB.GetCardAssignees(card.ID)
+		// Link attachments to the comment
+		if len(req.AttachmentIDs) > 0 {
+			if err := s.DB.LinkAttachmentsToComment(comment.ID, req.AttachmentIDs); err != nil {
+				log.Printf("Failed to link attachments to comment: %v", err)
+			}
+			// Reload comment to get attachments
+			comment.Attachments, _ = s.DB.GetAttachmentsForComment(comment.ID)
+		}
+
+		// Parse @mentions from comment body and notify mentioned users
 		link := fmt.Sprintf("/boards/%d?card=%d", card.BoardID, card.ID)
+		mentionedUserIDs := s.parseMentions(req.Body)
+		notifiedUsers := make(map[int64]bool)
+
+		for _, mentionedID := range mentionedUserIDs {
+			if mentionedID != user.ID {
+				s.createNotification(mentionedID, "mention", "You were mentioned", fmt.Sprintf("%s mentioned you in: %s", user.DisplayName, card.Title), link)
+				notifiedUsers[mentionedID] = true
+			}
+		}
+
+		// Notify card assignees about the new comment (except the commenter and already notified users)
+		assignees, _ := s.DB.GetCardAssignees(card.ID)
 		for _, assignee := range assignees {
-			if assignee.ID != user.ID {
+			if assignee.ID != user.ID && !notifiedUsers[assignee.ID] {
 				s.createNotification(assignee.ID, "comment", "New comment", fmt.Sprintf("%s commented on: %s", user.DisplayName, card.Title), link)
 			}
 		}
@@ -2279,7 +2301,12 @@ func (s *Server) handleAttachmentDownload(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", attachment.MimeType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, attachment.Filename))
+	// Use inline for images so they display in browser, attachment for other files
+	disposition := "attachment"
+	if strings.HasPrefix(attachment.MimeType, "image/") {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposition, attachment.Filename))
 	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(data)), 10))
 	w.Write(data)
 }
@@ -2561,6 +2588,49 @@ func (s *Server) handleNotification(w http.ResponseWriter, r *http.Request) {
 // Helper function to create notifications
 func (s *Server) createNotification(userID int64, notificationType, title, message, link string) {
 	s.DB.CreateNotification(userID, notificationType, title, message, link)
+}
+
+// parseMentions extracts @mentions from text and returns user IDs
+// Supports @display_name format (display names are matched case-insensitively)
+func (s *Server) parseMentions(body string) []int64 {
+	// Match @username patterns - supports spaces in names when quoted: @"John Doe" or @John
+	mentionRegex := regexp.MustCompile(`@"([^"]+)"|@(\S+)`)
+	matches := mentionRegex.FindAllStringSubmatch(body, -1)
+
+	if len(matches) == 0 {
+		return nil
+	}
+
+	// Get all users to match against
+	users, err := s.DB.ListUsers()
+	if err != nil {
+		return nil
+	}
+
+	// Build a map of lowercase display names to user IDs
+	nameToID := make(map[string]int64)
+	for _, u := range users {
+		nameToID[strings.ToLower(u.DisplayName)] = u.ID
+	}
+
+	var mentionedIDs []int64
+	seen := make(map[int64]bool)
+
+	for _, match := range matches {
+		// match[1] is the quoted name, match[2] is the unquoted name
+		name := match[1]
+		if name == "" {
+			name = match[2]
+		}
+		name = strings.ToLower(name)
+
+		if userID, ok := nameToID[name]; ok && !seen[userID] {
+			mentionedIDs = append(mentionedIDs, userID)
+			seen[userID] = true
+		}
+	}
+
+	return mentionedIDs
 }
 
 // Admin handlers

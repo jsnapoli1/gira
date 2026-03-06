@@ -18,6 +18,24 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { Plus, Settings, ChevronLeft, GripVertical, Tag, Clock, AlertCircle, User as UserIcon, Filter, X, Check, Calendar, Search } from 'lucide-react';
 
+// Render comment body with highlighted @mentions
+function renderCommentBody(body: string): React.ReactNode {
+  // Match @"Name With Spaces" or @SingleName patterns
+  const mentionRegex = /(@"[^"]+"|@\S+)/g;
+  const parts = body.split(mentionRegex);
+
+  return parts.map((part, index) => {
+    if (part.match(/^@"[^"]+"$/) || part.match(/^@\S+$/)) {
+      return (
+        <span key={index} className="mention-highlight">
+          {part}
+        </span>
+      );
+    }
+    return part;
+  });
+}
+
 // Date helpers
 function formatDueDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -1222,6 +1240,15 @@ function CardDetailModal({
   const [newComment, setNewComment] = useState('');
   const [postingComment, setPostingComment] = useState(false);
 
+  // Mention autocomplete state
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState('');
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStartPos, setMentionStartPos] = useState(0);
+
+  // Pending images for comment (pasted)
+  const [pendingImages, setPendingImages] = useState<File[]>([]);
+
   // Attachments state
   const [attachments, setAttachments] = useState<any[]>([]);
   const [loadingAttachments, setLoadingAttachments] = useState(true);
@@ -1395,19 +1422,121 @@ function CardDetailModal({
 
   const handlePostComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim()) return;
+    if (!newComment.trim() && pendingImages.length === 0) return;
 
     setPostingComment(true);
     try {
-      const comment = await cardsApi.addComment(card.id, newComment);
+      // First upload any pending images as attachments
+      const uploadedAttachments: number[] = [];
+      for (const img of pendingImages) {
+        const attachment = await cardsApi.uploadAttachment(card.id, img);
+        if (attachment) {
+          uploadedAttachments.push(attachment.id);
+          setAttachments((prev) => [...prev, attachment]);
+        }
+      }
+
+      // Post the comment with attachment IDs
+      const comment = await cardsApi.addCommentWithAttachments(card.id, newComment, uploadedAttachments);
       if (comment) {
         setComments([...comments, comment]);
       }
       setNewComment('');
+      setPendingImages([]);
     } catch (err) {
       console.error('Failed to post comment:', err);
     } finally {
       setPostingComment(false);
+    }
+  };
+
+  // Handle paste for images in comment textarea
+  const handleCommentPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          // Generate a filename based on timestamp
+          const ext = item.type.split('/')[1] || 'png';
+          const newFile = new File([file], `pasted-image-${Date.now()}.${ext}`, { type: item.type });
+          setPendingImages((prev) => [...prev, newFile]);
+        }
+        break;
+      }
+    }
+  };
+
+  // Filter users for mention dropdown
+  const filteredMentionUsers = useMemo(() => {
+    if (!mentionFilter) return users;
+    const filter = mentionFilter.toLowerCase();
+    return users.filter(
+      (u) =>
+        u.display_name.toLowerCase().includes(filter) ||
+        u.email.toLowerCase().includes(filter)
+    );
+  }, [users, mentionFilter]);
+
+  // Handle comment textarea input for @ mentions
+  const handleCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    setNewComment(value);
+
+    // Check if we're typing a mention
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf('@');
+
+    if (atIndex !== -1) {
+      // Check if @ is at start or preceded by whitespace
+      const charBeforeAt = atIndex > 0 ? textBeforeCursor[atIndex - 1] : ' ';
+      if (charBeforeAt === ' ' || charBeforeAt === '\n' || atIndex === 0) {
+        const query = textBeforeCursor.slice(atIndex + 1);
+        // Only show dropdown if no space in query (single word being typed)
+        if (!query.includes(' ')) {
+          setMentionFilter(query);
+          setMentionStartPos(atIndex);
+          setShowMentionDropdown(true);
+          setMentionIndex(0);
+          return;
+        }
+      }
+    }
+    setShowMentionDropdown(false);
+  };
+
+  // Handle mention selection
+  const handleSelectMention = (user: User) => {
+    // Replace @query with @displayName (use quotes if name has spaces)
+    const beforeMention = newComment.slice(0, mentionStartPos);
+    const afterMention = newComment.slice(mentionStartPos + mentionFilter.length + 1);
+    const mentionText = user.display_name.includes(' ')
+      ? `@"${user.display_name}" `
+      : `@${user.display_name} `;
+    setNewComment(beforeMention + mentionText + afterMention);
+    setShowMentionDropdown(false);
+  };
+
+  // Handle keyboard navigation in mention dropdown
+  const handleCommentKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!showMentionDropdown || filteredMentionUsers.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setMentionIndex((i) => (i + 1) % filteredMentionUsers.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setMentionIndex((i) => (i - 1 + filteredMentionUsers.length) % filteredMentionUsers.length);
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      handleSelectMention(filteredMentionUsers[mentionIndex]);
+    } else if (e.key === 'Escape') {
+      setShowMentionDropdown(false);
     }
   };
 
@@ -1760,35 +1889,92 @@ function CardDetailModal({
               </div>
             )}
 
-            {/* Attachments Section */}
+            {/* Conversations Section - Main Area for more vertical room */}
             {!editing && (
-              <div className="attachments-section">
-                <div className="section-header">
-                  <h3>Attachments ({attachments.length})</h3>
-                  <label className="btn btn-sm">
-                    {uploadingAttachment ? 'Uploading...' : 'Upload'}
-                    <input type="file" onChange={handleUploadAttachment} disabled={uploadingAttachment} style={{ display: 'none' }} />
-                  </label>
+              <div className="conversations-section conversations-main">
+                <h3>Conversations</h3>
+                <div className="comments-container">
+                  {loadingComments ? (
+                    <div className="loading-inline">Loading...</div>
+                  ) : comments.length === 0 ? (
+                    <p className="empty-text">No comments yet</p>
+                  ) : (
+                    <div className="comments-list-compact">
+                      {comments.map((comment) => (
+                        <div key={comment.id} className="comment-item-compact">
+                          <div className="comment-header-compact">
+                            {comment.user?.avatar_url ? (
+                              <img src={comment.user.avatar_url} alt={comment.user.display_name} className="comment-avatar-small" />
+                            ) : (
+                              <div className="comment-avatar-small placeholder"><UserIcon size={12} /></div>
+                            )}
+                            <span className="comment-author">{comment.user?.display_name || 'Unknown'}</span>
+                            <span className="comment-time">{formatDate(comment.created_at)}</span>
+                          </div>
+                          <p className="comment-body-compact">{renderCommentBody(comment.body)}</p>
+                          {comment.attachments && comment.attachments.length > 0 && (
+                            <div className="comment-attachments">
+                              {comment.attachments.map((att: any) => (
+                                <a key={att.id} href={`/api/attachments/${att.id}`} target="_blank" rel="noopener noreferrer">
+                                  {att.mime_type.startsWith('image/') ? (
+                                    <img src={`/api/attachments/${att.id}`} alt={att.filename} className="comment-attachment-thumb" />
+                                  ) : (
+                                    <span className="comment-attachment-file">📎 {att.filename}</span>
+                                  )}
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {loadingAttachments ? (
-                  <div className="loading-inline">Loading...</div>
-                ) : attachments.length === 0 ? (
-                  <p className="empty-text">No attachments</p>
-                ) : (
-                  <div className="attachments-grid">
-                    {attachments.map((attachment) => (
-                      <div key={attachment.id} className="attachment-item-compact">
-                        {attachment.mime_type.startsWith('image/') ? (
-                          <img src={`/api/attachments/${attachment.id}`} alt={attachment.filename} className="attachment-thumb" />
-                        ) : (
-                          <div className="attachment-icon-small">📎</div>
-                        )}
-                        <a href={`/api/attachments/${attachment.id}`} download className="attachment-name">{attachment.filename}</a>
-                        <button className="attachment-delete-small" onClick={() => handleDeleteAttachment(attachment.id)}><X size={12} /></button>
+                <form className="comment-form-compact" onSubmit={handlePostComment}>
+                  <div className="comment-input-wrapper">
+                    <textarea
+                      value={newComment}
+                      onChange={handleCommentChange}
+                      onKeyDown={handleCommentKeyDown}
+                      onPaste={handleCommentPaste}
+                      placeholder="Write a comment... (use @ to mention, paste images)"
+                      rows={3}
+                    />
+                    {pendingImages.length > 0 && (
+                      <div className="pending-images">
+                        {pendingImages.map((img, index) => (
+                          <div key={index} className="pending-image-item">
+                            <img src={URL.createObjectURL(img)} alt={`Pending ${index + 1}`} />
+                            <button type="button" className="remove-pending-image" onClick={() => setPendingImages(pendingImages.filter((_, i) => i !== index))}><X size={12} /></button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
+                    {showMentionDropdown && filteredMentionUsers.length > 0 && (
+                      <div className="mention-dropdown">
+                        {filteredMentionUsers.slice(0, 5).map((user, index) => (
+                          <div
+                            key={user.id}
+                            className={`mention-item ${index === mentionIndex ? 'selected' : ''}`}
+                            onClick={() => handleSelectMention(user)}
+                            onMouseEnter={() => setMentionIndex(index)}
+                          >
+                            {user.avatar_url ? (
+                              <img src={user.avatar_url} alt={user.display_name} className="mention-avatar" />
+                            ) : (
+                              <div className="mention-avatar placeholder"><UserIcon size={12} /></div>
+                            )}
+                            <span className="mention-name">{user.display_name}</span>
+                            <span className="mention-email">{user.email}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={postingComment || (!newComment.trim() && pendingImages.length === 0)}>
+                    {postingComment ? '...' : 'Post'}
+                  </button>
+                </form>
               </div>
             )}
           </div>
@@ -1849,44 +2035,34 @@ function CardDetailModal({
               </div>
             </div>
 
-            {/* Conversations */}
-            <div className="conversations-section">
-              <h3>Conversations</h3>
-              <div className="comments-container">
-                {loadingComments ? (
-                  <div className="loading-inline">Loading...</div>
-                ) : comments.length === 0 ? (
-                  <p className="empty-text">No comments yet</p>
-                ) : (
-                  <div className="comments-list-compact">
-                    {comments.map((comment) => (
-                      <div key={comment.id} className="comment-item-compact">
-                        <div className="comment-header-compact">
-                          {comment.user?.avatar_url ? (
-                            <img src={comment.user.avatar_url} alt={comment.user.display_name} className="comment-avatar-small" />
-                          ) : (
-                            <div className="comment-avatar-small placeholder"><UserIcon size={12} /></div>
-                          )}
-                          <span className="comment-author">{comment.user?.display_name || 'Unknown'}</span>
-                          <span className="comment-time">{formatDate(comment.created_at)}</span>
-                        </div>
-                        <p className="comment-body-compact">{comment.body}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {/* Attachments - Sidebar */}
+            <div className="sidebar-section attachments-sidebar">
+              <div className="section-header">
+                <label>Attachments ({attachments.length})</label>
+                <label className="btn btn-xs">
+                  {uploadingAttachment ? '...' : '+'}
+                  <input type="file" onChange={handleUploadAttachment} disabled={uploadingAttachment} style={{ display: 'none' }} />
+                </label>
               </div>
-              <form className="comment-form-compact" onSubmit={handlePostComment}>
-                <textarea
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Write a comment..."
-                  rows={2}
-                />
-                <button type="submit" className="btn btn-primary btn-sm" disabled={postingComment || !newComment.trim()}>
-                  {postingComment ? '...' : 'Post'}
-                </button>
-              </form>
+              {loadingAttachments ? (
+                <div className="loading-inline">Loading...</div>
+              ) : attachments.length === 0 ? (
+                <p className="empty-text">No attachments</p>
+              ) : (
+                <div className="attachments-list-sidebar">
+                  {attachments.map((attachment) => (
+                    <div key={attachment.id} className="attachment-item-sidebar">
+                      {attachment.mime_type.startsWith('image/') ? (
+                        <img src={`/api/attachments/${attachment.id}`} alt={attachment.filename} className="attachment-thumb-small" />
+                      ) : (
+                        <span className="attachment-icon-tiny">📎</span>
+                      )}
+                      <a href={`/api/attachments/${attachment.id}`} download={attachment.filename} className="attachment-name-small">{attachment.filename}</a>
+                      <button className="attachment-delete-tiny" onClick={() => handleDeleteAttachment(attachment.id)}><X size={10} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -237,6 +237,11 @@ export const cards = {
       method: 'POST',
       body: JSON.stringify({ body }),
     }),
+  addCommentWithAttachments: (id: number, body: string, attachmentIds: number[]) =>
+    request<any>(`/cards/${id}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body, attachment_ids: attachmentIds }),
+    }),
   getLabels: (id: number) => request<any[]>(`/cards/${id}/labels`),
   addLabel: (id: number, labelId: number) =>
     request(`/cards/${id}/labels`, {

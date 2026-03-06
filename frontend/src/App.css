@@ -1556,6 +1556,156 @@ body {
   color: #dc2626;
 }
 
+/* Sidebar Attachments */
+.attachments-sidebar .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.attachments-list-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.attachment-item-sidebar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  padding: 0.25rem;
+  background: var(--bg);
+  border-radius: 3px;
+}
+
+.attachment-thumb-small {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.attachment-icon-tiny {
+  font-size: 0.75rem;
+}
+
+.attachment-name-small {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 0.75rem;
+}
+
+.attachment-delete-tiny {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.1rem;
+  display: flex;
+  align-items: center;
+  opacity: 0.5;
+}
+
+.attachment-item-sidebar:hover .attachment-delete-tiny {
+  opacity: 1;
+}
+
+.attachment-delete-tiny:hover {
+  color: #dc2626;
+}
+
+.btn-xs {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* Conversations Main Area */
+.conversations-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+}
+
+.conversations-main .comments-container {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 300px;
+}
+
+/* Pending Images Preview */
+.pending-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg);
+  border-radius: 4px;
+  margin-top: 0.5rem;
+}
+
+.pending-image-item {
+  position: relative;
+  width: 60px;
+  height: 60px;
+}
+
+.pending-image-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.remove-pending-image {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* Comment Attachments */
+.comment-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.comment-attachment-thumb {
+  width: 80px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.comment-attachment-file {
+  font-size: 0.75rem;
+  color: var(--primary);
+  padding: 0.25rem 0.5rem;
+  background: var(--bg);
+  border-radius: 3px;
+}
+
 /* Metadata Section in Sidebar */
 .metadata-section {
   padding-bottom: 1rem;
@@ -1691,6 +1841,81 @@ body {
 
 .comment-form-compact .btn {
   align-self: flex-end;
+}
+
+.comment-input-wrapper {
+  position: relative;
+}
+
+.comment-input-wrapper textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  resize: none;
+}
+
+.mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  margin-bottom: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.mention-item:hover,
+.mention-item.selected {
+  background: var(--hover-bg, #f5f5f5);
+}
+
+.mention-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.mention-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--border);
+  color: var(--text-secondary);
+}
+
+.mention-name {
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.mention-email {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+.mention-highlight {
+  color: var(--primary, #0066cc);
+  font-weight: 500;
+  background: rgba(0, 102, 204, 0.1);
+  border-radius: 3px;
+  padding: 0 2px;
 }
 
 /* Loading and Empty States */

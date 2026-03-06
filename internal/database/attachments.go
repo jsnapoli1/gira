@@ -93,3 +93,41 @@ func (d *DB) DeleteAttachment(id int64) error {
 	_, err := d.Exec(`DELETE FROM attachments WHERE id = ?`, id)
 	return err
 }
+
+// LinkAttachmentsToComment links existing attachments to a comment
+func (d *DB) LinkAttachmentsToComment(commentID int64, attachmentIDs []int64) error {
+	for _, attID := range attachmentIDs {
+		_, err := d.Exec(`UPDATE attachments SET comment_id = ? WHERE id = ?`, commentID, attID)
+		if err != nil {
+			return fmt.Errorf("failed to link attachment %d to comment: %w", attID, err)
+		}
+	}
+	return nil
+}
+
+// GetAttachmentsForComment retrieves all attachments linked to a comment
+func (d *DB) GetAttachmentsForComment(commentID int64) ([]*models.Attachment, error) {
+	rows, err := d.Query(
+		`SELECT id, card_id, comment_id, user_id, filename, size, mime_type, store_path, created_at
+		 FROM attachments WHERE comment_id = ? ORDER BY created_at ASC`,
+		commentID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get attachments for comment: %w", err)
+	}
+	defer rows.Close()
+
+	var attachments []*models.Attachment
+	for rows.Next() {
+		var att models.Attachment
+		var commentID sql.NullInt64
+		if err := rows.Scan(&att.ID, &att.CardID, &commentID, &att.UserID, &att.Filename, &att.Size, &att.MimeType, &att.StorePath, &att.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan attachment: %w", err)
+		}
+		if commentID.Valid {
+			att.CommentID = &commentID.Int64
+		}
+		attachments = append(attachments, &att)
+	}
+	return attachments, nil
+}
