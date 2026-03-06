@@ -105,6 +105,7 @@ type WorkItem struct {
 	ID        int64     `json:"id"`
 	CardID    int64     `json:"card_id"`
 	UserID    int64     `json:"user_id"`
+	User      *User     `json:"user,omitempty"`
 	TimeSpent int       `json:"time_spent"` // in minutes
 	Date      time.Time `json:"date"`
 	Notes     string    `json:"notes"`
