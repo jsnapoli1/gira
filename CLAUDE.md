@@ -37,6 +37,14 @@ go run ./cmd/zira
 cd frontend && npm install && npm run dev
 ```
 
+## Deployment
+
+The app is deployed via **Gitea Actions** to **Portainer** (Docker).
+
+- Docker image is built and pushed on commits to main
+- Portainer pulls and runs the container
+- Persistent data is stored in `/app/data/` (mounted volume)
+
 ## Configuration
 
 Set via environment variables or `~/.config/zira/config.json`:
@@ -44,6 +52,8 @@ Set via environment variables or `~/.config/zira/config.json`:
 - `GITEA_API_KEY` - Gitea API token
 - `JWT_SECRET` - JWT signing secret (required in production)
 - `PORT` - Server port (default: 8080)
+- `DB_PATH` - Database file path (default: `~/.config/zira/zira.db`, Docker: `/app/data/zira.db`)
+- `DATA_DIR` - Data directory for attachments (default: `~/.config/zira`, Docker: `/app/data`)
 
 ## Best Practices
 
