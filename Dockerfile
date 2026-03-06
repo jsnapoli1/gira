@@ -33,6 +33,7 @@ COPY --from=backend /app/frontend/dist frontend/dist/
 # Expose port
 EXPOSE 8080
 
-# Set database path to persistent volume
+# Set data paths to persistent volume
 ENV DB_PATH=/app/data/zira.db
+ENV DATA_DIR=/app/data
 CMD ["./zira"]

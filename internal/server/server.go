@@ -2175,8 +2175,12 @@ func (s *Server) handleCardAttachments(w http.ResponseWriter, r *http.Request, c
 
 		switch r.Method {
 		case "DELETE":
-			// Delete file from disk
-			os.Remove(attachment.StorePath)
+			// Resolve full path and delete file from disk
+			filePath := attachment.StorePath
+			if !filepath.IsAbs(filePath) {
+				filePath = filepath.Join(getAttachmentsDir(), filePath)
+			}
+			os.Remove(filePath)
 			// Delete record from database
 			if err := s.DB.DeleteAttachment(attachmentID); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -2226,13 +2230,13 @@ func (s *Server) handleCardAttachments(w http.ResponseWriter, r *http.Request, c
 			return
 		}
 
-		// Generate unique filename
+		// Generate unique filename (stored in DB, not full path)
 		ext := filepath.Ext(header.Filename)
 		uniqueName := fmt.Sprintf("%d_%d_%d%s", card.ID, user.ID, time.Now().UnixNano(), ext)
-		storePath := filepath.Join(attachDir, uniqueName)
+		fullPath := filepath.Join(attachDir, uniqueName)
 
 		// Save file
-		dst, err := os.Create(storePath)
+		dst, err := os.Create(fullPath)
 		if err != nil {
 			http.Error(w, "Failed to save file", http.StatusInternalServerError)
 			return
@@ -2240,7 +2244,7 @@ func (s *Server) handleCardAttachments(w http.ResponseWriter, r *http.Request, c
 		defer dst.Close()
 
 		if _, err := io.Copy(dst, file); err != nil {
-			os.Remove(storePath)
+			os.Remove(fullPath)
 			http.Error(w, "Failed to save file", http.StatusInternalServerError)
 			return
 		}
@@ -2251,10 +2255,10 @@ func (s *Server) handleCardAttachments(w http.ResponseWriter, r *http.Request, c
 			mimeType = "application/octet-stream"
 		}
 
-		// Create database record
-		attachment, err := s.DB.CreateAttachment(card.ID, user.ID, header.Filename, header.Size, mimeType, storePath)
+		// Create database record - store only the unique filename, not full path
+		attachment, err := s.DB.CreateAttachment(card.ID, user.ID, header.Filename, header.Size, mimeType, uniqueName)
 		if err != nil {
-			os.Remove(storePath)
+			os.Remove(fullPath)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -2293,8 +2297,14 @@ func (s *Server) handleAttachmentDownload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Resolve the full path - StorePath may be just a filename (new) or full path (legacy)
+	filePath := attachment.StorePath
+	if !filepath.IsAbs(filePath) {
+		filePath = filepath.Join(getAttachmentsDir(), filePath)
+	}
+
 	// Read file and serve with proper headers
-	data, err := os.ReadFile(attachment.StorePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		http.Error(w, "Failed to read attachment", http.StatusInternalServerError)
 		return
@@ -2312,6 +2322,10 @@ func (s *Server) handleAttachmentDownload(w http.ResponseWriter, r *http.Request
 }
 
 func getAttachmentsDir() string {
+	// Check for DATA_DIR environment variable first (for Docker)
+	if dataDir := os.Getenv("DATA_DIR"); dataDir != "" {
+		return filepath.Join(dataDir, "attachments")
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "zira", "attachments")
 }
