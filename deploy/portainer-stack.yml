@@ -15,6 +15,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-}
       - GITEA_URL=${GITEA_URL}
       - GITEA_API_KEY=${GITEA_API_KEY}
+      - GITEA_INSECURE_TLS=${GITEA_INSECURE_TLS:-true}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9002/healthz"]
