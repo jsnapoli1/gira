@@ -1163,7 +1163,7 @@ function CardDetailModal({
   onUpdate: (card: Card) => void;
   onDelete: (cardId: number) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'details' | 'conversations' | 'attachments' | 'custom-fields'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'conversations' | 'attachments' | 'custom-fields' | 'time-tracking'>('details');
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description);
@@ -1192,6 +1192,15 @@ function CardDetailModal({
   const [loadingCustomFields, setLoadingCustomFields] = useState(false);
   const [savingCustomField, setSavingCustomField] = useState<number | null>(null);
 
+  // Work logs (time tracking) state
+  const [workLogs, setWorkLogs] = useState<any[]>([]);
+  const [totalTimeLogged, setTotalTimeLogged] = useState(0);
+  const [loadingWorkLogs, setLoadingWorkLogs] = useState(false);
+  const [newWorkLogMinutes, setNewWorkLogMinutes] = useState('');
+  const [newWorkLogDate, setNewWorkLogDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newWorkLogNotes, setNewWorkLogNotes] = useState('');
+  const [addingWorkLog, setAddingWorkLog] = useState(false);
+
   useEffect(() => {
     if (activeTab === 'conversations') {
       loadComments();
@@ -1199,6 +1208,8 @@ function CardDetailModal({
       loadAttachments();
     } else if (activeTab === 'custom-fields') {
       loadCustomFieldValues();
+    } else if (activeTab === 'time-tracking') {
+      loadWorkLogs();
     }
   }, [activeTab, card.id]);
 
@@ -1283,6 +1294,62 @@ function CardDetailModal({
     } finally {
       setSavingCustomField(null);
     }
+  };
+
+  const loadWorkLogs = async () => {
+    setLoadingWorkLogs(true);
+    try {
+      const data = await cardsApi.getWorkLogs(card.id);
+      setWorkLogs(Array.isArray(data.work_logs) ? data.work_logs : []);
+      setTotalTimeLogged(data.total_logged || 0);
+    } catch (err) {
+      console.error('Failed to load work logs:', err);
+      setWorkLogs([]);
+      setTotalTimeLogged(0);
+    } finally {
+      setLoadingWorkLogs(false);
+    }
+  };
+
+  const handleAddWorkLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWorkLogMinutes || parseInt(newWorkLogMinutes) <= 0) return;
+
+    setAddingWorkLog(true);
+    try {
+      const data = await cardsApi.addWorkLog(card.id, {
+        time_spent: parseInt(newWorkLogMinutes),
+        date: newWorkLogDate,
+        notes: newWorkLogNotes,
+      });
+      setWorkLogs(Array.isArray(data.work_logs) ? data.work_logs : []);
+      setTotalTimeLogged(data.total_logged || 0);
+      setNewWorkLogMinutes('');
+      setNewWorkLogNotes('');
+      setNewWorkLogDate(new Date().toISOString().split('T')[0]);
+    } catch (err) {
+      console.error('Failed to add work log:', err);
+    } finally {
+      setAddingWorkLog(false);
+    }
+  };
+
+  const handleDeleteWorkLog = async (worklogId: number) => {
+    if (!confirm('Are you sure you want to delete this work log entry?')) return;
+    try {
+      await cardsApi.deleteWorkLog(card.id, worklogId);
+      await loadWorkLogs();
+    } catch (err) {
+      console.error('Failed to delete work log:', err);
+    }
+  };
+
+  const formatTimeSpent = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours === 0) return `${mins}m`;
+    if (mins === 0) return `${hours}h`;
+    return `${hours}h ${mins}m`;
   };
 
   const loadComments = async () => {
@@ -1464,6 +1531,12 @@ function CardDetailModal({
               Custom Fields
             </button>
           )}
+          <button
+            className={`tab-btn ${activeTab === 'time-tracking' ? 'active' : ''}`}
+            onClick={() => setActiveTab('time-tracking')}
+          >
+            Time Tracking
+          </button>
         </div>
 
         {activeTab === 'details' ? (
@@ -1743,6 +1816,130 @@ function CardDetailModal({
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        ) : activeTab === 'time-tracking' ? (
+          <div className="card-time-tracking">
+            {loadingWorkLogs ? (
+              <div className="loading-worklogs">Loading time tracking data...</div>
+            ) : (
+              <>
+                {/* Time Summary */}
+                <div className="time-tracking-summary">
+                  <h3>Time Summary</h3>
+                  <div className="time-stats">
+                    <div className="time-stat">
+                      <span className="time-stat-label">Logged</span>
+                      <span className="time-stat-value">{formatTimeSpent(totalTimeLogged)}</span>
+                    </div>
+                    {card.time_estimate && (
+                      <div className="time-stat">
+                        <span className="time-stat-label">Estimated</span>
+                        <span className="time-stat-value">{formatTimeSpent(card.time_estimate)}</span>
+                      </div>
+                    )}
+                  </div>
+                  {card.time_estimate && card.time_estimate > 0 && (
+                    <div className="time-progress">
+                      <div
+                        className={`time-progress-bar ${totalTimeLogged > card.time_estimate ? 'over' : ''}`}
+                        style={{ width: `${Math.min((totalTimeLogged / card.time_estimate) * 100, 100)}%` }}
+                      />
+                    </div>
+                  )}
+                  {card.time_estimate && totalTimeLogged > card.time_estimate && (
+                    <div className="time-over-estimate">
+                      Over estimate by {formatTimeSpent(totalTimeLogged - card.time_estimate)}
+                    </div>
+                  )}
+                </div>
+
+                {/* Log Work Form */}
+                <div className="worklog-form-section">
+                  <h3>Log Work</h3>
+                  <form className="worklog-form" onSubmit={handleAddWorkLog}>
+                    <div className="worklog-form-row">
+                      <div className="form-group">
+                        <label>Time Spent (minutes)</label>
+                        <input
+                          type="number"
+                          value={newWorkLogMinutes}
+                          onChange={(e) => setNewWorkLogMinutes(e.target.value)}
+                          placeholder="e.g., 30"
+                          min="1"
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Date</label>
+                        <input
+                          type="date"
+                          value={newWorkLogDate}
+                          onChange={(e) => setNewWorkLogDate(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>Notes (optional)</label>
+                      <input
+                        type="text"
+                        value={newWorkLogNotes}
+                        onChange={(e) => setNewWorkLogNotes(e.target.value)}
+                        placeholder="What did you work on?"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={addingWorkLog || !newWorkLogMinutes}
+                    >
+                      {addingWorkLog ? 'Logging...' : 'Log Time'}
+                    </button>
+                  </form>
+                </div>
+
+                {/* Work Log History */}
+                <div className="worklog-history">
+                  <h3>Work Log History</h3>
+                  {workLogs.length === 0 ? (
+                    <div className="no-worklogs">No time logged yet.</div>
+                  ) : (
+                    <div className="worklogs-list">
+                      {workLogs.map((log) => (
+                        <div key={log.id} className="worklog-item">
+                          <div className="worklog-item-main">
+                            <div className="worklog-user">
+                              {log.user?.avatar_url ? (
+                                <img src={log.user.avatar_url} alt={log.user.display_name} className="worklog-avatar" />
+                              ) : (
+                                <div className="worklog-avatar-placeholder">
+                                  <UserIcon size={14} />
+                                </div>
+                              )}
+                              <span className="worklog-user-name">{log.user?.display_name || 'Unknown'}</span>
+                            </div>
+                            <div className="worklog-time">{formatTimeSpent(log.time_spent)}</div>
+                          </div>
+                          <div className="worklog-item-meta">
+                            <span className="worklog-date">
+                              {new Date(log.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                            {log.notes && <span className="worklog-notes">{log.notes}</span>}
+                          </div>
+                          <button
+                            className="worklog-delete"
+                            onClick={() => handleDeleteWorkLog(log.id)}
+                            title="Delete work log"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
         ) : null}

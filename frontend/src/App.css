@@ -2466,3 +2466,224 @@ body {
   color: var(--text-secondary);
   font-style: italic;
 }
+
+/* Time Tracking / Work Logs */
+.card-time-tracking {
+  padding: 1rem;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.loading-worklogs,
+.no-worklogs {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.time-tracking-summary {
+  background: var(--bg);
+  padding: 1rem;
+  border-radius: 8px;
+}
+
+.time-tracking-summary h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--text);
+}
+
+.time-stats {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.time-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.time-stat-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.time-stat-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.time-progress {
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.time-progress-bar {
+  height: 100%;
+  background: var(--success);
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.time-progress-bar.over {
+  background: var(--danger);
+}
+
+.time-over-estimate {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.worklog-form-section h3,
+.worklog-history h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--text);
+}
+
+.worklog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.worklog-form-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.worklog-form-row .form-group {
+  flex: 1;
+}
+
+.worklog-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.worklog-form label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.worklog-form input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.worklog-form input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.worklogs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.worklog-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--bg);
+  border-radius: 8px;
+  position: relative;
+}
+
+.worklog-item-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.5rem;
+}
+
+.worklog-user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.worklog-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.worklog-avatar-placeholder {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.worklog-user-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.worklog-time {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.worklog-item-meta {
+  width: 100%;
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding-left: 32px;
+}
+
+.worklog-notes {
+  font-style: italic;
+}
+
+.worklog-delete {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.25rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.worklog-item:hover .worklog-delete {
+  opacity: 1;
+}
+
+.worklog-delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+}

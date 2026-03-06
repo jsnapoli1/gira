@@ -181,3 +181,19 @@ export interface NotificationsResponse {
   notifications: Notification[];
   unread_count: number;
 }
+
+export interface WorkLog {
+  id: number;
+  card_id: number;
+  user_id: number;
+  user?: User;
+  time_spent: number; // in minutes
+  date: string;
+  notes: string;
+}
+
+export interface WorkLogsResponse {
+  work_logs: WorkLog[];
+  total_logged: number; // total minutes logged
+  time_estimate: number | null; // estimated minutes
+}

@@ -264,6 +264,17 @@ export const cards = {
     }),
   deleteCustomFieldValue: (cardId: number, fieldId: number) =>
     request(`/cards/${cardId}/custom-fields/${fieldId}`, { method: 'DELETE' }),
+
+  // Work Logs (Time Tracking)
+  getWorkLogs: (cardId: number) =>
+    request<{ work_logs: any[]; total_logged: number; time_estimate: number | null }>(`/cards/${cardId}/worklogs`),
+  addWorkLog: (cardId: number, data: { time_spent: number; date: string; notes: string }) =>
+    request<{ work_logs: any[]; total_logged: number; time_estimate: number | null }>(`/cards/${cardId}/worklogs`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  deleteWorkLog: (cardId: number, worklogId: number) =>
+    request(`/cards/${cardId}/worklogs/${worklogId}`, { method: 'DELETE' }),
 };
 
 // Metrics
