@@ -1226,6 +1226,9 @@ func (s *Server) handleCard(w http.ResponseWriter, r *http.Request) {
 		case "custom-fields":
 			s.handleCardCustomFields(w, r, card, parts[2:])
 			return
+		case "worklogs":
+			s.handleCardWorkLogs(w, r, card, parts[2:])
+			return
 		case "children":
 			if r.Method == "GET" {
 				children, err := s.DB.ListChildCards(cardID)
@@ -1454,6 +1457,116 @@ func (s *Server) handleCardComments(w http.ResponseWriter, r *http.Request, card
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(comment)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// Card work logs handler
+
+func (s *Server) handleCardWorkLogs(w http.ResponseWriter, r *http.Request, card *models.Card, subParts []string) {
+	// Handle DELETE /cards/:id/worklogs/:worklogId
+	if len(subParts) > 0 && subParts[0] != "" {
+		worklogID, err := strconv.ParseInt(subParts[0], 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid work log ID", http.StatusBadRequest)
+			return
+		}
+
+		worklog, err := s.DB.GetWorkLogByID(worklogID)
+		if err != nil {
+			http.Error(w, "Work log not found", http.StatusNotFound)
+			return
+		}
+		if worklog.CardID != card.ID {
+			http.Error(w, "Work log not found", http.StatusNotFound)
+			return
+		}
+
+		switch r.Method {
+		case "DELETE":
+			if err := s.DB.DeleteWorkLog(worklogID); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	switch r.Method {
+	case "GET":
+		workLogs, err := s.DB.GetWorkItems(card.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Get total time logged
+		totalTime, err := s.DB.GetTotalTimeLogged(card.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Return both work logs and summary
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"work_logs":     workLogs,
+			"total_logged":  totalTime,
+			"time_estimate": card.TimeEstimate,
+		})
+
+	case "POST":
+		user := getUserFromContext(r.Context())
+		if user == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req struct {
+			TimeSpent int    `json:"time_spent"` // in minutes
+			Date      string `json:"date"`       // YYYY-MM-DD
+			Notes     string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		if req.TimeSpent <= 0 {
+			http.Error(w, "Time spent must be greater than 0", http.StatusBadRequest)
+			return
+		}
+
+		// Parse date
+		var logDate time.Time
+		if req.Date != "" {
+			parsedDate, err := time.Parse("2006-01-02", req.Date)
+			if err != nil {
+				http.Error(w, "Invalid date format (use YYYY-MM-DD)", http.StatusBadRequest)
+				return
+			}
+			logDate = parsedDate
+		} else {
+			logDate = time.Now()
+		}
+
+		if err := s.DB.LogWork(card.ID, user.ID, req.TimeSpent, logDate, req.Notes); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Return updated work logs list
+		workLogs, _ := s.DB.GetWorkItems(card.ID)
+		totalTime, _ := s.DB.GetTotalTimeLogged(card.ID)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"work_logs":     workLogs,
+			"total_logged":  totalTime,
+			"time_estimate": card.TimeEstimate,
+		})
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
