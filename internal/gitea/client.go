@@ -2,6 +2,7 @@ package gitea
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,12 +66,18 @@ type Repository struct {
 	Owner    User   `json:"owner"`
 }
 
-func NewClient(baseURL, apiKey string) *Client {
+func NewClient(baseURL, apiKey string, insecureTLS bool) *Client {
+	transport := &http.Transport{}
+	if insecureTLS {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+
 	return &Client{
 		BaseURL: baseURL,
 		APIKey:  apiKey,
 		HTTP: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 	}
 }

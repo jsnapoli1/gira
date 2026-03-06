@@ -8,25 +8,28 @@ import (
 )
 
 type Config struct {
-	GiteaURL    string `json:"gitea_url"`
-	GiteaAPIKey string `json:"gitea_api_key"`
-	Port        int    `json:"port"`
+	GiteaURL         string `json:"gitea_url"`
+	GiteaAPIKey      string `json:"gitea_api_key"`
+	GiteaInsecureTLS bool   `json:"gitea_insecure_tls"`
+	Port             int    `json:"port"`
 }
 
 func Load() (*Config, error) {
 	// Try environment variables first
 	giteaURL := os.Getenv("GITEA_URL")
 	giteaAPIKey := os.Getenv("GITEA_API_KEY")
-	
+	giteaInsecureTLS := os.Getenv("GITEA_INSECURE_TLS") == "true"
+
 	port := 9002
 	if p := os.Getenv("PORT"); p != "" {
 		fmt.Sscanf(p, "%d", &port)
 	}
 
 	cfg := &Config{
-		GiteaURL:    giteaURL,
-		GiteaAPIKey: giteaAPIKey,
-		Port:        port,
+		GiteaURL:         giteaURL,
+		GiteaAPIKey:      giteaAPIKey,
+		GiteaInsecureTLS: giteaInsecureTLS,
+		Port:             port,
 	}
 
 	// Try loading from config file if env vars not set

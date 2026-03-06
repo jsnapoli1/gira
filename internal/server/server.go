@@ -40,7 +40,7 @@ type Server struct {
 func New(cfg *config.Config, db *database.DB, version string) *Server {
 	var client *gitea.Client
 	if cfg.IsConfigured() {
-		client = gitea.NewClient(cfg.GiteaURL, cfg.GiteaAPIKey)
+		client = gitea.NewClient(cfg.GiteaURL, cfg.GiteaAPIKey, cfg.GiteaInsecureTLS)
 	}
 
 	return &Server{
@@ -54,7 +54,7 @@ func New(cfg *config.Config, db *database.DB, version string) *Server {
 
 func (s *Server) updateClient() {
 	if s.Config.IsConfigured() {
-		s.Client = gitea.NewClient(s.Config.GiteaURL, s.Config.GiteaAPIKey)
+		s.Client = gitea.NewClient(s.Config.GiteaURL, s.Config.GiteaAPIKey, s.Config.GiteaInsecureTLS)
 	}
 }
 
@@ -71,7 +71,7 @@ func (s *Server) getGiteaClientForSwimlane(swimlane *models.Swimlane) (*gitea.Cl
 		if token == "" {
 			return nil, fmt.Errorf("no credentials for custom gitea swimlane")
 		}
-		return gitea.NewClient(swimlane.RepoURL, token), nil
+		return gitea.NewClient(swimlane.RepoURL, token, s.Config.GiteaInsecureTLS), nil
 	default:
 		return nil, fmt.Errorf("unsupported repo source for Gitea client: %s", swimlane.RepoSource)
 	}
@@ -497,7 +497,7 @@ func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "token and url required for custom_gitea", http.StatusBadRequest)
 			return
 		}
-		client := gitea.NewClient(customURL, token)
+		client := gitea.NewClient(customURL, token, s.Config.GiteaInsecureTLS)
 		repos, err := client.GetRepos()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
