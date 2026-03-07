@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -30,6 +31,7 @@ type Claims struct {
 func getJWTSecret() []byte {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
+		log.Println("WARNING: JWT_SECRET is not set. Using default secret. This is insecure for production use!")
 		secret = "zira-default-secret-change-in-production"
 	}
 	return []byte(secret)
