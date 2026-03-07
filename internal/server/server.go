@@ -563,47 +563,16 @@ func (s *Server) handleConfigStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		s.configMu.RLock()
-		giteaURL := s.Config.GiteaURL
-		s.configMu.RUnlock()
+func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
+	s.configMu.RLock()
+	giteaURL := s.Config.GiteaURL
+	s.configMu.RUnlock()
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"gitea_url": giteaURL,
-		})
-		return
-	}
-
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// POST requires admin authentication
-	token := auth.ExtractTokenFromRequest(r)
-	if token == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	claims, err := auth.ValidateToken(token)
-	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
-
-	user, err := s.DB.GetUserByID(claims.UserID)
-	if err != nil || user == nil {
-		http.Error(w, "User not found", http.StatusUnauthorized)
-		return
-	}
-
-	if !user.IsAdmin {
-		http.Error(w, "Admin access required", http.StatusForbidden)
-		return
-	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"gitea_url": giteaURL,
+	})
+}
 
 func (s *Server) handleConfigPost(w http.ResponseWriter, r *http.Request) {
 	var req struct {
