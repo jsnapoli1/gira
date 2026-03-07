@@ -12,7 +12,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [x] **B4: Remove dead code** — Delete the empty `internal/handlers/` package. Remove the unused `RepoClient` interface from `server.go`. Remove `requireConfig` if it gets wired in B3 (it becomes used). Clean up any other dead declarations.
 
-- [ ] **B5: Fix handleConfig inline auth** — `handleConfig` POST manually re-implements `requireAuth`+`requireAdmin`. Split into `handleConfigGet` and `handleConfigPost`, wrap the POST handler with `requireAdmin` middleware, and remove the inline auth code.
+- [x] **B5: Fix handleConfig inline auth** — `handleConfig` POST manually re-implements `requireAuth`+`requireAdmin`. Split into `handleConfigGet` and `handleConfigPost`, wrap the POST handler with `requireAdmin` middleware, and remove the inline auth code.
 
 - [ ] **B6: Fix handleMe inline auth** — `handleMe` manually re-implements `requireAuth`. Wrap it with `requireAuth` middleware and use `getUserFromContext` instead of duplicating token extraction/validation.
 

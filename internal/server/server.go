@@ -147,7 +147,16 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/auth/me", s.handleMe)
 
 	// Config routes (POST requires admin)
-	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			s.handleConfigGet(w, r)
+		case "POST":
+			s.requireAdmin(s.handleConfigPost)(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 	mux.HandleFunc("/api/config/status", s.handleConfigStatus)
 
 	// Admin routes
@@ -489,44 +498,14 @@ func (s *Server) handleConfigStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"gitea_url": s.Config.GiteaURL,
-		})
-		return
-	}
+func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"gitea_url": s.Config.GiteaURL,
+	})
+}
 
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// POST requires admin authentication
-	token := auth.ExtractTokenFromRequest(r)
-	if token == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	claims, err := auth.ValidateToken(token)
-	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
-
-	user, err := s.DB.GetUserByID(claims.UserID)
-	if err != nil || user == nil {
-		http.Error(w, "User not found", http.StatusUnauthorized)
-		return
-	}
-
-	if !user.IsAdmin {
-		http.Error(w, "Admin access required", http.StatusForbidden)
-		return
-	}
-
+func (s *Server) handleConfigPost(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GiteaURL    string `json:"gitea_url"`
 		GiteaAPIKey string `json:"gitea_api_key"`
