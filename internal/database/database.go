@@ -25,6 +25,8 @@ func New() (*DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	db.SetMaxOpenConns(1)
+
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -210,7 +212,6 @@ func (d *DB) migrate() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	)`)
 	migrations = append(migrations, `CREATE INDEX IF NOT EXISTS idx_attachments_card ON attachments(card_id)`)
-
 
 	// Custom fields
 	migrations = append(migrations, `CREATE TABLE IF NOT EXISTS custom_field_definitions (
