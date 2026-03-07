@@ -21,15 +21,6 @@ import (
 	"github.com/jsnapoli/zira/internal/models"
 )
 
-// RepoClient defines the interface for repository clients (Gitea, GitHub)
-type RepoClient interface {
-	GetRepos() ([]interface{}, error)
-	GetIssues(owner, repo string) ([]interface{}, error)
-	CreateIssue(owner, repo, title, body string) (interface{}, error)
-	UpdateIssue(owner, repo string, number int64, title, body string) error
-	UpdateIssueState(owner, repo string, number int64, state string) error
-}
-
 type Server struct {
 	Config  *config.Config
 	Client  *gitea.Client

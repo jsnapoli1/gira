@@ -12,7 +12,6 @@ zira/
 │   ├── config/        # Configuration management
 │   ├── database/      # SQLite database layer
 │   ├── gitea/         # Gitea API client
-│   ├── handlers/      # HTTP handlers (empty, logic in server)
 │   ├── models/        # Data models
 │   └── server/        # HTTP server and routes
 └── frontend/          # React frontend (Vite + TypeScript)

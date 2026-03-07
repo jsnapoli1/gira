@@ -10,7 +10,6 @@ Private packages for the Zira backend. Not importable by external projects.
 | `config` | Load/save configuration from env vars and files |
 | `database` | SQLite database operations and migrations |
 | `gitea` | HTTP client for Gitea API |
-| `handlers` | (Empty - handlers are in server package) |
 | `models` | Data structures shared across packages |
 | `server` | HTTP server, routing, and request handlers |
 
