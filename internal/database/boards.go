@@ -209,7 +209,10 @@ func (d *DB) CreateSwimlaneWithSource(boardID int64, name, repoSource, repoURL, 
 		return nil, fmt.Errorf("failed to create swimlane: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
 	return &models.Swimlane{
 		ID:         id,
 		BoardID:    boardID,
@@ -248,7 +251,10 @@ func (d *DB) CreateColumn(boardID int64, name, state string) (*models.Column, er
 		return nil, fmt.Errorf("failed to create column: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
 	return &models.Column{
 		ID:       id,
 		BoardID:  boardID,

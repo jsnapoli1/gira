@@ -16,7 +16,10 @@ func (d *DB) CreateLabel(boardID int64, name, color string) (*models.Label, erro
 		return nil, fmt.Errorf("failed to create label: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
 	return &models.Label{
 		ID:    id,
 		Name:  name,

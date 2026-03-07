@@ -37,7 +37,10 @@ func (d *DB) CreateOrUpdateUserCredential(userID int64, provider, providerURL, a
 		return nil, fmt.Errorf("insert user credential: %w", err)
 	}
 
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
 	return &models.UserCredential{
 		ID:          id,
 		UserID:      userID,

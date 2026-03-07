@@ -17,7 +17,10 @@ func (d *DB) CreateAttachment(cardID, userID int64, filename string, size int64,
 		return nil, fmt.Errorf("failed to create attachment: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
 	return d.GetAttachmentByID(id)
 }
 

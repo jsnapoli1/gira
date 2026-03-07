@@ -18,7 +18,10 @@ func (d *DB) CreateSprint(boardID int64, name, goal string, startDate, endDate *
 		return nil, fmt.Errorf("failed to create sprint: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
 	return d.GetSprintByID(id)
 }
 

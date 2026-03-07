@@ -27,7 +27,10 @@ func (d *DB) CreateCustomFieldDefinition(boardID int64, name, fieldType, options
 		return nil, fmt.Errorf("failed to create custom field: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
 	return d.GetCustomFieldDefinition(id)
 }
 
