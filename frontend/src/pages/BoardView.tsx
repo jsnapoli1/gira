@@ -1259,12 +1259,9 @@ function CardDetailModal({
 
   // Custom field values state
   const [customFieldValues, setCustomFieldValues] = useState<Record<number, string>>({});
-  const [, setLoadingCustomFields] = useState(true);
 
   // Work logs (time tracking) state
-  const [, setWorkLogs] = useState<any[]>([]);
   const [totalTimeLogged, setTotalTimeLogged] = useState(0);
-  const [, setLoadingWorkLogs] = useState(true);
   const [newWorkLogMinutes, setNewWorkLogMinutes] = useState('');
   const [newWorkLogDate, setNewWorkLogDate] = useState(new Date().toISOString().split('T')[0]);
   const [newWorkLogNotes, setNewWorkLogNotes] = useState('');
@@ -1321,13 +1318,7 @@ function CardDetailModal({
     }
   };
 
-  const formatFileSize = (_bytes: number): string => {
-    // Unused in compact view but keeping for potential future use
-    return '';
-  }; void formatFileSize;
-
   const loadCustomFieldValues = async () => {
-    setLoadingCustomFields(true);
     try {
       const data = await cardsApi.getCustomFieldValues(card.id);
       const values: Record<number, string> = {};
@@ -1340,8 +1331,6 @@ function CardDetailModal({
     } catch (err) {
       console.error('Failed to load custom field values:', err);
       setCustomFieldValues({});
-    } finally {
-      setLoadingCustomFields(false);
     }
   };
 
@@ -1360,17 +1349,12 @@ function CardDetailModal({
   };
 
   const loadWorkLogs = async () => {
-    setLoadingWorkLogs(true);
     try {
       const data = await cardsApi.getWorkLogs(card.id);
-      setWorkLogs(Array.isArray(data.work_logs) ? data.work_logs : []);
       setTotalTimeLogged(data.total_logged || 0);
     } catch (err) {
       console.error('Failed to load work logs:', err);
-      setWorkLogs([]);
       setTotalTimeLogged(0);
-    } finally {
-      setLoadingWorkLogs(false);
     }
   };
 
@@ -1385,7 +1369,6 @@ function CardDetailModal({
         date: newWorkLogDate,
         notes: newWorkLogNotes,
       });
-      setWorkLogs(Array.isArray(data.work_logs) ? data.work_logs : []);
       setTotalTimeLogged(data.total_logged || 0);
       setNewWorkLogMinutes('');
       setNewWorkLogNotes('');
@@ -1396,11 +1379,6 @@ function CardDetailModal({
       setAddingWorkLog(false);
     }
   };
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleDeleteWorkLog = async (_worklogId: number) => {
-    // Unused in compact view - would need work log history section
-  }; void handleDeleteWorkLog;
 
   const formatTimeSpent = (minutes: number): string => {
     const hours = Math.floor(minutes / 60);
