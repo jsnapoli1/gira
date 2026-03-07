@@ -38,11 +38,11 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 ## Frontend - Important
 
-- [ ] **F4: Extract CardDetailModal** — Move `CardDetailModal` (~880 lines) from `BoardView.tsx` into `frontend/src/components/CardDetailModal.tsx`. Pass required props. No behavior changes.
+- [x] **F4: Extract CardDetailModal** — Move `CardDetailModal` (~880 lines) from `BoardView.tsx` into `frontend/src/components/CardDetailModal.tsx`. Pass required props. No behavior changes.
 
-- [ ] **F5: Extract CardItem and DroppableColumn** — Move `CardItem` and `DroppableColumn` from `BoardView.tsx` into their own files in `frontend/src/components/`. Add `React.memo` to both for performance.
+- [x] **F5: Extract CardItem and DroppableColumn** — Move `CardItem` and `DroppableColumn` from `BoardView.tsx` into their own files in `frontend/src/components/`. Add `React.memo` to both for performance.
 
-- [ ] **F6: Extract BacklogView** — Move `BacklogView` (~300 lines) and `AddSwimlaneModal`, `AddCardModal` from `BoardView.tsx` into their own component files.
+- [x] **F6: Extract BacklogView** — Move `BacklogView` (~300 lines) and `AddSwimlaneModal`, `AddCardModal` from `BoardView.tsx` into their own component files.
 
 - [x] **F7: Centralize token access** — Create a single `getToken()` utility that all code uses (API client, SSE hook, attachment upload). Remove the 3 separate `localStorage.getItem` calls.
 
