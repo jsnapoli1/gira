@@ -1249,6 +1249,9 @@ function CardDetailModal({
   // Pending images for comment (pasted)
   const [pendingImages, setPendingImages] = useState<File[]>([]);
 
+  // Image viewer state
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
+
   // Attachments state
   const [attachments, setAttachments] = useState<any[]>([]);
   const [loadingAttachments, setLoadingAttachments] = useState(true);
@@ -1915,13 +1918,13 @@ function CardDetailModal({
                           {comment.attachments && comment.attachments.length > 0 && (
                             <div className="comment-attachments">
                               {comment.attachments.map((att: any) => (
-                                <a key={att.id} href={`/api/attachments/${att.id}`} target="_blank" rel="noopener noreferrer">
-                                  {att.mime_type.startsWith('image/') ? (
-                                    <img src={`/api/attachments/${att.id}`} alt={att.filename} className="comment-attachment-thumb" />
-                                  ) : (
+                                att.mime_type.startsWith('image/') ? (
+                                  <img key={att.id} src={`/api/attachments/${att.id}`} alt={att.filename} className="comment-attachment-thumb" onClick={() => setViewingImage(`/api/attachments/${att.id}`)} style={{ cursor: 'pointer' }} />
+                                ) : (
+                                  <a key={att.id} href={`/api/attachments/${att.id}`} download={att.filename}>
                                     <span className="comment-attachment-file">📎 {att.filename}</span>
-                                  )}
-                                </a>
+                                  </a>
+                                )
                               ))}
                             </div>
                           )}
@@ -1944,7 +1947,7 @@ function CardDetailModal({
                       <div className="pending-images">
                         {pendingImages.map((img, index) => (
                           <div key={index} className="pending-image-item">
-                            <img src={URL.createObjectURL(img)} alt={`Pending ${index + 1}`} />
+                            <img src={URL.createObjectURL(img)} alt={`Pending ${index + 1}`} onClick={() => setViewingImage(URL.createObjectURL(img))} style={{ cursor: 'pointer' }} />
                             <button type="button" className="remove-pending-image" onClick={() => setPendingImages(pendingImages.filter((_, i) => i !== index))}><X size={12} /></button>
                           </div>
                         ))}
@@ -2053,7 +2056,7 @@ function CardDetailModal({
                   {attachments.map((attachment) => (
                     <div key={attachment.id} className="attachment-item-sidebar">
                       {attachment.mime_type.startsWith('image/') ? (
-                        <img src={`/api/attachments/${attachment.id}`} alt={attachment.filename} className="attachment-thumb-small" />
+                        <img src={`/api/attachments/${attachment.id}`} alt={attachment.filename} className="attachment-thumb-small" onClick={() => setViewingImage(`/api/attachments/${attachment.id}`)} style={{ cursor: 'pointer' }} />
                       ) : (
                         <span className="attachment-icon-tiny">📎</span>
                       )}
@@ -2067,6 +2070,14 @@ function CardDetailModal({
           </div>
         </div>
       </div>
+
+      {/* Image Viewer Modal */}
+      {viewingImage && (
+        <div className="image-viewer-overlay" onClick={() => setViewingImage(null)}>
+          <button className="image-viewer-close" onClick={() => setViewingImage(null)}><X size={24} /></button>
+          <img src={viewingImage} alt="Full size" className="image-viewer-img" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }
