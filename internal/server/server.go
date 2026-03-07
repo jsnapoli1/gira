@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jsnapoli/zira/internal/auth"
@@ -22,12 +23,13 @@ import (
 )
 
 type Server struct {
-	Config  *config.Config
-	Client  *gitea.Client
-	DB      *database.DB
-	Port    int
-	Version string
-	SSEHub  *SSEHub
+	Config   *config.Config
+	Client   *gitea.Client
+	configMu sync.RWMutex // protects Config and Client
+	DB       *database.DB
+	Port     int
+	Version  string
+	SSEHub   *SSEHub
 }
 
 func New(cfg *config.Config, db *database.DB, version string) *Server {
@@ -55,6 +57,13 @@ func (s *Server) updateClient() {
 // getGiteaClientForSwimlane returns the appropriate Gitea client for a swimlane
 // Priority: swimlane credentials > user credentials > global config
 func (s *Server) getGiteaClientForSwimlane(swimlane *models.Swimlane, userID int64) (*gitea.Client, error) {
+	// Snapshot config values under read lock to avoid holding lock during DB calls
+	s.configMu.RLock()
+	giteaURL := s.Config.GiteaURL
+	insecureTLS := s.Config.GiteaInsecureTLS
+	globalClient := s.Client
+	s.configMu.RUnlock()
+
 	switch swimlane.RepoSource {
 	case "default_gitea", "":
 		// 1. Check swimlane-specific credentials
@@ -63,22 +72,22 @@ func (s *Server) getGiteaClientForSwimlane(swimlane *models.Swimlane, userID int
 			return nil, err
 		}
 		if token != "" {
-			return gitea.NewClient(s.Config.GiteaURL, token, s.Config.GiteaInsecureTLS), nil
+			return gitea.NewClient(giteaURL, token, insecureTLS), nil
 		}
 
 		// 2. Check user credentials for the default Gitea
 		if userID > 0 {
-			userCred, err := s.DB.GetUserCredential(userID, "gitea", s.Config.GiteaURL)
+			userCred, err := s.DB.GetUserCredential(userID, "gitea", giteaURL)
 			if err != nil {
 				return nil, err
 			}
 			if userCred != nil && userCred.APIToken != "" {
-				return gitea.NewClient(s.Config.GiteaURL, userCred.APIToken, s.Config.GiteaInsecureTLS), nil
+				return gitea.NewClient(giteaURL, userCred.APIToken, insecureTLS), nil
 			}
 		}
 
 		// 3. Fall back to global config
-		return s.Client, nil
+		return globalClient, nil
 
 	case "custom_gitea":
 		// 1. Check swimlane-specific credentials
@@ -87,7 +96,7 @@ func (s *Server) getGiteaClientForSwimlane(swimlane *models.Swimlane, userID int
 			return nil, err
 		}
 		if token != "" {
-			return gitea.NewClient(swimlane.RepoURL, token, s.Config.GiteaInsecureTLS), nil
+			return gitea.NewClient(swimlane.RepoURL, token, insecureTLS), nil
 		}
 
 		// 2. Check user credentials for this custom Gitea URL
@@ -97,7 +106,7 @@ func (s *Server) getGiteaClientForSwimlane(swimlane *models.Swimlane, userID int
 				return nil, err
 			}
 			if userCred != nil && userCred.APIToken != "" {
-				return gitea.NewClient(swimlane.RepoURL, userCred.APIToken, s.Config.GiteaInsecureTLS), nil
+				return gitea.NewClient(swimlane.RepoURL, userCred.APIToken, insecureTLS), nil
 			}
 		}
 
@@ -301,7 +310,10 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) requireConfig(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.Config.IsConfigured() {
+		s.configMu.RLock()
+		configured := s.Config.IsConfigured()
+		s.configMu.RUnlock()
+		if !configured {
 			http.Error(w, "Gitea not configured", http.StatusPreconditionRequired)
 			return
 		}
@@ -479,19 +491,59 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfigStatus(w http.ResponseWriter, r *http.Request) {
+	s.configMu.RLock()
+	configured := s.Config.IsConfigured()
+	giteaURL := s.Config.GiteaURL
+	s.configMu.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"configured": s.Config.IsConfigured(),
-		"gitea_url":  s.Config.GiteaURL,
+		"configured": configured,
+		"gitea_url":  giteaURL,
 	})
 }
 
-func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"gitea_url": s.Config.GiteaURL,
-	})
-}
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		s.configMu.RLock()
+		giteaURL := s.Config.GiteaURL
+		s.configMu.RUnlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"gitea_url": giteaURL,
+		})
+		return
+	}
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// POST requires admin authentication
+	token := auth.ExtractTokenFromRequest(r)
+	if token == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	claims, err := auth.ValidateToken(token)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := s.DB.GetUserByID(claims.UserID)
+	if err != nil || user == nil {
+		http.Error(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
+	if !user.IsAdmin {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
 
 func (s *Server) handleConfigPost(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -510,19 +562,25 @@ func (s *Server) handleConfigPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If API key is empty and config is already set, keep the existing key
-	if req.GiteaAPIKey == "" && !s.Config.IsConfigured() {
+	s.configMu.RLock()
+	configured := s.Config.IsConfigured()
+	s.configMu.RUnlock()
+	if req.GiteaAPIKey == "" && !configured {
 		http.Error(w, "gitea_api_key is required for initial configuration", http.StatusBadRequest)
 		return
 	}
 
+	s.configMu.Lock()
 	s.Config.GiteaURL = req.GiteaURL
 	if req.GiteaAPIKey != "" {
 		s.Config.GiteaAPIKey = req.GiteaAPIKey
 	}
 	s.updateClient()
+	saveErr := s.Config.SaveToFile()
+	s.configMu.Unlock()
 
-	if err := s.Config.SaveToFile(); err != nil {
-		log.Printf("Warning: failed to save config: %v", err)
+	if saveErr != nil {
+		log.Printf("Warning: failed to save config: %v", saveErr)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -539,13 +597,20 @@ func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
 		source = "default_gitea"
 	}
 
+	// Snapshot config/client under read lock
+	s.configMu.RLock()
+	configured := s.Config.IsConfigured()
+	client := s.Client
+	insecureTLS := s.Config.GiteaInsecureTLS
+	s.configMu.RUnlock()
+
 	switch source {
 	case "default_gitea":
-		if !s.Config.IsConfigured() {
+		if !configured {
 			http.Error(w, "Gitea not configured", http.StatusPreconditionRequired)
 			return
 		}
-		repos, err := s.Client.GetRepos()
+		repos, err := client.GetRepos()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -558,8 +623,8 @@ func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "token and url required for custom_gitea", http.StatusBadRequest)
 			return
 		}
-		client := gitea.NewClient(customURL, token, s.Config.GiteaInsecureTLS)
-		repos, err := client.GetRepos()
+		customClient := gitea.NewClient(customURL, token, insecureTLS)
+		repos, err := customClient.GetRepos()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -595,7 +660,11 @@ func (s *Server) handleIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issues, err := s.Client.GetIssues(owner, repo)
+	s.configMu.RLock()
+	client := s.Client
+	s.configMu.RUnlock()
+
+	issues, err := client.GetIssues(owner, repo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -621,7 +690,11 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issue, err := s.Client.GetIssue(owner, repo, number)
+	s.configMu.RLock()
+	client := s.Client
+	s.configMu.RUnlock()
+
+	issue, err := client.GetIssue(owner, repo, number)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -640,7 +713,11 @@ func (s *Server) handleLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	labels, err := s.Client.GetLabels(owner, repo)
+	s.configMu.RLock()
+	client := s.Client
+	s.configMu.RUnlock()
+
+	labels, err := client.GetLabels(owner, repo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -659,7 +736,11 @@ func (s *Server) handleMilestones(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	milestones, err := s.Client.GetMilestones(owner, repo)
+	s.configMu.RLock()
+	client := s.Client
+	s.configMu.RUnlock()
+
+	milestones, err := client.GetMilestones(owner, repo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2900,7 +2981,10 @@ func (s *Server) handleTestCredential(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "provider_url is required for Gitea", http.StatusBadRequest)
 			return
 		}
-		client := gitea.NewClient(req.ProviderURL, req.APIToken, s.Config.GiteaInsecureTLS)
+		s.configMu.RLock()
+		insecureTLS := s.Config.GiteaInsecureTLS
+		s.configMu.RUnlock()
+		client := gitea.NewClient(req.ProviderURL, req.APIToken, insecureTLS)
 		_, testErr = client.GetRepos()
 	case "github":
 		client := github.NewClient(req.APIToken)
