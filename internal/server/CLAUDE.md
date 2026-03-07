@@ -6,8 +6,18 @@ Main HTTP server with routing and request handlers.
 
 | File | Purpose |
 |------|---------|
-| `server.go` | Server struct, routes, all handlers |
+| `server.go` | Server struct, `New()`, `Start()`, middleware, helpers |
 | `context.go` | Request context helpers |
+| `sse.go` | SSE hub and real-time board event streaming |
+| `auth_handlers.go` | Signup, login, me handlers |
+| `config_handlers.go` | Config get/post/status handlers |
+| `board_handlers.go` | Board CRUD, swimlanes, columns, members, labels, custom fields |
+| `card_handlers.go` | Card CRUD, comments, attachments, assignees, labels, worklogs, custom fields |
+| `sprint_handlers.go` | Sprint CRUD, burndown, velocity metrics |
+| `notification_handlers.go` | Notification list, read, delete |
+| `credential_handlers.go` | User credential CRUD and test |
+| `gitea_handlers.go` | Gitea/GitHub proxy (repos, issues, labels, milestones) |
+| `admin_handlers.go` | Admin user management, user listing |
 
 ## Server Structure
 

@@ -15,7 +15,7 @@ import (
 
 // BoardEvent represents an event sent to clients via SSE
 type BoardEvent struct {
-	Type      string      `json:"type"`      // card_created, card_updated, card_moved, card_deleted
+	Type      string      `json:"type"` // card_created, card_updated, card_moved, card_deleted
 	BoardID   int64       `json:"board_id"`
 	Payload   interface{} `json:"payload"`
 	Timestamp time.Time   `json:"timestamp"`

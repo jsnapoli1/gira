@@ -24,7 +24,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [x] **B9: Add mutex for Config/Client updates** — `updateClient()` writes `s.Client` and `s.Config` fields without synchronization. Add a `sync.RWMutex` to `Server`, lock on writes in `updateClient`/`handleConfig`, and read-lock in handlers that access `s.Client`.
 
-- [ ] **B10: Split server.go into handler files** — Extract handlers into domain-specific files within `internal/server/`: `auth_handlers.go`, `board_handlers.go`, `card_handlers.go`, `sprint_handlers.go`, `label_handlers.go`, `comment_handlers.go`, `attachment_handlers.go`, `notification_handlers.go`, `credential_handlers.go`, `gitea_handlers.go`. Keep `server.go` for struct definition, `Start()`, middleware, and route registration only.
+- [x] **B10: Split server.go into handler files** — Extract handlers into domain-specific files within `internal/server/`: `auth_handlers.go`, `board_handlers.go`, `card_handlers.go`, `sprint_handlers.go`, `notification_handlers.go`, `credential_handlers.go`, `gitea_handlers.go`, `config_handlers.go`, `admin_handlers.go`. Keep `server.go` for struct definition, `Start()`, middleware, and route registration only.
 
 - [ ] **B11: Use Go 1.22 routing patterns** — Replace manual `strings.TrimPrefix` + `strings.Split` routing with Go 1.22's `mux.HandleFunc("GET /api/boards/{id}", ...)` pattern throughout. Do this after B10 so the handler files are already split.
 
