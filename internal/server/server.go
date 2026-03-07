@@ -369,6 +369,66 @@ func (s *Server) requireBoardRole(minRole models.BoardRole, next http.HandlerFun
 	}
 }
 
+// checkBoardMembership verifies the authenticated user has at least the given
+// minimum role on the specified board. It returns true if the user is allowed,
+// or false after writing an HTTP error response.
+func (s *Server) checkBoardMembership(w http.ResponseWriter, r *http.Request, boardID int64, minRole models.BoardRole) bool {
+	user := getUserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return false
+	}
+
+	// App admins can access any board
+	if user.IsAdmin {
+		return true
+	}
+
+	// Check board ownership
+	board, err := s.DB.GetBoardByID(boardID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	if board == nil {
+		http.Error(w, "Board not found", http.StatusNotFound)
+		return false
+	}
+	if board.OwnerID == user.ID {
+		return true
+	}
+
+	// Check membership
+	isMember, role, err := s.DB.IsBoardMember(boardID, user.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	if !isMember {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return false
+	}
+
+	boardRole := models.BoardRole(role)
+	switch minRole {
+	case models.BoardRoleViewer:
+		if boardRole.CanView() {
+			return true
+		}
+	case models.BoardRoleMember:
+		if boardRole.CanEditCards() {
+			return true
+		}
+	case models.BoardRoleAdmin:
+		if boardRole.CanEditBoard() {
+			return true
+		}
+	}
+
+	http.Error(w, "Insufficient permissions", http.StatusForbidden)
+	return false
+}
+
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
@@ -1268,6 +1328,15 @@ func (s *Server) handleSprints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check board membership: viewers can list sprints, members can create
+	minRole := models.BoardRoleViewer
+	if r.Method == "POST" {
+		minRole = models.BoardRoleMember
+	}
+	if !s.checkBoardMembership(w, r, boardID, minRole) {
+		return
+	}
+
 	switch r.Method {
 	case "GET":
 		sprints, err := s.DB.ListSprintsForBoard(boardID)
@@ -1455,6 +1524,11 @@ func (s *Server) handleCards(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Check board membership: members can create cards
+		if !s.checkBoardMembership(w, r, req.BoardID, models.BoardRoleMember) {
 			return
 		}
 
@@ -1809,6 +1883,20 @@ func (s *Server) handleBurndown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Look up sprint to get board_id, then check board membership
+	sprint, err := s.DB.GetSprintByID(sprintID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if sprint == nil {
+		http.Error(w, "Sprint not found", http.StatusNotFound)
+		return
+	}
+	if !s.checkBoardMembership(w, r, sprint.BoardID, models.BoardRoleViewer) {
+		return
+	}
+
 	metrics, err := s.DB.GetSprintMetrics(sprintID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1838,6 +1926,11 @@ func (s *Server) handleVelocity(w http.ResponseWriter, r *http.Request) {
 	boardID, err := strconv.ParseInt(boardIDStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid board_id", http.StatusBadRequest)
+		return
+	}
+
+	// Check board membership: viewers can see velocity data
+	if !s.checkBoardMembership(w, r, boardID, models.BoardRoleViewer) {
 		return
 	}
 

@@ -52,7 +52,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [x] **S1: Warn on default JWT secret** — In `internal/auth/auth.go`, log a loud warning at startup if `JWT_SECRET` is not set. In production (detect via env var or build flag), refuse to start.
 
-- [ ] **S2: Add board membership checks** — `handleSprints`, `handleCards` creation, `handleBurndown`, and `handleVelocity` do not verify board membership. Add `requireBoardRole` or equivalent checks.
+- [x] **S2: Add board membership checks** — `handleSprints`, `handleCards` creation, `handleBurndown`, and `handleVelocity` do not verify board membership. Add `requireBoardRole` or equivalent checks.
 
 ## Infrastructure
 
