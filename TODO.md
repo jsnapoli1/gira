@@ -44,7 +44,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [ ] **F6: Extract BacklogView** — Move `BacklogView` (~300 lines) and `AddSwimlaneModal`, `AddCardModal` from `BoardView.tsx` into their own component files.
 
-- [x] **F7: Centralize token access** — Create a single `getToken()` utility that all code uses (API client, SSE hook, attachment upload). Remove the 3 separate `localStorage.getItem` calls.
+- [ ] **F7: Centralize token access** — Create a single `getToken()` utility that all code uses (API client, SSE hook, attachment upload). Remove the 3 separate `localStorage.getItem` calls.
 
 - [ ] **F8: Add error feedback for mutations** — Add a simple toast/notification system so users see success/failure for card moves, creates, deletes, sprint changes, etc. Replace `console.error`-only patterns.
 
@@ -56,8 +56,8 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 ## Infrastructure
 
-- [ ] **I1: Fix Dockerfile EXPOSE** — Change `EXPOSE 8080` to `EXPOSE 9002` to match the actual port, or make the app respect the PORT env var consistently.
+- [x] **I1: Fix Dockerfile EXPOSE** — Change `EXPOSE 8080` to `EXPOSE 9002` to match the actual port, or make the app respect the PORT env var consistently.
 
-- [ ] **I2: Pin Alpine version** — Change `FROM alpine:latest` to `FROM alpine:3.21` in the Dockerfile runtime stage.
+- [x] **I2: Pin Alpine version** — Change `FROM alpine:latest` to `FROM alpine:3.21` in the Dockerfile runtime stage.
 
-- [ ] **I3: Add non-root user** — Add `RUN adduser -D appuser` and `USER appuser` to the Dockerfile runtime stage.
+- [x] **I3: Add non-root user** — Add `RUN adduser -D appuser` and `USER appuser` to the Dockerfile runtime stage.
