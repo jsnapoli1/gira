@@ -1,3 +1,27 @@
+import type {
+  AuthResponse,
+  User,
+  Board,
+  Column,
+  Swimlane,
+  Card,
+  Sprint,
+  SprintMetrics,
+  VelocityPoint,
+  Label,
+  Comment,
+  Attachment,
+  CustomFieldDefinition,
+  CustomFieldValue,
+  BoardMember,
+  Repository,
+  GiteaIssue,
+  Notification,
+  NotificationsResponse,
+  WorkLogsResponse,
+  UserCredential,
+} from '../types';
+
 const API_BASE = '/api';
 
 function getToken(): string | null {
@@ -41,18 +65,18 @@ async function request<T>(
 // Auth
 export const auth = {
   signup: (email: string, password: string, displayName: string) =>
-    request<{ user: any; token: string }>('/auth/signup', {
+    request<AuthResponse>('/auth/signup', {
       method: 'POST',
       body: JSON.stringify({ email, password, display_name: displayName }),
     }),
 
   login: (email: string, password: string) =>
-    request<{ user: any; token: string }>('/auth/login', {
+    request<AuthResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
 
-  me: () => request<any>('/auth/me'),
+  me: () => request<User>('/auth/me'),
 };
 
 // Config
@@ -67,15 +91,15 @@ export const config = {
 
 // Boards
 export const boards = {
-  list: () => request<any[]>('/boards'),
-  get: (id: number) => request<any>(`/boards/${id}`),
+  list: () => request<Board[]>('/boards'),
+  get: (id: number) => request<Board>(`/boards/${id}`),
   create: (name: string, description: string) =>
-    request<any>('/boards', {
+    request<Board>('/boards', {
       method: 'POST',
       body: JSON.stringify({ name, description }),
     }),
   update: (id: number, name: string, description: string) =>
-    request<any>(`/boards/${id}`, {
+    request<Board>(`/boards/${id}`, {
       method: 'PUT',
       body: JSON.stringify({ name, description }),
     }),
@@ -83,7 +107,7 @@ export const boards = {
     request(`/boards/${id}`, { method: 'DELETE' }),
 
   // Swimlanes
-  getSwimlanes: (boardId: number) => request<any[]>(`/boards/${boardId}/swimlanes`),
+  getSwimlanes: (boardId: number) => request<Swimlane[]>(`/boards/${boardId}/swimlanes`),
   addSwimlane: (boardId: number, data: {
     name: string;
     repo_source?: 'default_gitea' | 'custom_gitea' | 'github';
@@ -94,15 +118,15 @@ export const boards = {
     color?: string;
     api_token?: string;
   }) =>
-    request<any>(`/boards/${boardId}/swimlanes`, {
+    request<Swimlane>(`/boards/${boardId}/swimlanes`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
   // Columns
-  getColumns: (boardId: number) => request<any[]>(`/boards/${boardId}/columns`),
+  getColumns: (boardId: number) => request<Column[]>(`/boards/${boardId}/columns`),
   addColumn: (boardId: number, name: string, state: string) =>
-    request<any>(`/boards/${boardId}/columns`, {
+    request<Column>(`/boards/${boardId}/columns`, {
       method: 'POST',
       body: JSON.stringify({ name, state }),
     }),
@@ -119,10 +143,10 @@ export const boards = {
     request(`/boards/${boardId}/swimlanes/${swimlaneId}`, { method: 'DELETE' }),
 
   // Cards
-  getCards: (boardId: number) => request<any[]>(`/boards/${boardId}/cards`),
+  getCards: (boardId: number) => request<Card[]>(`/boards/${boardId}/cards`),
 
   // Members
-  getMembers: (boardId: number) => request<any[]>(`/boards/${boardId}/members`),
+  getMembers: (boardId: number) => request<BoardMember[]>(`/boards/${boardId}/members`),
   addMember: (boardId: number, userId: number, role: string) =>
     request(`/boards/${boardId}/members`, {
       method: 'POST',
@@ -132,9 +156,9 @@ export const boards = {
     request(`/boards/${boardId}/members/${userId}`, { method: 'DELETE' }),
 
   // Labels
-  getLabels: (boardId: number) => request<any[]>(`/boards/${boardId}/labels`),
+  getLabels: (boardId: number) => request<Label[]>(`/boards/${boardId}/labels`),
   createLabel: (boardId: number, name: string, color: string) =>
-    request<any>(`/boards/${boardId}/labels`, {
+    request<Label>(`/boards/${boardId}/labels`, {
       method: 'POST',
       body: JSON.stringify({ name, color }),
     }),
@@ -147,14 +171,14 @@ export const boards = {
     request(`/boards/${boardId}/labels/${labelId}`, { method: 'DELETE' }),
 
   // Custom Fields
-  getCustomFields: (boardId: number) => request<any[]>(`/boards/${boardId}/custom-fields`),
+  getCustomFields: (boardId: number) => request<CustomFieldDefinition[]>(`/boards/${boardId}/custom-fields`),
   createCustomField: (boardId: number, name: string, fieldType: string, options: string, required: boolean) =>
-    request<any>(`/boards/${boardId}/custom-fields`, {
+    request<CustomFieldDefinition>(`/boards/${boardId}/custom-fields`, {
       method: 'POST',
       body: JSON.stringify({ name, field_type: fieldType, options, required }),
     }),
   updateCustomField: (boardId: number, fieldId: number, name: string, fieldType: string, options: string, required: boolean) =>
-    request<any>(`/boards/${boardId}/custom-fields/${fieldId}`, {
+    request<CustomFieldDefinition>(`/boards/${boardId}/custom-fields/${fieldId}`, {
       method: 'PUT',
       body: JSON.stringify({ name, field_type: fieldType, options, required }),
     }),
@@ -164,15 +188,15 @@ export const boards = {
 
 // Sprints
 export const sprints = {
-  list: (boardId: number) => request<any[]>(`/sprints?board_id=${boardId}`),
-  get: (id: number) => request<any>(`/sprints/${id}`),
+  list: (boardId: number) => request<Sprint[]>(`/sprints?board_id=${boardId}`),
+  get: (id: number) => request<Sprint>(`/sprints/${id}`),
   create: (boardId: number, name: string, goal: string, startDate?: string, endDate?: string) =>
-    request<any>(`/sprints?board_id=${boardId}`, {
+    request<Sprint>(`/sprints?board_id=${boardId}`, {
       method: 'POST',
       body: JSON.stringify({ name, goal, start_date: startDate, end_date: endDate }),
     }),
   update: (id: number, data: { name?: string; goal?: string; status?: string; start_date?: string; end_date?: string }) =>
-    request<any>(`/sprints/${id}`, {
+    request<Sprint>(`/sprints/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
@@ -182,8 +206,8 @@ export const sprints = {
     request(`/sprints/${id}/start`, { method: 'POST' }),
   complete: (id: number) =>
     request(`/sprints/${id}/complete`, { method: 'POST' }),
-  getCards: (id: number) => request<any[]>(`/sprints/${id}/cards`),
-  getMetrics: (id: number) => request<any[]>(`/sprints/${id}/metrics`),
+  getCards: (id: number) => request<Card[]>(`/sprints/${id}/cards`),
+  getMetrics: (id: number) => request<SprintMetrics[]>(`/sprints/${id}/metrics`),
 };
 
 // Cards
@@ -200,17 +224,17 @@ export const cards = {
     story_points?: number | null;
     priority?: string;
   }) =>
-    request<any>('/cards', {
+    request<Card>('/cards', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  get: (id: number) => request<any>(`/cards/${id}`),
+  get: (id: number) => request<Card>(`/cards/${id}`),
   update: (id: number, data: { title: string; description: string; story_points?: number | null; priority?: string; due_date?: string | null; time_estimate?: number | null; parent_id?: number | null; issue_type?: string }) =>
-    request<any>(`/cards/${id}`, {
+    request<Card>(`/cards/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
-  getChildren: (id: number) => request<any[]>(`/cards/${id}/children`),
+  getChildren: (id: number) => request<Card[]>(`/cards/${id}/children`),
   delete: (id: number) =>
     request(`/cards/${id}`, { method: 'DELETE' }),
   move: (id: number, columnId: number, state: string) =>
@@ -230,19 +254,19 @@ export const cards = {
     }),
   removeAssignee: (id: number, userId: number) =>
     request(`/cards/${id}/assignees/${userId}`, { method: 'DELETE' }),
-  getAssignees: (id: number) => request<any[]>(`/cards/${id}/assignees`),
-  getComments: (id: number) => request<any[]>(`/cards/${id}/comments`),
+  getAssignees: (id: number) => request<User[]>(`/cards/${id}/assignees`),
+  getComments: (id: number) => request<Comment[]>(`/cards/${id}/comments`),
   addComment: (id: number, body: string) =>
-    request<any>(`/cards/${id}/comments`, {
+    request<Comment>(`/cards/${id}/comments`, {
       method: 'POST',
       body: JSON.stringify({ body }),
     }),
   addCommentWithAttachments: (id: number, body: string, attachmentIds: number[]) =>
-    request<any>(`/cards/${id}/comments`, {
+    request<Comment>(`/cards/${id}/comments`, {
       method: 'POST',
       body: JSON.stringify({ body, attachment_ids: attachmentIds }),
     }),
-  getLabels: (id: number) => request<any[]>(`/cards/${id}/labels`),
+  getLabels: (id: number) => request<Label[]>(`/cards/${id}/labels`),
   addLabel: (id: number, labelId: number) =>
     request(`/cards/${id}/labels`, {
       method: 'POST',
@@ -250,8 +274,8 @@ export const cards = {
     }),
   removeLabel: (id: number, labelId: number) =>
     request(`/cards/${id}/labels/${labelId}`, { method: 'DELETE' }),
-  getAttachments: (id: number) => request<any[]>(`/cards/${id}/attachments`),
-  uploadAttachment: async (id: number, file: File) => {
+  getAttachments: (id: number) => request<Attachment[]>(`/cards/${id}/attachments`),
+  uploadAttachment: async (id: number, file: File): Promise<Attachment> => {
     const token = localStorage.getItem('token');
     const formData = new FormData();
     formData.append('file', file);
@@ -270,9 +294,9 @@ export const cards = {
     request(`/cards/${cardId}/attachments/${attachmentId}`, { method: 'DELETE' }),
 
   // Custom Field Values
-  getCustomFieldValues: (cardId: number) => request<any[]>(`/cards/${cardId}/custom-fields`),
+  getCustomFieldValues: (cardId: number) => request<CustomFieldValue[]>(`/cards/${cardId}/custom-fields`),
   setCustomFieldValue: (cardId: number, fieldId: number, value: string) =>
-    request<any>(`/cards/${cardId}/custom-fields/${fieldId}`, {
+    request<CustomFieldValue>(`/cards/${cardId}/custom-fields/${fieldId}`, {
       method: 'PUT',
       body: JSON.stringify({ value }),
     }),
@@ -281,9 +305,9 @@ export const cards = {
 
   // Work Logs (Time Tracking)
   getWorkLogs: (cardId: number) =>
-    request<{ work_logs: any[]; total_logged: number; time_estimate: number | null }>(`/cards/${cardId}/worklogs`),
+    request<WorkLogsResponse>(`/cards/${cardId}/worklogs`),
   addWorkLog: (cardId: number, data: { time_spent: number; date: string; notes: string }) =>
-    request<{ work_logs: any[]; total_logged: number; time_estimate: number | null }>(`/cards/${cardId}/worklogs`, {
+    request<WorkLogsResponse>(`/cards/${cardId}/worklogs`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -293,8 +317,8 @@ export const cards = {
 
 // Metrics
 export const metrics = {
-  burndown: (sprintId: number) => request<any[]>(`/metrics/burndown?sprint_id=${sprintId}`),
-  velocity: (boardId: number) => request<any[]>(`/metrics/velocity?board_id=${boardId}`),
+  burndown: (sprintId: number) => request<SprintMetrics[]>(`/metrics/burndown?sprint_id=${sprintId}`),
+  velocity: (boardId: number) => request<VelocityPoint[]>(`/metrics/velocity?board_id=${boardId}`),
 };
 
 // Repos (supports multiple sources)
@@ -305,9 +329,9 @@ export const repos = {
     if (token) params.set('token', token);
     if (url) params.set('url', url);
     const query = params.toString();
-    return request<any[]>(`/repos${query ? `?${query}` : ''}`);
+    return request<Repository[]>(`/repos${query ? `?${query}` : ''}`);
   },
-  getIssues: (owner: string, repo: string) => request<any[]>(`/issues?owner=${owner}&repo=${repo}`),
+  getIssues: (owner: string, repo: string) => request<GiteaIssue[]>(`/issues?owner=${owner}&repo=${repo}`),
 };
 
 // Backwards compatibility alias
@@ -315,22 +339,22 @@ export const gitea = repos;
 
 // Users
 export const users = {
-  list: () => request<any[]>('/users'),
+  list: () => request<User[]>('/users'),
 };
 
 // Notifications
 export const notifications = {
-  list: (limit?: number) => request<{ notifications: any[]; unread_count: number }>(`/notifications${limit ? `?limit=${limit}` : ''}`),
-  markRead: (id: number) => request<any>(`/notifications/${id}`, { method: 'PUT' }),
+  list: (limit?: number) => request<NotificationsResponse>(`/notifications${limit ? `?limit=${limit}` : ''}`),
+  markRead: (id: number) => request<Notification>(`/notifications/${id}`, { method: 'PUT' }),
   markAllRead: () => request<void>('/notifications?action=mark-all-read', { method: 'POST' }),
   delete: (id: number) => request<void>(`/notifications/${id}`, { method: 'DELETE' }),
 };
 
 // Admin
 export const admin = {
-  listUsers: () => request<any[]>('/admin/users'),
+  listUsers: () => request<User[]>('/admin/users'),
   setUserAdmin: (userId: number, isAdmin: boolean) =>
-    request<any>('/admin/users', {
+    request<User>('/admin/users', {
       method: 'PUT',
       body: JSON.stringify({ user_id: userId, is_admin: isAdmin }),
     }),
@@ -338,11 +362,11 @@ export const admin = {
 
 // User Credentials
 export const credentials = {
-  list: () => request<any[]>('/user/credentials'),
+  list: () => request<UserCredential[]>('/user/credentials'),
   create: (data: { provider: string; provider_url?: string; api_token: string; display_name?: string }) =>
-    request<any>('/user/credentials', { method: 'POST', body: JSON.stringify(data) }),
+    request<UserCredential>('/user/credentials', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: { api_token?: string; display_name?: string }) =>
-    request<any>(`/user/credentials/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    request<UserCredential>(`/user/credentials/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: number) =>
     request(`/user/credentials/${id}`, { method: 'DELETE' }),
   test: (data: { provider: string; provider_url?: string; api_token: string }) =>

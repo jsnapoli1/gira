@@ -213,3 +213,40 @@ export interface UserCredential {
   has_token: boolean;
   created_at: string;
 }
+
+export interface BoardMember {
+  id: number;
+  board_id: number;
+  user_id: number;
+  role: string;
+  created_at: string;
+}
+
+export interface GiteaUser {
+  id: number;
+  login: string;
+  full_name: string;
+  email: string;
+  avatar_url: string;
+}
+
+export interface GiteaMilestone {
+  id: number;
+  title: string;
+  description: string;
+  state: string;
+  due_on: string;
+}
+
+export interface GiteaIssue {
+  id: number;
+  number: number;
+  title: string;
+  body: string;
+  state: string;
+  labels: Label[];
+  assignees: GiteaUser[];
+  milestone: GiteaMilestone | null;
+  created_at: string;
+  updated_at: string;
+}
