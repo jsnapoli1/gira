@@ -45,7 +45,7 @@ test.describe('Custom Fields', () => {
   test('should not show Custom Fields tab when no custom fields exist', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Custom Fields tab should not be visible
     await expect(page.locator('.tab-btn:has-text("Custom Fields")')).not.toBeVisible();
@@ -76,7 +76,7 @@ test.describe('Custom Fields', () => {
 
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Custom Fields tab should now be visible
     await expect(page.locator('.tab-btn:has-text("Custom Fields")')).toBeVisible();
@@ -113,7 +113,7 @@ test.describe('Custom Fields', () => {
 
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Custom Fields tab
     await page.click('.tab-btn:has-text("Custom Fields")');
@@ -127,11 +127,11 @@ test.describe('Custom Fields', () => {
 
     // Close and reopen to verify persistence
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
-    await expect(page.locator('.card-detail-modal')).not.toBeVisible();
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
 
     // Reopen the card
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Custom Fields tab
     await page.click('.tab-btn:has-text("Custom Fields")');
@@ -169,7 +169,7 @@ test.describe('Custom Fields', () => {
 
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Custom Fields tab
     await page.click('.tab-btn:has-text("Custom Fields")');
@@ -182,11 +182,11 @@ test.describe('Custom Fields', () => {
 
     // Close and reopen to verify persistence
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
-    await expect(page.locator('.card-detail-modal')).not.toBeVisible();
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
 
     // Reopen the card
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Custom Fields tab
     await page.click('.tab-btn:has-text("Custom Fields")');
@@ -219,7 +219,7 @@ test.describe('Custom Fields', () => {
 
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Custom Fields tab
     await page.click('.tab-btn:has-text("Custom Fields")');
@@ -236,11 +236,11 @@ test.describe('Custom Fields', () => {
 
     // Close and reopen to verify persistence
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
-    await expect(page.locator('.card-detail-modal')).not.toBeVisible();
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
 
     // Reopen the card
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Custom Fields tab
     await page.click('.tab-btn:has-text("Custom Fields")');

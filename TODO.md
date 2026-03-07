@@ -34,7 +34,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [x] **F2: Remove dead code from BoardView** — Remove the dead `formatFileSize`, `handleDeleteWorkLog` functions and their `void` suppressions. Remove unused state variables (`workLogs`, `loadingWorkLogs`, `loadingCustomFields`) and their setters. Remove associated eslint-disable comments.
 
-- [ ] **F3: Fix stale E2E tests** — Update `frontend/e2e/worklogs.spec.ts` to match the current compact time-tracking UI (`.time-tracking-compact`, `.time-input-mini`). Update any specs referencing `.card-detail-modal` to use `.card-detail-modal-unified`. Run E2E suite to verify.
+- [x] **F3: Fix stale E2E tests** — Update `frontend/e2e/worklogs.spec.ts` to match the current compact time-tracking UI (`.time-tracking-compact`, `.time-input-mini`). Update any specs referencing `.card-detail-modal` to use `.card-detail-modal-unified`. Run E2E suite to verify.
 
 ## Frontend - Important
 

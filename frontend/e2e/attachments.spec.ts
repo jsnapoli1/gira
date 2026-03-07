@@ -54,7 +54,7 @@ test.describe('Attachments', () => {
   test('should show empty attachments state', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Attachments tab
     await page.click('.tab-btn:has-text("Attachments")');
@@ -67,7 +67,7 @@ test.describe('Attachments', () => {
   test('should upload an attachment', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Attachments tab
     await page.click('.tab-btn:has-text("Attachments")');
@@ -84,7 +84,7 @@ test.describe('Attachments', () => {
   test('should show attachment file size', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Attachments tab
     await page.click('.tab-btn:has-text("Attachments")');
@@ -103,7 +103,7 @@ test.describe('Attachments', () => {
 
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Attachments tab
     await page.click('.tab-btn:has-text("Attachments")');
@@ -125,7 +125,7 @@ test.describe('Attachments', () => {
   test('should persist attachments after closing modal', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Attachments tab
     await page.click('.tab-btn:has-text("Attachments")');
@@ -139,11 +139,11 @@ test.describe('Attachments', () => {
 
     // Close modal by clicking overlay
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
-    await expect(page.locator('.card-detail-modal')).not.toBeVisible();
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
 
     // Reopen the card
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Attachments tab
     await page.click('.tab-btn:has-text("Attachments")');
@@ -155,7 +155,7 @@ test.describe('Attachments', () => {
   test('should have upload button enabled', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Attachments tab
     await page.click('.tab-btn:has-text("Attachments")');

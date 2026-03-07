@@ -38,7 +38,7 @@ test.describe('Comments', () => {
   test('should show empty comments state', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Conversations tab
     await page.click('.tab-btn:has-text("Conversations")');
@@ -51,7 +51,7 @@ test.describe('Comments', () => {
   test('should add a comment to a card', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Conversations tab
     await page.click('.tab-btn:has-text("Conversations")');
@@ -68,7 +68,7 @@ test.describe('Comments', () => {
   test('should show comment author and timestamp', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Conversations tab
     await page.click('.tab-btn:has-text("Conversations")');
@@ -87,7 +87,7 @@ test.describe('Comments', () => {
   test('should add multiple comments in order', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Conversations tab
     await page.click('.tab-btn:has-text("Conversations")');
@@ -117,7 +117,7 @@ test.describe('Comments', () => {
   test('should persist comments after closing modal', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Conversations tab
     await page.click('.tab-btn:has-text("Conversations")');
@@ -129,11 +129,11 @@ test.describe('Comments', () => {
 
     // Close modal by clicking overlay
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
-    await expect(page.locator('.card-detail-modal')).not.toBeVisible();
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
 
     // Reopen the card
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Conversations tab
     await page.click('.tab-btn:has-text("Conversations")');
@@ -145,7 +145,7 @@ test.describe('Comments', () => {
   test('should clear textarea after posting comment', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Conversations tab
     await page.click('.tab-btn:has-text("Conversations")');
@@ -164,7 +164,7 @@ test.describe('Comments', () => {
   test('should disable submit button when textarea is empty', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Click on Conversations tab
     await page.click('.tab-btn:has-text("Conversations")');

@@ -45,7 +45,7 @@ test.describe('Issue Hierarchy', () => {
   test('should show issue type in card detail', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Should show issue type in card detail meta
     await expect(page.locator('.card-issue-type')).toBeVisible();
@@ -55,100 +55,100 @@ test.describe('Issue Hierarchy', () => {
   test('should be able to change issue type to epic', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Enter edit mode
     await page.click('button:has-text("Edit")');
     await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
 
     // Change issue type to epic using the first select in the modal
-    await page.locator('.card-detail-modal select').first().selectOption({ label: 'Epic' });
+    await page.locator('.card-detail-modal-unified select').first().selectOption({ label: 'Epic' });
 
     // Save
-    await page.click('.card-detail-modal button:has-text("Save")');
+    await page.click('.card-detail-modal-unified button:has-text("Save")');
 
     // Wait for save to complete and edit mode to exit
     await expect(page.locator('.card-detail-edit')).not.toBeVisible({ timeout: 5000 });
 
     // Should show epic type in the meta section
-    await expect(page.locator('.card-detail-modal .card-issue-type')).toContainText('epic', { timeout: 5000 });
+    await expect(page.locator('.card-detail-modal-unified .card-issue-type')).toContainText('epic', { timeout: 5000 });
   });
 
   test('should be able to change issue type to story', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Enter edit mode
     await page.click('button:has-text("Edit")');
     await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
 
     // Change issue type to story using the first select in the modal
-    await page.locator('.card-detail-modal select').first().selectOption({ label: 'Story' });
+    await page.locator('.card-detail-modal-unified select').first().selectOption({ label: 'Story' });
 
     // Save
-    await page.click('.card-detail-modal button:has-text("Save")');
+    await page.click('.card-detail-modal-unified button:has-text("Save")');
 
     // Wait for save to complete and edit mode to exit
     await expect(page.locator('.card-detail-edit')).not.toBeVisible({ timeout: 5000 });
 
     // Should show story type in the meta section
-    await expect(page.locator('.card-detail-modal .card-issue-type')).toContainText('story', { timeout: 5000 });
+    await expect(page.locator('.card-detail-modal-unified .card-issue-type')).toContainText('story', { timeout: 5000 });
   });
 
   test('should be able to change issue type to subtask', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Enter edit mode
     await page.click('button:has-text("Edit")');
     await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
 
     // Change issue type to subtask using the first select in the modal
-    await page.locator('.card-detail-modal select').first().selectOption({ label: 'Subtask' });
+    await page.locator('.card-detail-modal-unified select').first().selectOption({ label: 'Subtask' });
 
     // Save
-    await page.click('.card-detail-modal button:has-text("Save")');
+    await page.click('.card-detail-modal-unified button:has-text("Save")');
 
     // Wait for save to complete and edit mode to exit
     await expect(page.locator('.card-detail-edit')).not.toBeVisible({ timeout: 5000 });
 
     // Should show subtask type in the meta section
-    await expect(page.locator('.card-detail-modal .card-issue-type')).toContainText('subtask', { timeout: 5000 });
+    await expect(page.locator('.card-detail-modal-unified .card-issue-type')).toContainText('subtask', { timeout: 5000 });
   });
 
   test('should persist issue type after closing modal', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Enter edit mode
     await page.click('button:has-text("Edit")');
     await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
 
     // Change issue type to epic using the first select in the modal
-    await page.locator('.card-detail-modal select').first().selectOption({ label: 'Epic' });
+    await page.locator('.card-detail-modal-unified select').first().selectOption({ label: 'Epic' });
 
     // Save
-    await page.click('.card-detail-modal button:has-text("Save")');
+    await page.click('.card-detail-modal-unified button:has-text("Save")');
 
     // Wait for save to complete and edit mode to exit
     await expect(page.locator('.card-detail-edit')).not.toBeVisible({ timeout: 5000 });
 
     // Close modal by clicking overlay
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
-    await expect(page.locator('.card-detail-modal')).not.toBeVisible();
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
 
     // Verify the card badge shows epic
     await expect(page.locator('.card-type-badge.type-epic')).toBeVisible({ timeout: 5000 });
 
     // Reopen the card
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
     // Issue type should still be epic
-    await expect(page.locator('.card-detail-modal .card-issue-type')).toContainText('epic', { timeout: 5000 });
+    await expect(page.locator('.card-detail-modal-unified .card-issue-type')).toContainText('epic', { timeout: 5000 });
   });
 
   test('should show correct type badge character', async ({ page }) => {
