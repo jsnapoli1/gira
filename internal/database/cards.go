@@ -316,7 +316,7 @@ func (d *DB) RemoveCardAssignee(cardID, userID int64) error {
 
 func (d *DB) GetCardAssignees(cardID int64) ([]models.User, error) {
 	rows, err := d.Query(
-		`SELECT u.id, u.email, u.password_hash, u.display_name, u.avatar_url, u.created_at, u.updated_at
+		`SELECT u.id, u.email, u.display_name, u.avatar_url, u.created_at, u.updated_at
 		 FROM users u
 		 JOIN card_assignees ca ON u.id = ca.user_id
 		 WHERE ca.card_id = ?`,
@@ -330,7 +330,7 @@ func (d *DB) GetCardAssignees(cardID int64) ([]models.User, error) {
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.DisplayName, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)

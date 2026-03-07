@@ -79,7 +79,7 @@ func (d *DB) UpdateUser(user *models.User) error {
 
 func (d *DB) ListUsers() ([]models.User, error) {
 	rows, err := d.Query(
-		`SELECT id, email, password_hash, display_name, avatar_url, is_admin, created_at, updated_at FROM users ORDER BY display_name`,
+		`SELECT id, email, display_name, avatar_url, is_admin, created_at, updated_at FROM users ORDER BY display_name`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
@@ -89,7 +89,7 @@ func (d *DB) ListUsers() ([]models.User, error) {
 	var users []models.User
 	for rows.Next() {
 		var user models.User
-		if err := rows.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.AvatarURL, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.AvatarURL, &user.IsAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
 		users = append(users, user)
