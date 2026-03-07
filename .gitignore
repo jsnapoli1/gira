@@ -26,6 +26,9 @@ frontend/.vite/
 *.swo
 *~
 
+# Refactoring logs
+logs/
+
 # OS
 .DS_Store
 Thumbs.db

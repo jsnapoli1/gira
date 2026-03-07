@@ -61,6 +61,8 @@ Set via environment variables or `~/.config/zira/config.json`:
 - Run Playwright tests: `cd frontend && npm test`
 - All new features need E2E test coverage in `frontend/e2e/`
 - Test files follow pattern: `*.spec.ts`
+- Go build check: `go build ./cmd/zira` (must pass before committing)
+- Run `gofmt -w .` on any modified Go files
 
 ### Code Style
 - Go: Standard `gofmt` formatting
@@ -77,8 +79,40 @@ Set via environment variables or `~/.config/zira/config.json`:
 - SQLite stored at `~/.config/zira/zira.db`
 - Migrations run automatically on startup
 - Foreign keys enabled
+- **SQLite requires `SetMaxOpenConns(1)`** — concurrent writes cause "database is locked"
 
 ### Security Notes
 - Never commit API keys or secrets
 - JWT_SECRET must be set in production
 - Passwords hashed with bcrypt
+- Never fetch `password_hash` in queries unless needed for authentication
+- Always use middleware (`requireAuth`, `requireAdmin`, `requireBoardRole`) instead of inline auth checks
+- Attachment IDs are sequential integers — do not rely on non-guessability for security
+
+## Architecture Guidelines
+
+### Backend (Go)
+
+- **server.go is the main handler file** (~3000 lines). When adding new handlers, consider placing them in domain-specific files within `internal/server/` (e.g., `board_handlers.go`).
+- **internal/handlers/ is empty** — all handler logic lives in `internal/server/`. Do not add code to `internal/handlers/`.
+- The `Server` struct holds `DB`, `Config`, `Client` (Gitea/GitHub), and the SSE hub. Handlers are methods on `Server`.
+- Route registration happens in `server.go:Start()`. Routes use `http.ServeMux` with manual path parsing (no third-party router).
+- Middleware pattern: `s.requireAuth(handlerFunc)` wraps handlers. Auth info is stored in request context via `context.go`.
+- The `RepoClient` interface in `server.go` is dead code — do not use it.
+- Always guard Gitea client calls with `s.Config.IsConfigured()` or use `requireConfig` middleware to prevent nil-deref.
+- `updateClient()` is not goroutine-safe — access to `s.Client` and `s.Config` fields should be synchronized.
+
+### Frontend (React/TypeScript)
+
+- **BoardView.tsx is the main component** (~2000 lines). It contains `CardDetailModal`, `BacklogView`, `CardItem`, `DroppableColumn`, and modal components inline. Extract components when possible.
+- State management: `useState` + `AuthContext` only. No external state library.
+- API client (`src/api/client.ts`): Namespaced module objects. **Return types are currently all `any`** — use proper interfaces from `types/index.ts` when modifying.
+- SSE hook (`hooks/useBoardSSE.ts`): Handles real-time updates with exponential backoff. Uses `useRef` for the EventSource.
+- CSS: Single `App.css` file (3500 lines). Not using Tailwind utility-first — uses custom classes.
+- Card modal UI was redesigned from tabs to a compact inline layout. Classes use `.card-detail-modal-unified`, `.time-tracking-compact`, `.time-input-mini`.
+- `window.confirm()` is used for destructive actions (9 instances).
+- Token is accessed from `localStorage` in 3 places (API client, SSE hook, attachment upload) — not centralized.
+
+### Refactoring Tracker
+
+See `TODO.md` for the prioritized refactoring backlog. Items are designed to be completed independently.
