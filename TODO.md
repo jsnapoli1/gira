@@ -4,9 +4,9 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 ## Backend - Critical
 
-- [x] **B1: Set SQLite MaxOpenConns(1)** — Add `db.SetMaxOpenConns(1)` after opening the SQLite connection in `internal/database/database.go` to prevent "database is locked" errors under concurrent write load. Verify the app still starts and passes E2E tests.
+- [ ] **B1: Set SQLite MaxOpenConns(1)** — Add `db.SetMaxOpenConns(1)` after opening the SQLite connection in `internal/database/database.go` to prevent "database is locked" errors under concurrent write load. Verify the app still starts and passes E2E tests.
 
-- [ ] **B2: Fix attachment delete order** — In `internal/server/server.go` `handleCardAttachments` DELETE case, delete the DB record first, then remove the file from disk. Currently the file is deleted before the DB record, leaving orphaned rows on DB failure.
+- [x] **B2: Fix attachment delete order** — In `internal/server/server.go` `handleCardAttachments` DELETE case, delete the DB record first, then remove the file from disk. Currently the file is deleted before the DB record, leaving orphaned rows on DB failure.
 
 - [ ] **B3: Add nil-check for Gitea client** — `handleIssues`, `handleLabels`, and `handleMilestones` in `server.go` will nil-deref if `s.Client` is nil (Gitea not configured). Add `s.Config.IsConfigured()` guard to each, returning a 503 with a clear message. The `requireConfig` middleware already exists but is never wired up — wire it to these routes.
 

@@ -1403,16 +1403,16 @@ func (s *Server) handleCards(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "POST":
 		var req struct {
-			BoardID      int64  `json:"board_id"`
-			SwimlaneID   int64  `json:"swimlane_id"`
-			ColumnID     int64  `json:"column_id"`
-			SprintID     *int64 `json:"sprint_id"`
-			ParentID     *int64 `json:"parent_id"`
-			IssueType    string `json:"issue_type"`
-			Title        string `json:"title"`
-			Description  string `json:"description"`
-			StoryPoints  *int   `json:"story_points"`
-			Priority     string `json:"priority"`
+			BoardID     int64  `json:"board_id"`
+			SwimlaneID  int64  `json:"swimlane_id"`
+			ColumnID    int64  `json:"column_id"`
+			SprintID    *int64 `json:"sprint_id"`
+			ParentID    *int64 `json:"parent_id"`
+			IssueType   string `json:"issue_type"`
+			Title       string `json:"title"`
+			Description string `json:"description"`
+			StoryPoints *int   `json:"story_points"`
+			Priority    string `json:"priority"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -2197,16 +2197,19 @@ func (s *Server) handleCardAttachments(w http.ResponseWriter, r *http.Request, c
 
 		switch r.Method {
 		case "DELETE":
-			// Resolve full path and delete file from disk
+			// Delete record from database first to avoid orphaned rows
+			if err := s.DB.DeleteAttachment(attachmentID); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			// Remove file from disk; if this fails, log it but don't error
+			// (an orphaned file on disk is less harmful than an orphaned DB row)
 			filePath := attachment.StorePath
 			if !filepath.IsAbs(filePath) {
 				filePath = filepath.Join(getAttachmentsDir(), filePath)
 			}
-			os.Remove(filePath)
-			// Delete record from database
-			if err := s.DB.DeleteAttachment(attachmentID); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+			if err := os.Remove(filePath); err != nil {
+				log.Printf("warning: failed to remove attachment file %s: %v", filePath, err)
 			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
