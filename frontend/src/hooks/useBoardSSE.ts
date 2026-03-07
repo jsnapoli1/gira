@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { Card } from '../types';
+import { getToken } from '../api/client';
 
 interface CardMovedPayload {
   card_id: number;
@@ -43,7 +44,7 @@ export function useBoardSSE({
   const connect = useCallback(() => {
     if (!enabled || !boardId) return;
 
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (!token) {
       console.warn('SSE: No auth token available');
       return;

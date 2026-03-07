@@ -24,7 +24,7 @@ import type {
 
 const API_BASE = '/api';
 
-function getToken(): string | null {
+export function getToken(): string | null {
   return localStorage.getItem('token');
 }
 
@@ -274,9 +274,9 @@ export const cards = {
     }),
   removeLabel: (id: number, labelId: number) =>
     request(`/cards/${id}/labels/${labelId}`, { method: 'DELETE' }),
-  getAttachments: (id: number) => request<Attachment[]>(`/cards/${id}/attachments`),
-  uploadAttachment: async (id: number, file: File): Promise<Attachment> => {
-    const token = localStorage.getItem('token');
+  getAttachments: (id: number) => request<any[]>(`/cards/${id}/attachments`),
+  uploadAttachment: async (id: number, file: File) => {
+    const token = getToken();
     const formData = new FormData();
     formData.append('file', file);
     const response = await fetch(`/api/cards/${id}/attachments`, {

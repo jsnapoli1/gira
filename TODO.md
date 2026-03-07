@@ -6,7 +6,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [ ] **B1: Set SQLite MaxOpenConns(1)** — Add `db.SetMaxOpenConns(1)` after opening the SQLite connection in `internal/database/database.go` to prevent "database is locked" errors under concurrent write load. Verify the app still starts and passes E2E tests.
 
-- [x] **B2: Fix attachment delete order** — In `internal/server/server.go` `handleCardAttachments` DELETE case, delete the DB record first, then remove the file from disk. Currently the file is deleted before the DB record, leaving orphaned rows on DB failure.
+- [ ] **B2: Fix attachment delete order** — In `internal/server/server.go` `handleCardAttachments` DELETE case, delete the DB record first, then remove the file from disk. Currently the file is deleted before the DB record, leaving orphaned rows on DB failure.
 
 - [ ] **B3: Add nil-check for Gitea client** — `handleIssues`, `handleLabels`, and `handleMilestones` in `server.go` will nil-deref if `s.Client` is nil (Gitea not configured). Add `s.Config.IsConfigured()` guard to each, returning a 503 with a clear message. The `requireConfig` middleware already exists but is never wired up — wire it to these routes.
 
@@ -44,7 +44,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [ ] **F6: Extract BacklogView** — Move `BacklogView` (~300 lines) and `AddSwimlaneModal`, `AddCardModal` from `BoardView.tsx` into their own component files.
 
-- [ ] **F7: Centralize token access** — Create a single `getToken()` utility that all code uses (API client, SSE hook, attachment upload). Remove the 3 separate `localStorage.getItem` calls.
+- [x] **F7: Centralize token access** — Create a single `getToken()` utility that all code uses (API client, SSE hook, attachment upload). Remove the 3 separate `localStorage.getItem` calls.
 
 - [ ] **F8: Add error feedback for mutations** — Add a simple toast/notification system so users see success/failure for card moves, creates, deletes, sprint changes, etc. Replace `console.error`-only patterns.
 
