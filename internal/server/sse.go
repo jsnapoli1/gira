@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -97,15 +96,7 @@ func (h *SSEHub) Broadcast(event BoardEvent) {
 
 // handleBoardSSE handles SSE connections for a specific board
 func (s *Server) handleBoardSSE(w http.ResponseWriter, r *http.Request) {
-	// Parse board ID from URL: /api/boards/{id}/events
-	path := strings.TrimPrefix(r.URL.Path, "/api/boards/")
-	parts := strings.Split(path, "/")
-	if len(parts) < 2 || parts[1] != "events" {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-
-	boardID, err := strconv.ParseInt(parts[0], 10, 64)
+	boardID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid board ID", http.StatusBadRequest)
 		return

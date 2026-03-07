@@ -8,11 +8,6 @@ import (
 )
 
 func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		Email       string `json:"email"`
 		Password    string `json:"password"`
@@ -65,11 +60,6 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -105,11 +95,6 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	user := getUserFromContext(r.Context())
 	if user == nil {
 		http.Error(w, "User not found", http.StatusUnauthorized)
