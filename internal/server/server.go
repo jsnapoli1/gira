@@ -144,7 +144,7 @@ func (s *Server) Start() error {
 	// Auth routes
 	mux.HandleFunc("/api/auth/signup", s.handleSignup)
 	mux.HandleFunc("/api/auth/login", s.handleLogin)
-	mux.HandleFunc("/api/auth/me", s.handleMe)
+	mux.HandleFunc("/api/auth/me", s.requireAuth(s.handleMe))
 
 	// Config routes (POST requires admin)
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
@@ -468,20 +468,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := auth.ExtractTokenFromRequest(r)
-	if token == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	claims, err := auth.ValidateToken(token)
-	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
-
-	user, err := s.DB.GetUserByID(claims.UserID)
-	if err != nil || user == nil {
+	user := getUserFromContext(r.Context())
+	if user == nil {
 		http.Error(w, "User not found", http.StatusUnauthorized)
 		return
 	}

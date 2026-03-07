@@ -14,7 +14,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [x] **B5: Fix handleConfig inline auth** — `handleConfig` POST manually re-implements `requireAuth`+`requireAdmin`. Split into `handleConfigGet` and `handleConfigPost`, wrap the POST handler with `requireAdmin` middleware, and remove the inline auth code.
 
-- [ ] **B6: Fix handleMe inline auth** — `handleMe` manually re-implements `requireAuth`. Wrap it with `requireAuth` middleware and use `getUserFromContext` instead of duplicating token extraction/validation.
+- [x] **B6: Fix handleMe inline auth** — `handleMe` manually re-implements `requireAuth`. Wrap it with `requireAuth` middleware and use `getUserFromContext` instead of duplicating token extraction/validation.
 
 - [x] **B7: Handle LastInsertId errors** — In all database CRUD files (`boards.go`, `cards.go`, `sprints.go`, `labels.go`, `comments.go`, `attachments.go`, `notifications.go`, `custom_fields.go`), check and return the error from `result.LastInsertId()` instead of discarding it with `_`.
 
