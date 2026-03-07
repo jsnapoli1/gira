@@ -8,7 +8,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [x] **B2: Fix attachment delete order** — In `internal/server/server.go` `handleCardAttachments` DELETE case, delete the DB record first, then remove the file from disk. Currently the file is deleted before the DB record, leaving orphaned rows on DB failure.
 
-- [ ] **B3: Add nil-check for Gitea client** — `handleIssues`, `handleLabels`, and `handleMilestones` in `server.go` will nil-deref if `s.Client` is nil (Gitea not configured). Add `s.Config.IsConfigured()` guard to each, returning a 503 with a clear message. The `requireConfig` middleware already exists but is never wired up — wire it to these routes.
+- [x] **B3: Add nil-check for Gitea client** — `handleIssues`, `handleLabels`, and `handleMilestones` in `server.go` will nil-deref if `s.Client` is nil (Gitea not configured). Add `s.Config.IsConfigured()` guard to each, returning a 503 with a clear message. The `requireConfig` middleware already exists but is never wired up — wire it to these routes.
 
 - [x] **B4: Remove dead code** — Delete the empty `internal/handlers/` package. Remove the unused `RepoClient` interface from `server.go`. Remove `requireConfig` if it gets wired in B3 (it becomes used). Clean up any other dead declarations.
 

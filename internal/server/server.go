@@ -155,10 +155,10 @@ func (s *Server) Start() error {
 
 	// Gitea API routes
 	mux.HandleFunc("/api/repos", s.requireAuth(s.handleRepos))
-	mux.HandleFunc("/api/issues", s.requireAuth(s.handleIssues))
-	mux.HandleFunc("/api/issue", s.requireAuth(s.handleIssue))
-	mux.HandleFunc("/api/labels", s.requireAuth(s.handleLabels))
-	mux.HandleFunc("/api/milestones", s.requireAuth(s.handleMilestones))
+	mux.HandleFunc("/api/issues", s.requireAuth(s.requireConfig(s.handleIssues)))
+	mux.HandleFunc("/api/issue", s.requireAuth(s.requireConfig(s.handleIssue)))
+	mux.HandleFunc("/api/labels", s.requireAuth(s.requireConfig(s.handleLabels)))
+	mux.HandleFunc("/api/milestones", s.requireAuth(s.requireConfig(s.handleMilestones)))
 
 	// Board routes
 	mux.HandleFunc("/api/boards", s.requireAuth(s.handleBoards))
