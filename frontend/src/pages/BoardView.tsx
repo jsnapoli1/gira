@@ -4,6 +4,7 @@ import { Layout } from '../components/Layout';
 import { boards as boardsApi, cards as cardsApi, sprints as sprintsApi, gitea, users as usersApi } from '../api/client';
 import { Board, Card, Column, Swimlane, Sprint, Repository, User, Label } from '../types';
 import { useBoardSSE } from '../hooks/useBoardSSE';
+import { useToast } from '../components/Toast';
 import {
   DndContext,
   DragOverlay,
@@ -183,6 +184,7 @@ function DroppableColumn({
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickTitle, setQuickTitle] = useState('');
   const [adding, setAdding] = useState(false);
+  const { showToast } = useToast();
 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,6 +196,7 @@ function DroppableColumn({
       setShowQuickAdd(false);
     } catch (err) {
       console.error('Failed to create card:', err);
+      showToast('Failed to create card', 'error');
     } finally {
       setAdding(false);
     }
@@ -248,6 +251,7 @@ function DroppableColumn({
 
 export function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
+  const { showToast } = useToast();
   const [board, setBoard] = useState<Board | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
@@ -392,6 +396,7 @@ export function BoardView() {
         );
       } catch (err) {
         console.error('Failed to move card:', err);
+        showToast('Failed to move card', 'error');
       }
     }
   };
@@ -412,8 +417,10 @@ export function BoardView() {
       });
       setCards([...cards, card]);
       setShowAddCard(null);
+      showToast('Card created', 'success');
     } catch (err) {
       console.error('Failed to create card:', err);
+      showToast('Failed to create card', 'error');
       throw err;
     }
   };
@@ -436,8 +443,10 @@ export function BoardView() {
       });
       loadBoard();
       setShowAddSwimlane(false);
+      showToast('Swimlane added', 'success');
     } catch (err) {
       console.error('Failed to add swimlane:', err);
+      showToast('Failed to add swimlane', 'error');
     }
   };
 
@@ -743,6 +752,7 @@ function BacklogView({
   const [newSprintEndDate, setNewSprintEndDate] = useState('');
   const [addingCardToSwimlane, setAddingCardToSwimlane] = useState<number | null>(null);
   const [newCardTitle, setNewCardTitle] = useState('');
+  const { showToast } = useToast();
 
   const activeSprint = sprints.find((s) => s.status === 'active');
   const planningSprints = sprints.filter((s) => s.status === 'planning');
@@ -757,8 +767,10 @@ function BacklogView({
       setNewSprintStartDate('');
       setNewSprintEndDate('');
       onRefresh();
+      showToast('Sprint created', 'success');
     } catch (err) {
       console.error('Failed to create sprint:', err);
+      showToast('Failed to create sprint', 'error');
     }
   };
 
@@ -766,8 +778,10 @@ function BacklogView({
     try {
       await sprintsApi.start(sprintId);
       onRefresh();
+      showToast('Sprint started', 'success');
     } catch (err) {
       console.error('Failed to start sprint:', err);
+      showToast('Failed to start sprint', 'error');
     }
   };
 
@@ -775,8 +789,10 @@ function BacklogView({
     try {
       await sprintsApi.complete(sprintId);
       onRefresh();
+      showToast('Sprint completed', 'success');
     } catch (err) {
       console.error('Failed to complete sprint:', err);
+      showToast('Failed to complete sprint', 'error');
     }
   };
 
@@ -786,6 +802,7 @@ function BacklogView({
       onRefresh();
     } catch (err) {
       console.error('Failed to assign card:', err);
+      showToast('Failed to assign card to sprint', 'error');
     }
   };
 
@@ -807,8 +824,10 @@ function BacklogView({
       setNewCardTitle('');
       setAddingCardToSwimlane(null);
       onRefresh();
+      showToast('Card created', 'success');
     } catch (err) {
       console.error('Failed to create card:', err);
+      showToast('Failed to create card', 'error');
     }
   };
 
@@ -1221,6 +1240,7 @@ function CardDetailModal({
   onUpdate: (card: Card) => void;
   onDelete: (cardId: number) => void;
 }) {
+  const { showToast } = useToast();
   const [editing, setEditing] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
   const [title, setTitle] = useState(card.title);
@@ -1302,6 +1322,7 @@ function CardDetailModal({
       }
     } catch (err) {
       console.error('Failed to upload attachment:', err);
+      showToast('Failed to upload attachment', 'error');
     } finally {
       setUploadingAttachment(false);
       e.target.value = ''; // Reset file input
@@ -1315,6 +1336,7 @@ function CardDetailModal({
       setAttachments(attachments.filter((a) => a.id !== attachmentId));
     } catch (err) {
       console.error('Failed to delete attachment:', err);
+      showToast('Failed to delete attachment', 'error');
     }
   };
 
@@ -1345,6 +1367,7 @@ function CardDetailModal({
       await cardsApi.setCustomFieldValue(card.id, fieldId, valueToSave);
     } catch (err) {
       console.error('Failed to save custom field:', err);
+      showToast('Failed to save custom field', 'error');
     }
   };
 
@@ -1373,8 +1396,10 @@ function CardDetailModal({
       setNewWorkLogMinutes('');
       setNewWorkLogNotes('');
       setNewWorkLogDate(new Date().toISOString().split('T')[0]);
+      showToast('Work log added', 'success');
     } catch (err) {
       console.error('Failed to add work log:', err);
+      showToast('Failed to add work log', 'error');
     } finally {
       setAddingWorkLog(false);
     }
@@ -1426,6 +1451,7 @@ function CardDetailModal({
       setPendingImages([]);
     } catch (err) {
       console.error('Failed to post comment:', err);
+      showToast('Failed to post comment', 'error');
     } finally {
       setPostingComment(false);
     }
@@ -1535,8 +1561,10 @@ function CardDetailModal({
       });
       onUpdate({ ...updated, assignees, labels });
       setEditing(false);
+      showToast('Card updated', 'success');
     } catch (err) {
       console.error('Failed to update card:', err);
+      showToast('Failed to update card', 'error');
     } finally {
       setSaving(false);
     }
@@ -1547,8 +1575,10 @@ function CardDetailModal({
     try {
       await cardsApi.delete(card.id);
       onDelete(card.id);
+      showToast('Card deleted', 'success');
     } catch (err) {
       console.error('Failed to delete card:', err);
+      showToast('Failed to delete card', 'error');
     }
   };
 
@@ -1558,6 +1588,7 @@ function CardDetailModal({
       onUpdate({ ...card, sprint_id: sprintId, assignees });
     } catch (err) {
       console.error('Failed to update sprint:', err);
+      showToast('Failed to update sprint assignment', 'error');
     }
   };
 
@@ -1572,6 +1603,7 @@ function CardDetailModal({
       }
     } catch (err) {
       console.error('Failed to add assignee:', err);
+      showToast('Failed to add assignee', 'error');
     }
   };
 
@@ -1583,6 +1615,7 @@ function CardDetailModal({
       onUpdate({ ...card, assignees: newAssignees });
     } catch (err) {
       console.error('Failed to remove assignee:', err);
+      showToast('Failed to remove assignee', 'error');
     }
   };
 
@@ -1604,6 +1637,7 @@ function CardDetailModal({
       }
     } catch (err) {
       console.error('Failed to toggle label:', err);
+      showToast('Failed to update label', 'error');
     }
   };
 
@@ -1632,8 +1666,10 @@ function CardDetailModal({
       });
       onUpdate({ ...updated, assignees, labels });
       setEditingDescription(false);
+      showToast('Description updated', 'success');
     } catch (err) {
       console.error('Failed to update description:', err);
+      showToast('Failed to update description', 'error');
     } finally {
       setSaving(false);
     }

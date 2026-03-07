@@ -46,7 +46,7 @@ Items are ordered by priority. Each item should be a self-contained fix that can
 
 - [x] **F7: Centralize token access** — Create a single `getToken()` utility that all code uses (API client, SSE hook, attachment upload). Remove the 3 separate `localStorage.getItem` calls.
 
-- [ ] **F8: Add error feedback for mutations** — Add a simple toast/notification system so users see success/failure for card moves, creates, deletes, sprint changes, etc. Replace `console.error`-only patterns.
+- [x] **F8: Add error feedback for mutations** — Add a simple toast/notification system so users see success/failure for card moves, creates, deletes, sprint changes, etc. Replace `console.error`-only patterns.
 
 ## Security
 
