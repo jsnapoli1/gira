@@ -218,6 +218,33 @@ func (c *Client) UpdateIssueState(owner, repo string, number int64, state string
 	return err
 }
 
+// Comment represents a GitHub issue comment
+type Comment struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	User      User      `json:"user"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// CreateIssueComment creates a comment on an issue
+func (c *Client) CreateIssueComment(owner, repo string, number int64, body string) (*Comment, error) {
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number)
+	data, err := c.doRequestWithBody("POST", path, map[string]interface{}{
+		"body": body,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var comment Comment
+	if err := json.Unmarshal(data, &comment); err != nil {
+		return nil, err
+	}
+
+	return &comment, nil
+}
+
 // GetLabels returns labels for a repository
 func (c *Client) GetLabels(owner, repo string) ([]Label, error) {
 	path := fmt.Sprintf("/repos/%s/%s/labels", owner, repo)

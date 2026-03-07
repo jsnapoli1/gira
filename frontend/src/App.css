@@ -708,10 +708,11 @@ body {
   bottom: 0;
   background: rgba(15, 23, 42, 0.6);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1000;
   padding: 2rem;
+  overflow-y: auto;
 }
 
 .modal {
@@ -1313,9 +1314,9 @@ body {
 .card-detail-modal-unified {
   max-width: 1100px;
   width: 95vw;
-  max-height: 90vh;
   display: flex;
   flex-direction: column;
+  margin: 0 auto;
 }
 
 .card-detail-modal-unified .card-detail-header {
@@ -1338,13 +1339,9 @@ body {
   display: grid;
   grid-template-columns: 1fr 320px;
   gap: 1.5rem;
-  overflow: hidden;
-  flex: 1;
-  min-height: 0;
 }
 
 .card-detail-main {
-  overflow-y: auto;
   padding-right: 0.5rem;
 }
 
@@ -1352,7 +1349,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  overflow-y: auto;
   border-left: 1px solid var(--border);
   padding-left: 1.5rem;
 }

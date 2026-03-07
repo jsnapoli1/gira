@@ -1890,6 +1890,28 @@ func (s *Server) handleCardComments(w http.ResponseWriter, r *http.Request, card
 			return
 		}
 
+		// Sync comment to Gitea/GitHub if card has a linked issue
+		if card.GiteaIssueID > 0 && req.Body != "" {
+			swimlanes, _ := s.DB.GetBoardSwimlanes(card.BoardID)
+			for _, sl := range swimlanes {
+				if sl.ID == card.SwimlaneID {
+					// Format comment with user attribution
+					giteaBody := fmt.Sprintf("**%s** commented:\n\n%s", user.DisplayName, req.Body)
+					switch sl.RepoSource {
+					case "github":
+						if client, err := s.getGitHubClientForSwimlane(&sl, user.ID); err == nil {
+							client.CreateIssueComment(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, giteaBody)
+						}
+					default:
+						if client, err := s.getGiteaClientForSwimlane(&sl, user.ID); err == nil && client != nil {
+							client.CreateIssueComment(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, giteaBody)
+						}
+					}
+					break
+				}
+			}
+		}
+
 		// Link attachments to the comment
 		if len(req.AttachmentIDs) > 0 {
 			if err := s.DB.LinkAttachmentsToComment(comment.ID, req.AttachmentIDs); err != nil {
