@@ -202,8 +202,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/user/credentials/", s.requireAuth(s.handleUserCredential))
 	mux.HandleFunc("/api/user/credentials/test", s.requireAuth(s.handleTestCredential))
 
-	// Attachment download route (separate from card routes for direct file access)
-	mux.HandleFunc("/api/attachments/", s.requireAuth(s.handleAttachmentDownload))
+	// Attachment download route (no auth required - IDs are not guessable and images need to load in <img> tags)
+	mux.HandleFunc("/api/attachments/", s.handleAttachmentDownload)
 
 	// Custom fields routes are handled under /api/boards/{id}/custom-fields
 	// Custom field values are handled under /api/cards/{id}/custom-fields
