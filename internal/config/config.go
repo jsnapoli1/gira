@@ -15,31 +15,29 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	// Try environment variables first
-	giteaURL := os.Getenv("GITEA_URL")
-	giteaAPIKey := os.Getenv("GITEA_API_KEY")
-	giteaInsecureTLS := os.Getenv("GITEA_INSECURE_TLS") == "true"
-
 	port := 9002
 	if p := os.Getenv("PORT"); p != "" {
 		fmt.Sscanf(p, "%d", &port)
 	}
 
 	cfg := &Config{
-		GiteaURL:         giteaURL,
-		GiteaAPIKey:      giteaAPIKey,
-		GiteaInsecureTLS: giteaInsecureTLS,
-		Port:             port,
+		Port: port,
 	}
 
-	// Try loading from config file if env vars not set
-	if cfg.GiteaURL == "" || cfg.GiteaAPIKey == "" {
-		if err := cfg.LoadFromFile(); err == nil {
-			// Config file loaded successfully
-			if port != 9002 {
-				cfg.Port = port // Env var overrides file
-			}
-		}
+	// Try loading from config file first
+	if err := cfg.LoadFromFile(); err == nil {
+		// Config file loaded successfully
+	}
+
+	// Environment variables override config file (only if non-empty)
+	if giteaURL := os.Getenv("GITEA_URL"); giteaURL != "" {
+		cfg.GiteaURL = giteaURL
+	}
+	if giteaAPIKey := os.Getenv("GITEA_API_KEY"); giteaAPIKey != "" {
+		cfg.GiteaAPIKey = giteaAPIKey
+	}
+	if os.Getenv("GITEA_INSECURE_TLS") == "true" {
+		cfg.GiteaInsecureTLS = true
 	}
 
 	return cfg, nil
