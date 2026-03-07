@@ -274,8 +274,8 @@ export const cards = {
     }),
   removeLabel: (id: number, labelId: number) =>
     request(`/cards/${id}/labels/${labelId}`, { method: 'DELETE' }),
-  getAttachments: (id: number) => request<any[]>(`/cards/${id}/attachments`),
-  uploadAttachment: async (id: number, file: File) => {
+  getAttachments: (id: number) => request<Attachment[]>(`/cards/${id}/attachments`),
+  uploadAttachment: async (id: number, file: File): Promise<Attachment> => {
     const token = getToken();
     const formData = new FormData();
     formData.append('file', file);
