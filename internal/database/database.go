@@ -286,6 +286,22 @@ func (d *DB) migrate() error {
 	d.Exec(`ALTER TABLE attachments ADD COLUMN comment_id INTEGER REFERENCES comments(id) ON DELETE SET NULL`)
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_attachments_comment ON attachments(comment_id)`)
 
+	// Card links table
+	d.Exec(`CREATE TABLE IF NOT EXISTS card_links (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		source_card_id INTEGER NOT NULL,
+		target_card_id INTEGER NOT NULL,
+		link_type TEXT NOT NULL,
+		created_by INTEGER NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (source_card_id) REFERENCES cards(id) ON DELETE CASCADE,
+		FOREIGN KEY (target_card_id) REFERENCES cards(id) ON DELETE CASCADE,
+		FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+		UNIQUE(source_card_id, target_card_id, link_type)
+	)`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_card_links_source ON card_links(source_card_id)`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_card_links_target ON card_links(target_card_id)`)
+
 	// Add multi-repo support columns to swimlanes (ignore errors if already exist)
 	d.Exec(`ALTER TABLE swimlanes ADD COLUMN repo_source TEXT DEFAULT 'default_gitea'`)
 	d.Exec(`ALTER TABLE swimlanes ADD COLUMN repo_url TEXT DEFAULT ''`)

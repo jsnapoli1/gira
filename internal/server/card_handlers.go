@@ -1092,6 +1092,101 @@ func (s *Server) createNotification(userID int64, notificationType, title, messa
 	s.DB.CreateNotification(userID, notificationType, title, message, link)
 }
 
+// Card links handlers
+
+func (s *Server) handleGetCardLinks(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+	links, err := s.DB.GetCardLinks(card.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(links)
+}
+
+func (s *Server) handleCreateCardLink(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+
+	user := getUserFromContext(r.Context())
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		TargetCardID int64  `json:"target_card_id"`
+		LinkType     string `json:"link_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Validate link type
+	validTypes := map[string]bool{
+		"blocks":        true,
+		"is_blocked_by": true,
+		"relates_to":    true,
+		"duplicates":    true,
+	}
+	if !validTypes[req.LinkType] {
+		http.Error(w, "Invalid link type", http.StatusBadRequest)
+		return
+	}
+
+	if req.TargetCardID == card.ID {
+		http.Error(w, "Cannot link a card to itself", http.StatusBadRequest)
+		return
+	}
+
+	// Verify target card exists
+	targetCard, err := s.DB.GetCardByID(req.TargetCardID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if targetCard == nil {
+		http.Error(w, "Target card not found", http.StatusNotFound)
+		return
+	}
+
+	link, err := s.DB.CreateCardLink(card.ID, req.TargetCardID, req.LinkType, user.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(link)
+}
+
+func (s *Server) handleDeleteCardLink(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+
+	linkID, err := strconv.ParseInt(r.PathValue("linkId"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid link ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.DB.DeleteCardLink(linkID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // parseMentions extracts @mentions from text and returns user IDs
 // Supports @display_name format (display names are matched case-insensitively)
 func (s *Server) parseMentions(body string) []int64 {

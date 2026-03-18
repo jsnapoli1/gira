@@ -199,6 +199,19 @@ type Notification struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// CardLink represents a link between two cards (blocks, is_blocked_by, relates_to, duplicates)
+type CardLink struct {
+	ID           int64     `json:"id"`
+	SourceCardID int64     `json:"source_card_id"`
+	TargetCardID int64     `json:"target_card_id"`
+	LinkType     string    `json:"link_type"`
+	CreatedBy    int64     `json:"created_by"`
+	CreatedAt    time.Time `json:"created_at"`
+	// Populated for display
+	SourceCard *Card `json:"source_card,omitempty"`
+	TargetCard *Card `json:"target_card,omitempty"`
+}
+
 // UserCredential stores user-level API credentials for Gitea/GitHub
 type UserCredential struct {
 	ID          int64     `json:"id"`

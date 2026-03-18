@@ -244,6 +244,19 @@ export interface GiteaMilestone {
   due_on: string;
 }
 
+export type LinkType = 'blocks' | 'is_blocked_by' | 'relates_to' | 'duplicates';
+
+export interface CardLink {
+  id: number;
+  source_card_id: number;
+  target_card_id: number;
+  link_type: LinkType;
+  created_by: number;
+  created_at: string;
+  source_card?: Card;
+  target_card?: Card;
+}
+
 export interface GiteaIssue {
   id: number;
   number: number;

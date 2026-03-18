@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { cards as cardsApi } from '../api/client';
-import { Card, Swimlane, Sprint, User, Label } from '../types';
+import { Card, Swimlane, Sprint, User, Label, CardLink, LinkType } from '../types';
 import { useToast } from '../components/Toast';
-import { Clock, Calendar, User as UserIcon, X, Check } from 'lucide-react';
+import { Clock, Calendar, User as UserIcon, X, Check, Link as LinkIcon } from 'lucide-react';
 
 // Render comment body with highlighted @mentions
 function renderCommentBody(body: string): React.ReactNode {
@@ -35,6 +35,7 @@ export interface CardDetailModalProps {
   users: User[];
   boardLabels: Label[];
   customFields: any[];
+  boardCards?: Card[];
   onClose: () => void;
   onUpdate: (card: Card) => void;
   onDelete: (cardId: number) => void;
@@ -47,6 +48,7 @@ export function CardDetailModal({
   users,
   boardLabels,
   customFields,
+  boardCards = [],
   onClose,
   onUpdate,
   onDelete,
@@ -98,11 +100,19 @@ export function CardDetailModal({
   const [newWorkLogNotes, setNewWorkLogNotes] = useState('');
   const [addingWorkLog, setAddingWorkLog] = useState(false);
 
+  // Card links state
+  const [cardLinks, setCardLinks] = useState<CardLink[]>([]);
+  const [loadingLinks, setLoadingLinks] = useState(true);
+  const [showAddLink, setShowAddLink] = useState(false);
+  const [newLinkType, setNewLinkType] = useState<LinkType>('relates_to');
+  const [linkSearchQuery, setLinkSearchQuery] = useState('');
+
   // Load all data on mount
   useEffect(() => {
     loadComments();
     loadAttachments();
     loadWorkLogs();
+    loadLinks();
     if (customFields.length > 0) {
       loadCustomFieldValues();
     }
@@ -223,6 +233,81 @@ export function CardDetailModal({
     if (mins === 0) return `${hours}h`;
     return `${hours}h ${mins}m`;
   };
+
+  const loadLinks = async () => {
+    setLoadingLinks(true);
+    try {
+      const data = await cardsApi.getLinks(card.id);
+      setCardLinks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load links:', err);
+      setCardLinks([]);
+    } finally {
+      setLoadingLinks(false);
+    }
+  };
+
+  const handleCreateLink = async (targetCardId: number) => {
+    try {
+      const link = await cardsApi.createLink(card.id, targetCardId, newLinkType);
+      if (link) {
+        // Reload links to get populated card info
+        await loadLinks();
+      }
+      setShowAddLink(false);
+      setLinkSearchQuery('');
+      showToast('Link created', 'success');
+    } catch (err) {
+      console.error('Failed to create link:', err);
+      showToast('Failed to create link', 'error');
+    }
+  };
+
+  const handleDeleteLink = async (linkId: number) => {
+    try {
+      await cardsApi.deleteLink(card.id, linkId);
+      setCardLinks(cardLinks.filter((l) => l.id !== linkId));
+      showToast('Link removed', 'success');
+    } catch (err) {
+      console.error('Failed to delete link:', err);
+      showToast('Failed to remove link', 'error');
+    }
+  };
+
+  const linkTypeLabels: Record<LinkType, string> = {
+    blocks: 'Blocks',
+    is_blocked_by: 'Blocked By',
+    relates_to: 'Related',
+    duplicates: 'Duplicates',
+  };
+
+  // Group links by type, normalizing for the current card's perspective
+  const groupedLinks = useMemo(() => {
+    const groups: Record<string, { link: CardLink; relatedCard: Card }[]> = {};
+    for (const link of cardLinks) {
+      const label = linkTypeLabels[link.link_type as LinkType] || link.link_type;
+      if (!groups[label]) groups[label] = [];
+      // Show the "other" card (not the current one)
+      const relatedCard = link.source_card_id === card.id ? link.target_card : link.source_card;
+      if (relatedCard) {
+        groups[label].push({ link, relatedCard });
+      }
+    }
+    return groups;
+  }, [cardLinks, card.id]);
+
+  // Filter board cards for link search
+  const linkSearchResults = useMemo(() => {
+    if (!linkSearchQuery.trim()) return [];
+    const query = linkSearchQuery.toLowerCase();
+    return boardCards
+      .filter(
+        (c) =>
+          c.id !== card.id &&
+          c.title.toLowerCase().includes(query)
+      )
+      .slice(0, 8);
+  }, [boardCards, linkSearchQuery, card.id]);
 
   const loadComments = async () => {
     setLoadingComments(true);
@@ -887,6 +972,79 @@ export function CardDetailModal({
                       )}
                       <a href={`/api/attachments/${attachment.id}`} download={attachment.filename} className="attachment-name-small">{attachment.filename}</a>
                       <button className="attachment-delete-tiny" onClick={() => handleDeleteAttachment(attachment.id)}><X size={10} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Links - Sidebar */}
+            <div className="sidebar-section links-sidebar">
+              <div className="section-header">
+                <label><LinkIcon size={14} /> Links ({cardLinks.length})</label>
+                <button className="btn btn-xs" onClick={() => setShowAddLink(!showAddLink)}>
+                  {showAddLink ? '-' : '+'}
+                </button>
+              </div>
+              {showAddLink && (
+                <div className="add-link-form">
+                  <select
+                    value={newLinkType}
+                    onChange={(e) => setNewLinkType(e.target.value as LinkType)}
+                    className="link-type-select"
+                  >
+                    <option value="blocks">Blocks</option>
+                    <option value="is_blocked_by">Blocked By</option>
+                    <option value="relates_to">Relates To</option>
+                    <option value="duplicates">Duplicates</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={linkSearchQuery}
+                    onChange={(e) => setLinkSearchQuery(e.target.value)}
+                    placeholder="Search cards..."
+                    className="link-search-input"
+                  />
+                  {linkSearchResults.length > 0 && (
+                    <div className="link-search-results">
+                      {linkSearchResults.map((c) => (
+                        <button
+                          key={c.id}
+                          className="link-search-result-item"
+                          onClick={() => handleCreateLink(c.id)}
+                        >
+                          <span className="link-result-title">{c.title}</span>
+                          <span className={`link-result-state ${c.state}`}>{c.state}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {loadingLinks ? (
+                <div className="loading-inline">Loading...</div>
+              ) : cardLinks.length === 0 && !showAddLink ? (
+                <p className="empty-text">No links</p>
+              ) : (
+                <div className="links-list">
+                  {Object.entries(groupedLinks).map(([label, items]) => (
+                    <div key={label} className="link-group">
+                      <div className="link-group-label">{label}</div>
+                      {items.map(({ link, relatedCard }) => (
+                        <div key={link.id} className="link-item">
+                          <span className={`link-card-state ${relatedCard.state}`} />
+                          <span className="link-card-title" title={relatedCard.title}>
+                            {relatedCard.title}
+                          </span>
+                          <button
+                            className="link-delete-btn"
+                            onClick={() => handleDeleteLink(link.id)}
+                            title="Remove link"
+                          >
+                            <X size={10} />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>

@@ -21,6 +21,7 @@ import type {
   WorkLogsResponse,
   UserCredential,
   CardSearchResult,
+  CardLink,
 } from '../types';
 
 const API_BASE = '/api';
@@ -343,6 +344,16 @@ export const cards = {
     }),
   deleteWorkLog: (cardId: number, worklogId: number) =>
     request(`/cards/${cardId}/worklogs/${worklogId}`, { method: 'DELETE' }),
+
+  // Links
+  getLinks: (id: number) => request<CardLink[]>(`/cards/${id}/links`),
+  createLink: (id: number, targetCardId: number, linkType: string) =>
+    request<CardLink>(`/cards/${id}/links`, {
+      method: 'POST',
+      body: JSON.stringify({ target_card_id: targetCardId, link_type: linkType }),
+    }),
+  deleteLink: (cardId: number, linkId: number) =>
+    request(`/cards/${cardId}/links/${linkId}`, { method: 'DELETE' }),
 };
 
 // Metrics

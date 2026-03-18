@@ -484,6 +484,7 @@ export function BoardView() {
             users={users}
             boardLabels={boardLabels}
             customFields={customFields}
+            boardCards={cards}
             onClose={() => setSelectedCard(null)}
             onUpdate={(updatedCard) => {
               setCards(cards.map((c) => (c.id === updatedCard.id ? updatedCard : c)));
