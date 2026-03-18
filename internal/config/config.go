@@ -76,6 +76,9 @@ func (c *Config) configPath() string {
 		return filepath.Join(filepath.Dir(dbPath), "config.json")
 	}
 	// Default to ~/.config/zira/config.json for local development
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.TempDir()
+	}
 	return filepath.Join(home, ".config", "zira", "config.json")
 }

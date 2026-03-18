@@ -1057,7 +1057,10 @@ func getAttachmentsDir() string {
 	if dataDir := os.Getenv("DATA_DIR"); dataDir != "" {
 		return filepath.Join(dataDir, "attachments")
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.TempDir()
+	}
 	return filepath.Join(home, ".config", "zira", "attachments")
 }
 

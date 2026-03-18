@@ -44,7 +44,10 @@ func getDBPath() string {
 	if dbPath := os.Getenv("DB_PATH"); dbPath != "" {
 		return dbPath
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.TempDir()
+	}
 	return filepath.Join(home, ".config", "zira", "zira.db")
 }
 
