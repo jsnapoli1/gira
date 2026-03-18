@@ -247,6 +247,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/cards/{id}/links", s.requireAuth(s.handleGetCardLinks))
 	mux.HandleFunc("POST /api/cards/{id}/links", s.requireAuth(s.handleCreateCardLink))
 	mux.HandleFunc("DELETE /api/cards/{id}/links/{linkId}", s.requireAuth(s.handleDeleteCardLink))
+	mux.HandleFunc("GET /api/cards/{id}/activity", s.requireAuth(s.handleGetCardActivity))
 
 	// Metrics routes
 	mux.HandleFunc("GET /api/metrics/burndown", s.requireAuth(s.handleBurndown))

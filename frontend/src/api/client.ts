@@ -22,6 +22,7 @@ import type {
   UserCredential,
   CardSearchResult,
   CardLink,
+  ActivityLog,
 } from '../types';
 
 const API_BASE = '/api';
@@ -354,6 +355,15 @@ export const cards = {
     }),
   deleteLink: (cardId: number, linkId: number) =>
     request(`/cards/${cardId}/links/${linkId}`, { method: 'DELETE' }),
+
+  // Activity Log
+  getActivity: (id: number, limit?: number, offset?: number) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (offset) params.set('offset', String(offset));
+    const query = params.toString();
+    return request<ActivityLog[]>(`/cards/${id}/activity${query ? `?${query}` : ''}`);
+  },
 };
 
 // Metrics

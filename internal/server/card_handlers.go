@@ -255,6 +255,11 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log activity (never fail the parent operation)
+	if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "created", "card", "", "", card.Title); err != nil {
+		log.Printf("Failed to log activity: %v", err)
+	}
+
 	// Broadcast card_created event
 	s.SSEHub.Broadcast(BoardEvent{
 		Type:      "card_created",
@@ -298,6 +303,21 @@ func (s *Server) handleUpdateCard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+
+	// Capture old values for activity logging
+	oldTitle := card.Title
+	oldDescription := card.Description
+	oldPriority := card.Priority
+	oldIssueType := card.IssueType
+	oldStoryPoints := ""
+	if card.StoryPoints != nil {
+		oldStoryPoints = strconv.Itoa(*card.StoryPoints)
+	}
+	oldDueDate := ""
+	if card.DueDate != nil {
+		oldDueDate = card.DueDate.Format("2006-01-02")
+	}
+
 	card.Title = req.Title
 	card.Description = req.Description
 	card.StoryPoints = req.StoryPoints
@@ -321,8 +341,48 @@ func (s *Server) handleUpdateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update issue in the appropriate provider
+	// Log field changes (never fail the parent operation)
 	user := getUserFromContext(r.Context())
+	if oldTitle != req.Title {
+		if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "updated", "card", "title", oldTitle, req.Title); err != nil {
+			log.Printf("Failed to log activity: %v", err)
+		}
+	}
+	if oldDescription != req.Description {
+		if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "updated", "card", "description", oldDescription, req.Description); err != nil {
+			log.Printf("Failed to log activity: %v", err)
+		}
+	}
+	if oldPriority != req.Priority {
+		if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "updated", "card", "priority", oldPriority, req.Priority); err != nil {
+			log.Printf("Failed to log activity: %v", err)
+		}
+	}
+	newStoryPoints := ""
+	if req.StoryPoints != nil {
+		newStoryPoints = strconv.Itoa(*req.StoryPoints)
+	}
+	if oldStoryPoints != newStoryPoints {
+		if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "updated", "card", "story_points", oldStoryPoints, newStoryPoints); err != nil {
+			log.Printf("Failed to log activity: %v", err)
+		}
+	}
+	newDueDate := ""
+	if req.DueDate != nil && *req.DueDate != "" {
+		newDueDate = *req.DueDate
+	}
+	if oldDueDate != newDueDate {
+		if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "updated", "card", "due_date", oldDueDate, newDueDate); err != nil {
+			log.Printf("Failed to log activity: %v", err)
+		}
+	}
+	if req.IssueType != "" && oldIssueType != req.IssueType {
+		if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "updated", "card", "issue_type", oldIssueType, req.IssueType); err != nil {
+			log.Printf("Failed to log activity: %v", err)
+		}
+	}
+
+	// Update issue in the appropriate provider
 	swimlanes, _ := s.DB.GetBoardSwimlanes(card.BoardID)
 	for _, sl := range swimlanes {
 		if sl.ID == card.SwimlaneID {
@@ -360,6 +420,13 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 	}
 	user := getUserFromContext(r.Context())
 	boardID := card.BoardID
+
+	// Log activity before deletion
+	cardID := card.ID
+	if err := s.DB.LogActivity(card.BoardID, &cardID, user.ID, "deleted", "card", "", card.Title, ""); err != nil {
+		log.Printf("Failed to log activity: %v", err)
+	}
+
 	if err := s.DB.DeleteCard(card.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -392,6 +459,7 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	oldState := card.State
 	position := float64(0)
 	if req.Position != nil {
 		position = *req.Position
@@ -405,6 +473,11 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 	}
 	// Also update issue state in the appropriate provider
 	user := getUserFromContext(r.Context())
+
+	// Log activity
+	if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "moved", "card", "state", oldState, req.State); err != nil {
+		log.Printf("Failed to log activity: %v", err)
+	}
 	swimlanes, _ := s.DB.GetBoardSwimlanes(card.BoardID)
 	for _, sl := range swimlanes {
 		if sl.ID == card.SwimlaneID {
@@ -481,6 +554,21 @@ func (s *Server) handleAssignCardSprint(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Log activity
+	user := getUserFromContext(r.Context())
+	oldSprint := ""
+	if card.SprintID != nil {
+		oldSprint = strconv.FormatInt(*card.SprintID, 10)
+	}
+	newSprint := ""
+	if req.SprintID != nil {
+		newSprint = strconv.FormatInt(*req.SprintID, 10)
+	}
+	if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "updated", "card", "sprint_id", oldSprint, newSprint); err != nil {
+		log.Printf("Failed to log activity: %v", err)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -532,8 +620,13 @@ func (s *Server) handleAddCardAssignee(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create notification for the assigned user (if not self-assigning)
+	// Log activity
 	currentUser := getUserFromContext(r.Context())
+	if err := s.DB.LogActivity(card.BoardID, &card.ID, currentUser.ID, "assigned", "card", "assignee", "", strconv.FormatInt(req.UserID, 10)); err != nil {
+		log.Printf("Failed to log activity: %v", err)
+	}
+
+	// Create notification for the assigned user (if not self-assigning)
 	if req.UserID != currentUser.ID {
 		link := fmt.Sprintf("/boards/%d?card=%d", card.BoardID, card.ID)
 		s.createNotification(req.UserID, "assignment", "You've been assigned", fmt.Sprintf("%s assigned you to: %s", currentUser.DisplayName, card.Title), link)
@@ -556,6 +649,13 @@ func (s *Server) handleRemoveCardAssignee(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Log activity
+	currentUser := getUserFromContext(r.Context())
+	if err := s.DB.LogActivity(card.BoardID, &card.ID, currentUser.ID, "unassigned", "card", "assignee", strconv.FormatInt(userID, 10), ""); err != nil {
+		log.Printf("Failed to log activity: %v", err)
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -635,6 +735,11 @@ func (s *Server) handleCreateCardComment(w http.ResponseWriter, r *http.Request)
 		}
 		// Reload comment to get attachments
 		comment.Attachments, _ = s.DB.GetAttachmentsForComment(comment.ID)
+	}
+
+	// Log activity
+	if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "commented", "comment", "", "", ""); err != nil {
+		log.Printf("Failed to log activity: %v", err)
 	}
 
 	// Parse @mentions from comment body and notify mentioned users
@@ -1090,6 +1195,39 @@ func (s *Server) handleDeleteCardWorkLog(w http.ResponseWriter, r *http.Request)
 // Helper function to create notifications
 func (s *Server) createNotification(userID int64, notificationType, title, message, link string) {
 	s.DB.CreateNotification(userID, notificationType, title, message, link)
+}
+
+// Card activity handler
+
+func (s *Server) handleGetCardActivity(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	activities, err := s.DB.GetCardActivity(card.ID, limit, offset)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if activities == nil {
+		activities = []models.ActivityLog{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(activities)
 }
 
 // Card links handlers

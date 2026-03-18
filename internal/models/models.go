@@ -212,6 +212,21 @@ type CardLink struct {
 	TargetCard *Card `json:"target_card,omitempty"`
 }
 
+// ActivityLog records a change to a card or board entity
+type ActivityLog struct {
+	ID           int64     `json:"id"`
+	BoardID      int64     `json:"board_id"`
+	CardID       *int64    `json:"card_id"`
+	UserID       int64     `json:"user_id"`
+	User         *User     `json:"user,omitempty"`
+	Action       string    `json:"action"`      // created, updated, moved, deleted, commented, assigned, unassigned
+	EntityType   string    `json:"entity_type"` // card, comment, attachment
+	FieldChanged string    `json:"field_changed"`
+	OldValue     string    `json:"old_value"`
+	NewValue     string    `json:"new_value"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 // UserCredential stores user-level API credentials for Gitea/GitHub
 type UserCredential struct {
 	ID          int64     `json:"id"`

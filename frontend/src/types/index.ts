@@ -228,6 +228,20 @@ export interface BoardMember {
   created_at: string;
 }
 
+export interface ActivityLog {
+  id: number;
+  board_id: number;
+  card_id: number | null;
+  user_id: number;
+  user?: User;
+  action: string;
+  entity_type: string;
+  field_changed: string;
+  old_value: string;
+  new_value: string;
+  created_at: string;
+}
+
 export interface GiteaUser {
   id: number;
   login: string;

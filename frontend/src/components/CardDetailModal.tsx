@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { cards as cardsApi } from '../api/client';
-import { Card, Swimlane, Sprint, User, Label, CardLink, LinkType } from '../types';
+import { Card, Swimlane, Sprint, User, Label, CardLink, LinkType, ActivityLog } from '../types';
 import { useToast } from '../components/Toast';
 import { Clock, Calendar, User as UserIcon, X, Check, Link as LinkIcon } from 'lucide-react';
 
@@ -26,6 +26,54 @@ function isOverdue(dateStr: string): boolean {
   const date = new Date(dateStr);
   const now = new Date();
   return date.getTime() < now.getTime();
+}
+
+function formatActivityDescription(activity: ActivityLog): string {
+  const { action, field_changed, old_value, new_value } = activity;
+  switch (action) {
+    case 'created':
+      return `created card "${new_value}"`;
+    case 'deleted':
+      return `deleted card "${old_value}"`;
+    case 'commented':
+      return 'added a comment';
+    case 'assigned':
+      return 'added an assignee';
+    case 'unassigned':
+      return 'removed an assignee';
+    case 'moved':
+      if (old_value && new_value) {
+        return `moved card from ${old_value} to ${new_value}`;
+      }
+      return 'moved card';
+    case 'updated':
+      if (field_changed === 'title') return `changed title from "${old_value}" to "${new_value}"`;
+      if (field_changed === 'priority') return `changed priority from ${old_value} to ${new_value}`;
+      if (field_changed === 'description') return 'updated the description';
+      if (field_changed === 'story_points') return `changed story points from ${old_value || 'none'} to ${new_value || 'none'}`;
+      if (field_changed === 'due_date') return `changed due date from ${old_value || 'none'} to ${new_value || 'none'}`;
+      if (field_changed === 'issue_type') return `changed type from ${old_value} to ${new_value}`;
+      if (field_changed === 'sprint_id') return `changed sprint from ${old_value || 'Backlog'} to ${new_value || 'Backlog'}`;
+      if (field_changed) return `updated ${field_changed.replace(/_/g, ' ')}`;
+      return 'updated card';
+    default:
+      return action;
+  }
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffSec < 60) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  if (diffDay < 30) return `${diffDay}d ago`;
+  return date.toLocaleDateString();
 }
 
 export interface CardDetailModalProps {
@@ -107,12 +155,20 @@ export function CardDetailModal({
   const [newLinkType, setNewLinkType] = useState<LinkType>('relates_to');
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
 
+  // Activity log state
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
+  const [activityOffset, setActivityOffset] = useState(0);
+  const [hasMoreActivities, setHasMoreActivities] = useState(false);
+  const ACTIVITY_PAGE_SIZE = 20;
+
   // Load all data on mount
   useEffect(() => {
     loadComments();
     loadAttachments();
     loadWorkLogs();
     loadLinks();
+    loadActivities();
     if (customFields.length > 0) {
       loadCustomFieldValues();
     }
@@ -308,6 +364,26 @@ export function CardDetailModal({
       )
       .slice(0, 8);
   }, [boardCards, linkSearchQuery, card.id]);
+
+  const loadActivities = async (offset = 0) => {
+    if (offset === 0) setLoadingActivities(true);
+    try {
+      const data = await cardsApi.getActivity(card.id, ACTIVITY_PAGE_SIZE, offset);
+      const items = Array.isArray(data) ? data : [];
+      if (offset === 0) {
+        setActivities(items);
+      } else {
+        setActivities((prev) => [...prev, ...items]);
+      }
+      setActivityOffset(offset + items.length);
+      setHasMoreActivities(items.length === ACTIVITY_PAGE_SIZE);
+    } catch (err) {
+      console.error('Failed to load activities:', err);
+      if (offset === 0) setActivities([]);
+    } finally {
+      setLoadingActivities(false);
+    }
+  };
 
   const loadComments = async () => {
     setLoadingComments(true);
@@ -890,6 +966,43 @@ export function CardDetailModal({
                 </form>
               </div>
             )}
+
+            {/* Activity Log */}
+            <div className="activity-log-section">
+              <h4>Activity</h4>
+              {loadingActivities ? (
+                <div className="loading-inline">Loading...</div>
+              ) : activities.length === 0 ? (
+                <p className="empty-text">No activity yet</p>
+              ) : (
+                <>
+                  <div className="activity-timeline">
+                    {activities.map((activity) => (
+                      <div key={activity.id} className="activity-item">
+                        <div className="activity-avatar">
+                          {activity.user?.avatar_url ? (
+                            <img src={activity.user.avatar_url} alt={activity.user.display_name} />
+                          ) : (
+                            <UserIcon size={14} />
+                          )}
+                        </div>
+                        <div className="activity-content">
+                          <span className="activity-user">{activity.user?.display_name || 'Unknown'}</span>
+                          {' '}
+                          <span className="activity-description">{formatActivityDescription(activity)}</span>
+                          <span className="activity-time">{formatRelativeTime(activity.created_at)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {hasMoreActivities && (
+                    <button className="btn btn-sm activity-show-more" onClick={() => loadActivities(activityOffset)}>
+                      Show more
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
 
           {/* Right Sidebar - Conversations + Metadata */}
