@@ -200,6 +200,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("PUT /api/boards/{id}/custom-fields/{fieldId}", s.requireAuth(s.handleUpdateBoardCustomField))
 	mux.HandleFunc("DELETE /api/boards/{id}/custom-fields/{fieldId}", s.requireAuth(s.handleDeleteBoardCustomField))
 
+	// Saved filters
+	mux.HandleFunc("GET /api/boards/{id}/filters", s.requireAuth(s.handleListSavedFilters))
+	mux.HandleFunc("POST /api/boards/{id}/filters", s.requireAuth(s.handleCreateSavedFilter))
+	mux.HandleFunc("PUT /api/boards/{id}/filters/{filterId}", s.requireAuth(s.handleUpdateSavedFilter))
+	mux.HandleFunc("DELETE /api/boards/{id}/filters/{filterId}", s.requireAuth(s.handleDeleteSavedFilter))
+
 	// Board single resource routes (after sub-resources for correct matching)
 	mux.HandleFunc("GET /api/boards/{id}", s.requireAuth(s.handleGetBoard))
 	mux.HandleFunc("PUT /api/boards/{id}", s.requireAuth(s.handleUpdateBoard))

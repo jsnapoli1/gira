@@ -615,6 +615,142 @@ func (s *Server) handleUpdateBoardCustomField(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(updatedField)
 }
 
+// Saved filter handlers
+
+func (s *Server) handleListSavedFilters(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanView() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	user := getUserFromContext(r.Context())
+	filters, err := s.DB.ListSavedFilters(board.ID, user.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if filters == nil {
+		filters = []models.SavedFilter{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(filters)
+}
+
+func (s *Server) handleCreateSavedFilter(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanView() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	user := getUserFromContext(r.Context())
+	var req struct {
+		Name       string `json:"name"`
+		FilterJSON string `json:"filter_json"`
+		IsShared   bool   `json:"is_shared"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+	if req.FilterJSON == "" {
+		http.Error(w, "Filter JSON is required", http.StatusBadRequest)
+		return
+	}
+	filter, err := s.DB.CreateSavedFilter(board.ID, user.ID, req.Name, req.FilterJSON, req.IsShared)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(filter)
+}
+
+func (s *Server) handleUpdateSavedFilter(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	user := getUserFromContext(r.Context())
+	filterID, err := strconv.ParseInt(r.PathValue("filterId"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid filter ID", http.StatusBadRequest)
+		return
+	}
+	filter, err := s.DB.GetSavedFilterByID(filterID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if filter == nil || filter.BoardID != board.ID {
+		http.Error(w, "Filter not found", http.StatusNotFound)
+		return
+	}
+	if filter.OwnerID != user.ID {
+		http.Error(w, "Only the filter owner can update it", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Name       string `json:"name"`
+		FilterJSON string `json:"filter_json"`
+		IsShared   bool   `json:"is_shared"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.UpdateSavedFilter(filterID, req.Name, req.FilterJSON, req.IsShared); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	updated, _ := s.DB.GetSavedFilterByID(filterID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(updated)
+}
+
+func (s *Server) handleDeleteSavedFilter(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	user := getUserFromContext(r.Context())
+	filterID, err := strconv.ParseInt(r.PathValue("filterId"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid filter ID", http.StatusBadRequest)
+		return
+	}
+	filter, err := s.DB.GetSavedFilterByID(filterID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if filter == nil || filter.BoardID != board.ID {
+		http.Error(w, "Filter not found", http.StatusNotFound)
+		return
+	}
+	if filter.OwnerID != user.ID {
+		http.Error(w, "Only the filter owner can delete it", http.StatusForbidden)
+		return
+	}
+	if err := s.DB.DeleteSavedFilter(filterID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleDeleteBoardCustomField(w http.ResponseWriter, r *http.Request) {
 	board, _ := s.loadBoardAndRole(w, r)
 	if board == nil {

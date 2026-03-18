@@ -227,6 +227,18 @@ type ActivityLog struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// SavedFilter represents a saved filter configuration for a board
+type SavedFilter struct {
+	ID         int64     `json:"id"`
+	BoardID    int64     `json:"board_id"`
+	OwnerID    int64     `json:"owner_id"`
+	Name       string    `json:"name"`
+	FilterJSON string    `json:"filter_json"`
+	IsShared   bool      `json:"is_shared"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 // UserCredential stores user-level API credentials for Gitea/GitHub
 type UserCredential struct {
 	ID          int64     `json:"id"`

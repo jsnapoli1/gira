@@ -215,6 +215,17 @@ export interface UserCredential {
   created_at: string;
 }
 
+export interface SavedFilter {
+  id: number;
+  board_id: number;
+  owner_id: number;
+  name: string;
+  filter_json: string;
+  is_shared: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CardSearchResult {
   cards: Card[];
   total: number;

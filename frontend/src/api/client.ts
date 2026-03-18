@@ -23,6 +23,7 @@ import type {
   CardSearchResult,
   CardLink,
   ActivityLog,
+  SavedFilter,
 } from '../types';
 
 const API_BASE = '/api';
@@ -187,6 +188,21 @@ export const boards = {
     }),
   deleteCustomField: (boardId: number, fieldId: number) =>
     request(`/boards/${boardId}/custom-fields/${fieldId}`, { method: 'DELETE' }),
+
+  // Saved Filters
+  getSavedFilters: (boardId: number) => request<SavedFilter[]>(`/boards/${boardId}/filters`),
+  createSavedFilter: (boardId: number, name: string, filterJson: string, isShared: boolean) =>
+    request<SavedFilter>(`/boards/${boardId}/filters`, {
+      method: 'POST',
+      body: JSON.stringify({ name, filter_json: filterJson, is_shared: isShared }),
+    }),
+  updateSavedFilter: (boardId: number, filterId: number, name: string, filterJson: string, isShared: boolean) =>
+    request<SavedFilter>(`/boards/${boardId}/filters/${filterId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, filter_json: filterJson, is_shared: isShared }),
+    }),
+  deleteSavedFilter: (boardId: number, filterId: number) =>
+    request(`/boards/${boardId}/filters/${filterId}`, { method: 'DELETE' }),
 };
 
 // Sprints

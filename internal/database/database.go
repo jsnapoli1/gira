@@ -350,6 +350,22 @@ func (d *DB) migrate() error {
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_activity_log_board ON activity_log(board_id)`)
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at DESC)`)
 
+	// Saved filters
+	d.Exec(`CREATE TABLE IF NOT EXISTS saved_filters (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		board_id INTEGER NOT NULL,
+		owner_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		filter_json TEXT NOT NULL,
+		is_shared INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+		FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+		UNIQUE(board_id, owner_id, name)
+	)`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_saved_filters_board ON saved_filters(board_id)`)
+
 	// Bootstrap: If no admins exist and users exist, promote first user to admin
 	var adminCount int
 	d.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin = 1`).Scan(&adminCount)
