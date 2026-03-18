@@ -259,6 +259,16 @@ type CardTemplate struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
+// IssueTypeDefinition defines a custom issue type for a board
+type IssueTypeDefinition struct {
+	ID       int64  `json:"id"`
+	BoardID  int64  `json:"board_id"`
+	Name     string `json:"name"`
+	Icon     string `json:"icon"`
+	Color    string `json:"color"`
+	Position int    `json:"position"`
+}
+
 // UserCredential stores user-level API credentials for Gitea/GitHub
 type UserCredential struct {
 	ID          int64     `json:"id"`

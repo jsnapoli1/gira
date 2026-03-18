@@ -1143,3 +1143,128 @@ func (s *Server) handleExportBoardCards(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 }
+
+// Issue type handlers
+
+var defaultIssueTypes = []models.IssueTypeDefinition{
+	{Name: "epic", Icon: "\u26a1", Color: "#7c3aed"},
+	{Name: "story", Icon: "\U0001f4d6", Color: "#2563eb"},
+	{Name: "task", Icon: "\u2713", Color: "#16a34a"},
+	{Name: "bug", Icon: "\U0001f41b", Color: "#dc2626"},
+	{Name: "subtask", Icon: "\u21b3", Color: "#6b7280"},
+}
+
+func (s *Server) handleListIssueTypes(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanView() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	types, err := s.DB.ListIssueTypes(board.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(types) == 0 {
+		types = defaultIssueTypes
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(types)
+}
+
+func (s *Server) handleCreateIssueType(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Name  string `json:"name"`
+		Icon  string `json:"icon"`
+		Color string `json:"color"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+	if req.Color == "" {
+		req.Color = "#6366f1"
+	}
+	issueType, err := s.DB.CreateIssueType(board.ID, req.Name, req.Icon, req.Color)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(issueType)
+}
+
+func (s *Server) handleUpdateIssueType(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+	typeID, err := strconv.ParseInt(r.PathValue("typeId"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid type ID", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Name  string `json:"name"`
+		Icon  string `json:"icon"`
+		Color string `json:"color"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.UpdateIssueType(typeID, req.Name, req.Icon, req.Color); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleDeleteIssueType(w http.ResponseWriter, r *http.Request) {
+	_, r = s.loadBoardAndRole(w, r)
+	boardRole := getBoardRoleFromContext(r.Context())
+	if boardRole == "" {
+		return
+	}
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+	typeID, err := strconv.ParseInt(r.PathValue("typeId"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid type ID", http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.DeleteIssueType(typeID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

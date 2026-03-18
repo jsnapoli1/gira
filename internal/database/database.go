@@ -406,6 +406,18 @@ func (d *DB) migrate() error {
 	)`)
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_workflow_rules_board ON workflow_rules(board_id)`)
 
+	// Issue type definitions
+	d.Exec(`CREATE TABLE IF NOT EXISTS issue_type_definitions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		board_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		icon TEXT DEFAULT '',
+		color TEXT DEFAULT '#6366f1',
+		position INTEGER DEFAULT 0,
+		FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+		UNIQUE(board_id, name)
+	)`)
+
 	// Bootstrap: If no admins exist and users exist, promote first user to admin
 	var adminCount int
 	d.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin = 1`).Scan(&adminCount)

@@ -27,6 +27,7 @@ import type {
   CardTemplate,
   DashboardResponse,
   WorkflowRule,
+  IssueTypeDefinition,
 } from '../types';
 
 const API_BASE = '/api';
@@ -240,6 +241,21 @@ export const boards = {
       method: 'PUT',
       body: JSON.stringify({ rules }),
     }),
+
+  // Issue Types
+  getIssueTypes: (boardId: number) => request<IssueTypeDefinition[]>(`/boards/${boardId}/issue-types`),
+  createIssueType: (boardId: number, name: string, icon: string, color: string) =>
+    request<IssueTypeDefinition>(`/boards/${boardId}/issue-types`, {
+      method: 'POST',
+      body: JSON.stringify({ name, icon, color }),
+    }),
+  updateIssueType: (boardId: number, typeId: number, name: string, icon: string, color: string) =>
+    request<IssueTypeDefinition>(`/boards/${boardId}/issue-types/${typeId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, icon, color }),
+    }),
+  deleteIssueType: (boardId: number, typeId: number) =>
+    request(`/boards/${boardId}/issue-types/${typeId}`, { method: 'DELETE' }),
 };
 
 // Sprints

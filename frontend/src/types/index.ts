@@ -301,6 +301,15 @@ export interface WorkflowRule {
   to_column_id: number;
 }
 
+export interface IssueTypeDefinition {
+  id: number;
+  board_id: number;
+  name: string;
+  icon: string;
+  color: string;
+  position: number;
+}
+
 export interface GiteaIssue {
   id: number;
   number: number;
