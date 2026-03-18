@@ -1,7 +1,7 @@
 import { ReactNode, useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LayoutDashboard, Kanban, BarChart3, Settings, LogOut, User, ChevronLeft, ChevronRight, Bell, Check, X } from 'lucide-react';
+import { LayoutDashboard, Kanban, BarChart3, Settings, LogOut, User, ChevronLeft, ChevronRight, Bell, Check, X, Menu } from 'lucide-react';
 import { notifications as notificationsApi } from '../api/client';
 import type { Notification } from '../types';
 
@@ -19,6 +19,7 @@ export function Layout({ children }: LayoutProps) {
     const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
     return saved === 'true';
   });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsList, setNotificationsList] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -27,6 +28,11 @@ export function Layout({ children }: LayoutProps) {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
   }, [collapsed]);
+
+  // Close mobile sidebar on navigation
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   // Load notifications
   useEffect(() => {
@@ -132,7 +138,20 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className={`app-layout ${collapsed ? 'sidebar-collapsed' : ''}`}>
-      <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+      <button
+        className="mobile-nav-toggle"
+        onClick={() => setSidebarOpen(true)}
+        aria-label="Open navigation"
+      >
+        <Menu size={20} />
+      </button>
+      {sidebarOpen && (
+        <div
+          className="mobile-sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${sidebarOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-header">
           <Link to="/" className="logo">
             <LayoutDashboard size={24} />

@@ -3430,14 +3430,121 @@ body {
 
 /* Responsive */
 @media (max-width: 768px) {
+  /* Sidebar collapses — toggled open via .sidebar.mobile-open */
   .sidebar {
     display: none;
+  }
+
+  .sidebar.mobile-open {
+    display: flex;
+    position: fixed;
+    z-index: 999;
+    width: var(--sidebar-width);
+  }
+
+  .mobile-sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 998;
+  }
+
+  .mobile-nav-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 997;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   }
 
   .main-content {
     margin-left: 0;
   }
 
+  /* Board header stacks vertically */
+  .board-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .board-header-right {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .board-filters {
+    flex-wrap: wrap;
+  }
+
+  /* Board scrolls horizontally */
+  .board-content {
+    overflow-x: auto;
+  }
+
+  .board-swimlane {
+    min-width: 900px;
+  }
+
+  /* Cards are wider on mobile */
+  .card-item {
+    min-width: 200px;
+  }
+
+  /* Modal is full-screen on mobile */
+  .card-detail-modal-overlay {
+    padding: 0;
+  }
+
+  .card-detail-modal {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .card-detail-body {
+    flex-direction: column;
+  }
+
+  .card-detail-left,
+  .card-detail-right {
+    width: 100%;
+  }
+
+  /* Bulk action bar full width */
+  .bulk-action-bar {
+    left: 0;
+  }
+
+  /* Dashboard responsive */
+  .dashboard-boards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Shortcuts modal smaller */
+  .shortcuts-modal {
+    min-width: unset;
+    width: 90vw;
+  }
+
+  /* Save filter modal */
+  .save-filter-modal {
+    width: 90vw;
+  }
+
+  /* Reports responsive */
   .metrics-summary {
     grid-template-columns: 1fr;
   }
@@ -4837,4 +4944,48 @@ kbd {
   color: var(--text-secondary);
   min-width: 32px;
   text-align: right;
+/* Mobile nav toggle — hidden by default, shown via 768px media query */
+.mobile-nav-toggle {
+  display: none;
+}
+
+.mobile-sidebar-overlay {
+  display: none;
+}
+
+/* Tablet breakpoint */
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 180px;
+  }
+
+  .main-content {
+    margin-left: 180px;
+  }
+
+  .app-layout.sidebar-collapsed .main-content {
+    margin-left: 64px;
+  }
+
+  .card-detail-modal {
+    width: 95vw;
+  }
+}
+
+/* Touch-friendly sizing */
+@media (pointer: coarse) {
+  .btn,
+  button {
+    min-height: 36px;
+    min-width: 36px;
+  }
+
+  .card-item {
+    padding: 12px;
+  }
+
+  .filter-select,
+  .search-input input {
+    min-height: 36px;
+  }
 }
