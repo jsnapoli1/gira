@@ -356,6 +356,28 @@ export const cards = {
   deleteLink: (cardId: number, linkId: number) =>
     request(`/cards/${cardId}/links/${linkId}`, { method: 'DELETE' }),
 
+  // Bulk Operations
+  bulkMove: (cardIds: number[], columnId: number, state: string) =>
+    request(`/cards/bulk-move`, {
+      method: 'POST',
+      body: JSON.stringify({ card_ids: cardIds, column_id: columnId, state }),
+    }),
+  bulkAssignSprint: (cardIds: number[], sprintId: number | null) =>
+    request(`/cards/bulk-assign-sprint`, {
+      method: 'POST',
+      body: JSON.stringify({ card_ids: cardIds, sprint_id: sprintId }),
+    }),
+  bulkUpdate: (cardIds: number[], updates: { priority?: string; add_label_id?: number; remove_label_id?: number }) =>
+    request(`/cards/bulk-update`, {
+      method: 'POST',
+      body: JSON.stringify({ card_ids: cardIds, ...updates }),
+    }),
+  bulkDelete: (cardIds: number[]) =>
+    request(`/cards/bulk-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ card_ids: cardIds }),
+    }),
+
   // Activity Log
   getActivity: (id: number, limit?: number, offset?: number) => {
     const params = new URLSearchParams();

@@ -1325,6 +1325,160 @@ func (s *Server) handleDeleteCardLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Bulk card operations
+
+func (s *Server) handleBulkMoveCards(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CardIDs  []int64 `json:"card_ids"`
+		ColumnID int64   `json:"column_id"`
+		State    string  `json:"state"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if len(req.CardIDs) == 0 {
+		http.Error(w, "card_ids must not be empty", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.DB.BulkMoveCards(req.CardIDs, req.ColumnID, req.State); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	user := getUserFromContext(r.Context())
+	for _, cardID := range req.CardIDs {
+		s.SSEHub.Broadcast(BoardEvent{
+			Type:      "card_moved",
+			Payload:   map[string]interface{}{"card_id": cardID, "column_id": req.ColumnID, "state": req.State},
+			Timestamp: time.Now(),
+			UserID:    user.ID,
+		})
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"updated": len(req.CardIDs)})
+}
+
+func (s *Server) handleBulkAssignSprint(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CardIDs  []int64 `json:"card_ids"`
+		SprintID *int64  `json:"sprint_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if len(req.CardIDs) == 0 {
+		http.Error(w, "card_ids must not be empty", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.DB.BulkAssignSprint(req.CardIDs, req.SprintID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	user := getUserFromContext(r.Context())
+	for _, cardID := range req.CardIDs {
+		s.SSEHub.Broadcast(BoardEvent{
+			Type:      "card_updated",
+			Payload:   map[string]interface{}{"card_id": cardID, "sprint_id": req.SprintID},
+			Timestamp: time.Now(),
+			UserID:    user.ID,
+		})
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"updated": len(req.CardIDs)})
+}
+
+func (s *Server) handleBulkUpdateCards(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CardIDs       []int64 `json:"card_ids"`
+		Priority      string  `json:"priority"`
+		AddLabelID    *int64  `json:"add_label_id"`
+		RemoveLabelID *int64  `json:"remove_label_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if len(req.CardIDs) == 0 {
+		http.Error(w, "card_ids must not be empty", http.StatusBadRequest)
+		return
+	}
+
+	if req.Priority != "" {
+		if err := s.DB.BulkUpdatePriority(req.CardIDs, req.Priority); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if req.AddLabelID != nil {
+		for _, cardID := range req.CardIDs {
+			if err := s.DB.AddLabelToCard(cardID, *req.AddLabelID); err != nil {
+				log.Printf("Failed to add label %d to card %d: %v", *req.AddLabelID, cardID, err)
+			}
+		}
+	}
+
+	if req.RemoveLabelID != nil {
+		for _, cardID := range req.CardIDs {
+			if err := s.DB.RemoveLabelFromCard(cardID, *req.RemoveLabelID); err != nil {
+				log.Printf("Failed to remove label %d from card %d: %v", *req.RemoveLabelID, cardID, err)
+			}
+		}
+	}
+
+	user := getUserFromContext(r.Context())
+	for _, cardID := range req.CardIDs {
+		s.SSEHub.Broadcast(BoardEvent{
+			Type:      "card_updated",
+			Payload:   map[string]interface{}{"card_id": cardID},
+			Timestamp: time.Now(),
+			UserID:    user.ID,
+		})
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"updated": len(req.CardIDs)})
+}
+
+func (s *Server) handleBulkDeleteCards(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CardIDs []int64 `json:"card_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if len(req.CardIDs) == 0 {
+		http.Error(w, "card_ids must not be empty", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.DB.BulkDeleteCards(req.CardIDs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	user := getUserFromContext(r.Context())
+	for _, cardID := range req.CardIDs {
+		s.SSEHub.Broadcast(BoardEvent{
+			Type:      "card_deleted",
+			Payload:   map[string]interface{}{"card_id": cardID},
+			Timestamp: time.Now(),
+			UserID:    user.ID,
+		})
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": len(req.CardIDs)})
+}
+
 // parseMentions extracts @mentions from text and returns user IDs
 // Supports @display_name format (display names are matched case-insensitively)
 func (s *Server) parseMentions(body string) []int64 {

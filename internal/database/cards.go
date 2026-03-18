@@ -418,6 +418,81 @@ func (d *DB) DeleteCard(id int64) error {
 	return err
 }
 
+// BulkMoveCards moves multiple cards to a target column with the given state
+func (d *DB) BulkMoveCards(cardIDs []int64, columnID int64, state string) error {
+	if len(cardIDs) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(cardIDs))
+	args := make([]interface{}, 0, len(cardIDs)+3)
+	args = append(args, columnID, state, time.Now())
+	for i, id := range cardIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	_, err := d.Exec(
+		`UPDATE cards SET column_id = ?, state = ?, updated_at = ? WHERE id IN (`+strings.Join(placeholders, ",")+`)`,
+		args...,
+	)
+	return err
+}
+
+// BulkAssignSprint assigns multiple cards to a sprint (or nil for backlog)
+func (d *DB) BulkAssignSprint(cardIDs []int64, sprintID *int64) error {
+	if len(cardIDs) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(cardIDs))
+	args := make([]interface{}, 0, len(cardIDs)+2)
+	args = append(args, sprintID, time.Now())
+	for i, id := range cardIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	_, err := d.Exec(
+		`UPDATE cards SET sprint_id = ?, updated_at = ? WHERE id IN (`+strings.Join(placeholders, ",")+`)`,
+		args...,
+	)
+	return err
+}
+
+// BulkUpdatePriority updates priority for multiple cards
+func (d *DB) BulkUpdatePriority(cardIDs []int64, priority string) error {
+	if len(cardIDs) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(cardIDs))
+	args := make([]interface{}, 0, len(cardIDs)+2)
+	args = append(args, priority, time.Now())
+	for i, id := range cardIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	_, err := d.Exec(
+		`UPDATE cards SET priority = ?, updated_at = ? WHERE id IN (`+strings.Join(placeholders, ",")+`)`,
+		args...,
+	)
+	return err
+}
+
+// BulkDeleteCards deletes multiple cards
+func (d *DB) BulkDeleteCards(cardIDs []int64) error {
+	if len(cardIDs) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(cardIDs))
+	args := make([]interface{}, len(cardIDs))
+	for i, id := range cardIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	_, err := d.Exec(
+		`DELETE FROM cards WHERE id IN (`+strings.Join(placeholders, ",")+`)`,
+		args...,
+	)
+	return err
+}
+
 // ListChildCards returns all cards that have the given card as their parent
 func (d *DB) ListChildCards(parentID int64) ([]models.Card, error) {
 	return d.listCards(`WHERE parent_id = ?`, parentID)

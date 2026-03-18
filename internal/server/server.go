@@ -219,6 +219,10 @@ func (s *Server) Start() error {
 	// Card routes
 	mux.HandleFunc("GET /api/cards/search", s.requireAuth(s.handleSearchCards))
 	mux.HandleFunc("POST /api/cards", s.requireAuth(s.handleCreateCard))
+	mux.HandleFunc("POST /api/cards/bulk-move", s.requireAuth(s.handleBulkMoveCards))
+	mux.HandleFunc("POST /api/cards/bulk-assign-sprint", s.requireAuth(s.handleBulkAssignSprint))
+	mux.HandleFunc("POST /api/cards/bulk-update", s.requireAuth(s.handleBulkUpdateCards))
+	mux.HandleFunc("POST /api/cards/bulk-delete", s.requireAuth(s.handleBulkDeleteCards))
 	mux.HandleFunc("GET /api/cards/{id}", s.requireAuth(s.handleGetCard))
 	mux.HandleFunc("PUT /api/cards/{id}", s.requireAuth(s.handleUpdateCard))
 	mux.HandleFunc("DELETE /api/cards/{id}", s.requireAuth(s.handleDeleteCard))
