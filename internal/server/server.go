@@ -223,6 +223,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("PUT /api/cards/{id}", s.requireAuth(s.handleUpdateCard))
 	mux.HandleFunc("DELETE /api/cards/{id}", s.requireAuth(s.handleDeleteCard))
 	mux.HandleFunc("POST /api/cards/{id}/move", s.requireAuth(s.handleMoveCard))
+	mux.HandleFunc("POST /api/cards/{id}/reorder", s.requireAuth(s.handleReorderCard))
 	mux.HandleFunc("POST /api/cards/{id}/assign-sprint", s.requireAuth(s.handleAssignCardSprint))
 	mux.HandleFunc("GET /api/cards/{id}/assignees", s.requireAuth(s.handleGetCardAssignees))
 	mux.HandleFunc("POST /api/cards/{id}/assignees", s.requireAuth(s.handleAddCardAssignee))

@@ -38,14 +38,14 @@ func (r BoardRole) CanView() bool {
 }
 
 type Board struct {
-	ID          int64       `json:"id"`
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	OwnerID     int64       `json:"owner_id"`
-	Columns     []Column    `json:"columns"`
-	Swimlanes   []Swimlane  `json:"swimlanes"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	OwnerID     int64      `json:"owner_id"`
+	Columns     []Column   `json:"columns"`
+	Swimlanes   []Swimlane `json:"swimlanes"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 type Column struct {
@@ -70,15 +70,15 @@ type Swimlane struct {
 }
 
 type Sprint struct {
-	ID          int64      `json:"id"`
-	BoardID     int64      `json:"board_id"`
-	Name        string     `json:"name"`
-	Goal        string     `json:"goal"`
-	StartDate   *time.Time `json:"start_date"`
-	EndDate     *time.Time `json:"end_date"`
-	Status      string     `json:"status"` // planning, active, completed
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID        int64      `json:"id"`
+	BoardID   int64      `json:"board_id"`
+	Name      string     `json:"name"`
+	Goal      string     `json:"goal"`
+	StartDate *time.Time `json:"start_date"`
+	EndDate   *time.Time `json:"end_date"`
+	Status    string     `json:"status"` // planning, active, completed
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 type Card struct {
@@ -87,8 +87,8 @@ type Card struct {
 	SwimlaneID   int64      `json:"swimlane_id"`
 	ColumnID     int64      `json:"column_id"`
 	SprintID     *int64     `json:"sprint_id"`
-	ParentID     *int64     `json:"parent_id"`     // Parent card ID for hierarchy
-	IssueType    string     `json:"issue_type"`    // epic, story, task, subtask
+	ParentID     *int64     `json:"parent_id"`  // Parent card ID for hierarchy
+	IssueType    string     `json:"issue_type"` // epic, story, task, subtask
 	GiteaIssueID int64      `json:"gitea_issue_id"`
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
@@ -97,6 +97,7 @@ type Card struct {
 	Priority     string     `json:"priority"` // highest, high, medium, low, lowest
 	DueDate      *time.Time `json:"due_date"`
 	TimeEstimate *int       `json:"time_estimate"` // in minutes
+	Position     float64    `json:"position"`
 	Labels       []Label    `json:"labels"`
 	Assignees    []User     `json:"assignees"`
 	Children     []Card     `json:"children,omitempty"` // Child cards (for hierarchy display)
@@ -119,13 +120,13 @@ type BoardMember struct {
 }
 
 type SprintMetrics struct {
-	SprintID           int64     `json:"sprint_id"`
-	Date               time.Time `json:"date"`
-	TotalPoints        int       `json:"total_points"`
-	CompletedPoints    int       `json:"completed_points"`
-	RemainingPoints    int       `json:"remaining_points"`
-	TotalCards         int       `json:"total_cards"`
-	CompletedCards     int       `json:"completed_cards"`
+	SprintID        int64     `json:"sprint_id"`
+	Date            time.Time `json:"date"`
+	TotalPoints     int       `json:"total_points"`
+	CompletedPoints int       `json:"completed_points"`
+	RemainingPoints int       `json:"remaining_points"`
+	TotalCards      int       `json:"total_cards"`
+	CompletedCards  int       `json:"completed_cards"`
 }
 
 type WorkItem struct {
@@ -190,10 +191,10 @@ type CustomFieldValue struct {
 type Notification struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
-	Type      string    `json:"type"`    // assignment, mention, update, comment
+	Type      string    `json:"type"` // assignment, mention, update, comment
 	Title     string    `json:"title"`
 	Message   string    `json:"message"`
-	Link      string    `json:"link"`    // URL to navigate to
+	Link      string    `json:"link"` // URL to navigate to
 	Read      bool      `json:"read"`
 	CreatedAt time.Time `json:"created_at"`
 }

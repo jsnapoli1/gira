@@ -74,6 +74,7 @@ export interface Card {
   priority: 'highest' | 'high' | 'medium' | 'low' | 'lowest';
   due_date: string | null;
   time_estimate: number | null;
+  position: number;
   labels: Label[];
   assignees: User[];
   children?: Card[];

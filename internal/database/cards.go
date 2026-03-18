@@ -24,6 +24,7 @@ type CreateCardInput struct {
 	Priority     string
 	DueDate      *time.Time
 	TimeEstimate *int
+	Position     float64
 }
 
 func (d *DB) CreateCard(input CreateCardInput) (*models.Card, error) {
@@ -31,10 +32,15 @@ func (d *DB) CreateCard(input CreateCardInput) (*models.Card, error) {
 	if issueType == "" {
 		issueType = "task"
 	}
+	position := input.Position
+	if position == 0 {
+		maxPos, _ := d.GetMaxPosition(input.BoardID, input.ColumnID)
+		position = maxPos + 1000
+	}
 	result, err := d.Exec(
-		`INSERT INTO cards (board_id, swimlane_id, column_id, sprint_id, parent_id, issue_type, gitea_issue_id, title, description, state, story_points, priority, due_date, time_estimate)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		input.BoardID, input.SwimlaneID, input.ColumnID, input.SprintID, input.ParentID, issueType, input.GiteaIssueID, input.Title, input.Description, input.State, input.StoryPoints, input.Priority, input.DueDate, input.TimeEstimate,
+		`INSERT INTO cards (board_id, swimlane_id, column_id, sprint_id, parent_id, issue_type, gitea_issue_id, title, description, state, story_points, priority, due_date, time_estimate, position)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		input.BoardID, input.SwimlaneID, input.ColumnID, input.SprintID, input.ParentID, issueType, input.GiteaIssueID, input.Title, input.Description, input.State, input.StoryPoints, input.Priority, input.DueDate, input.TimeEstimate, position,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create card: %w", err)
@@ -57,10 +63,10 @@ func (d *DB) GetCardByID(id int64) (*models.Card, error) {
 	var timeEstimate sql.NullInt64
 
 	err := d.QueryRow(
-		`SELECT id, board_id, swimlane_id, column_id, sprint_id, parent_id, issue_type, gitea_issue_id, title, description, state, story_points, priority, due_date, time_estimate, created_at, updated_at
+		`SELECT id, board_id, swimlane_id, column_id, sprint_id, parent_id, issue_type, gitea_issue_id, title, description, state, story_points, priority, due_date, time_estimate, position, created_at, updated_at
 		 FROM cards WHERE id = ?`,
 		id,
-	).Scan(&card.ID, &card.BoardID, &card.SwimlaneID, &card.ColumnID, &sprintID, &parentID, &issueType, &card.GiteaIssueID, &card.Title, &card.Description, &card.State, &storyPoints, &card.Priority, &dueDate, &timeEstimate, &card.CreatedAt, &card.UpdatedAt)
+	).Scan(&card.ID, &card.BoardID, &card.SwimlaneID, &card.ColumnID, &sprintID, &parentID, &issueType, &card.GiteaIssueID, &card.Title, &card.Description, &card.State, &storyPoints, &card.Priority, &dueDate, &timeEstimate, &card.Position, &card.CreatedAt, &card.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -141,8 +147,8 @@ func (d *DB) ListCardsForBacklog(boardID int64) ([]models.Card, error) {
 }
 
 func (d *DB) listCards(whereClause string, args ...interface{}) ([]models.Card, error) {
-	query := `SELECT id, board_id, swimlane_id, column_id, sprint_id, parent_id, issue_type, gitea_issue_id, title, description, state, story_points, priority, due_date, time_estimate, created_at, updated_at
-		 FROM cards ` + whereClause + ` ORDER BY created_at`
+	query := `SELECT id, board_id, swimlane_id, column_id, sprint_id, parent_id, issue_type, gitea_issue_id, title, description, state, story_points, priority, due_date, time_estimate, position, created_at, updated_at
+		 FROM cards ` + whereClause + ` ORDER BY position, created_at`
 
 	rows, err := d.Query(query, args...)
 	if err != nil {
@@ -160,7 +166,7 @@ func (d *DB) listCards(whereClause string, args ...interface{}) ([]models.Card, 
 		var dueDate sql.NullTime
 		var timeEstimate sql.NullInt64
 
-		if err := rows.Scan(&card.ID, &card.BoardID, &card.SwimlaneID, &card.ColumnID, &sprintID, &parentID, &issueType, &card.GiteaIssueID, &card.Title, &card.Description, &card.State, &storyPoints, &card.Priority, &dueDate, &timeEstimate, &card.CreatedAt, &card.UpdatedAt); err != nil {
+		if err := rows.Scan(&card.ID, &card.BoardID, &card.SwimlaneID, &card.ColumnID, &sprintID, &parentID, &issueType, &card.GiteaIssueID, &card.Title, &card.Description, &card.State, &storyPoints, &card.Priority, &dueDate, &timeEstimate, &card.Position, &card.CreatedAt, &card.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan card: %w", err)
 		}
 
@@ -361,9 +367,9 @@ func (d *DB) SearchCards(params CardSearchParams) ([]models.Card, int, error) {
 
 func (d *DB) UpdateCard(card *models.Card) error {
 	_, err := d.Exec(
-		`UPDATE cards SET swimlane_id = ?, column_id = ?, sprint_id = ?, parent_id = ?, issue_type = ?, title = ?, description = ?, state = ?, story_points = ?, priority = ?, due_date = ?, time_estimate = ?, updated_at = ?
+		`UPDATE cards SET swimlane_id = ?, column_id = ?, sprint_id = ?, parent_id = ?, issue_type = ?, title = ?, description = ?, state = ?, story_points = ?, priority = ?, due_date = ?, time_estimate = ?, position = ?, updated_at = ?
 		 WHERE id = ?`,
-		card.SwimlaneID, card.ColumnID, card.SprintID, card.ParentID, card.IssueType, card.Title, card.Description, card.State, card.StoryPoints, card.Priority, card.DueDate, card.TimeEstimate, time.Now(), card.ID,
+		card.SwimlaneID, card.ColumnID, card.SprintID, card.ParentID, card.IssueType, card.Title, card.Description, card.State, card.StoryPoints, card.Priority, card.DueDate, card.TimeEstimate, card.Position, time.Now(), card.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update card: %w", err)
@@ -371,12 +377,32 @@ func (d *DB) UpdateCard(card *models.Card) error {
 	return nil
 }
 
-func (d *DB) MoveCard(cardID, columnID int64, state string) error {
+func (d *DB) MoveCard(cardID, columnID int64, state string, position float64) error {
 	_, err := d.Exec(
-		`UPDATE cards SET column_id = ?, state = ?, updated_at = ? WHERE id = ?`,
-		columnID, state, time.Now(), cardID,
+		`UPDATE cards SET column_id = ?, state = ?, position = ?, updated_at = ? WHERE id = ?`,
+		columnID, state, position, time.Now(), cardID,
 	)
 	return err
+}
+
+func (d *DB) ReorderCard(cardID int64, newPosition float64) error {
+	_, err := d.Exec(
+		`UPDATE cards SET position = ?, updated_at = ? WHERE id = ?`,
+		newPosition, time.Now(), cardID,
+	)
+	return err
+}
+
+func (d *DB) GetMaxPosition(boardID, columnID int64) (float64, error) {
+	var pos sql.NullFloat64
+	err := d.QueryRow(
+		`SELECT MAX(position) FROM cards WHERE board_id = ? AND column_id = ?`,
+		boardID, columnID,
+	).Scan(&pos)
+	if err != nil || !pos.Valid {
+		return 0, err
+	}
+	return pos.Float64, nil
 }
 
 func (d *DB) AssignCardToSprint(cardID int64, sprintID *int64) error {

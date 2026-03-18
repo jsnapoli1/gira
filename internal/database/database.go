@@ -268,6 +268,17 @@ func (d *DB) migrate() error {
 	d.Exec(`ALTER TABLE cards ADD COLUMN due_date DATETIME`)
 	d.Exec(`ALTER TABLE cards ADD COLUMN time_estimate INTEGER`)
 
+	// Card position for ordering within columns/backlog
+	d.Exec(`ALTER TABLE cards ADD COLUMN position REAL DEFAULT 0`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_cards_position ON cards(board_id, column_id, position)`)
+	// Initialize existing cards' position based on created_at order
+	d.Exec(`UPDATE cards SET position = (
+		SELECT COUNT(*) * 1000 FROM cards c2
+		WHERE c2.board_id = cards.board_id
+		AND c2.column_id = cards.column_id
+		AND c2.created_at <= cards.created_at
+	) WHERE position = 0 OR position IS NULL`)
+
 	// Add is_admin column to users (ignore error if already exists)
 	d.Exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`)
 

@@ -262,10 +262,15 @@ export const cards = {
   getChildren: (id: number) => request<Card[]>(`/cards/${id}/children`),
   delete: (id: number) =>
     request(`/cards/${id}`, { method: 'DELETE' }),
-  move: (id: number, columnId: number, state: string) =>
+  move: (id: number, columnId: number, state: string, position?: number) =>
     request(`/cards/${id}/move`, {
       method: 'POST',
-      body: JSON.stringify({ column_id: columnId, state }),
+      body: JSON.stringify({ column_id: columnId, state, position }),
+    }),
+  reorder: (id: number, position: number) =>
+    request(`/cards/${id}/reorder`, {
+      method: 'POST',
+      body: JSON.stringify({ position }),
     }),
   assignToSprint: (id: number, sprintId: number | null) =>
     request(`/cards/${id}/assign-sprint`, {

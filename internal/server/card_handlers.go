@@ -384,14 +384,22 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ColumnID int64  `json:"column_id"`
-		State    string `json:"state"`
+		ColumnID int64    `json:"column_id"`
+		State    string   `json:"state"`
+		Position *float64 `json:"position"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	if err := s.DB.MoveCard(card.ID, req.ColumnID, req.State); err != nil {
+	position := float64(0)
+	if req.Position != nil {
+		position = *req.Position
+	} else {
+		maxPos, _ := s.DB.GetMaxPosition(card.BoardID, req.ColumnID)
+		position = maxPos + 1000
+	}
+	if err := s.DB.MoveCard(card.ID, req.ColumnID, req.State, position); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -418,7 +426,37 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 	s.SSEHub.Broadcast(BoardEvent{
 		Type:      "card_moved",
 		BoardID:   card.BoardID,
-		Payload:   map[string]interface{}{"card_id": card.ID, "column_id": req.ColumnID, "state": req.State},
+		Payload:   map[string]interface{}{"card_id": card.ID, "column_id": req.ColumnID, "state": req.State, "position": position},
+		Timestamp: time.Now(),
+		UserID:    user.ID,
+	})
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleReorderCard(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+
+	var req struct {
+		Position float64 `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.ReorderCard(card.ID, req.Position); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	user := getUserFromContext(r.Context())
+	s.SSEHub.Broadcast(BoardEvent{
+		Type:      "card_reordered",
+		BoardID:   card.BoardID,
+		Payload:   map[string]interface{}{"card_id": card.ID, "position": req.Position},
 		Timestamp: time.Now(),
 		UserID:    user.ID,
 	})
