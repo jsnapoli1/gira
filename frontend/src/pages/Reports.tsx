@@ -25,6 +25,7 @@ export function Reports() {
   const [burndownData, setBurndownData] = useState<SprintMetrics[]>([]);
   const [velocityData, setVelocityData] = useState<VelocityPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     loadBoards();
@@ -49,8 +50,9 @@ export function Reports() {
       if (data?.length > 0) {
         setSelectedBoard(data[0]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load boards:', err);
+      setError(err?.message || 'Failed to load boards');
     } finally {
       setLoading(false);
     }
@@ -69,8 +71,9 @@ export function Reports() {
       const active = sprintsData?.find((s: Sprint) => s.status === 'active');
       const completed = sprintsData?.filter((s: Sprint) => s.status === 'completed') || [];
       setSelectedSprint(active || completed[0] || null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load board data:', err);
+      setError(err?.message || 'Failed to load board data');
     }
   };
 
@@ -78,8 +81,9 @@ export function Reports() {
     try {
       const data = await metrics.burndown(sprintId);
       setBurndownData(data || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load sprint metrics:', err);
+      setError(err?.message || 'Failed to load sprint metrics');
     }
   };
 
@@ -123,6 +127,12 @@ export function Reports() {
   return (
     <Layout>
       <div className="reports-page">
+        {error && (
+          <div className="error-banner" style={{ color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '12px 16px', marginBottom: '16px' }}>
+            {error}
+            <button onClick={() => setError('')} style={{ marginLeft: '12px', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontWeight: 'bold' }}>&times;</button>
+          </div>
+        )}
         <div className="page-header">
           <h1>Reports</h1>
           <div className="reports-filters">

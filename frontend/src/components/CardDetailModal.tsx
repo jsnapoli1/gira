@@ -422,9 +422,9 @@ export function CardDetailModal({
     return groups;
   }, [cardLinks, card.id]);
 
-  // Filter board cards for link search
+  // Filter board cards for link search (require >= 2 chars to reduce noise)
   const linkSearchResults = useMemo(() => {
-    if (!linkSearchQuery.trim()) return [];
+    if (linkSearchQuery.trim().length < 2) return [];
     const query = linkSearchQuery.toLowerCase();
     return boardCards
       .filter(

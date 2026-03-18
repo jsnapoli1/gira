@@ -44,18 +44,30 @@ export interface CardItemProps {
   card: Card;
   swimlane: Swimlane;
   onClick: () => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onSelect?: (cardId: number) => void;
 }
 
-export const CardItem = React.memo(function CardItem({ card, swimlane, onClick }: CardItemProps) {
+export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, selectionMode, selected, onSelect }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `card-${card.id}`,
     data: { card, swimlane },
+    disabled: selectionMode,
   });
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+  };
+
+  const handleClick = () => {
+    if (selectionMode && onSelect) {
+      onSelect(card.id);
+    } else {
+      onClick();
+    }
   };
 
   const priorityColors: Record<string, string> = {
@@ -70,13 +82,24 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick }
     <div
       ref={setNodeRef}
       style={style}
-      className="card-item"
-      onClick={onClick}
+      className={`card-item${selected ? ' selected' : ''}`}
+      onClick={handleClick}
       {...attributes}
     >
-      <div className="card-drag-handle" {...listeners}>
-        <GripVertical size={14} />
-      </div>
+      {selectionMode ? (
+        <div className="card-select-checkbox">
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onChange={() => onSelect?.(card.id)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : (
+        <div className="card-drag-handle" {...listeners}>
+          <GripVertical size={14} />
+        </div>
+      )}
       <div className="card-content">
         <div className="card-header">
           <span className={`card-type-badge type-${card.issue_type || 'task'}`} title={card.issue_type || 'task'}>

@@ -2684,6 +2684,209 @@ body {
   color: var(--text-secondary);
 }
 
+/* Save Filter Button */
+.save-filter-btn {
+  padding: 0.25rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.save-filter-btn:hover {
+  background: var(--border);
+  color: var(--primary);
+}
+
+/* Saved Filters Container */
+.saved-filters-container {
+  position: relative;
+}
+
+.saved-filters-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.saved-filters-btn:hover {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--text-secondary);
+}
+
+.saved-filters-btn.active {
+  background: var(--surface);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.saved-filters-count {
+  background: var(--primary);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0 0.35rem;
+  border-radius: 10px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 16px;
+}
+
+.saved-filters-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 220px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 50;
+  padding: 0.25rem;
+}
+
+.saved-filters-empty {
+  padding: 0.75rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.saved-filter-item {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+
+.saved-filter-item:hover {
+  background: var(--bg);
+}
+
+.saved-filter-apply {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.saved-filter-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-filter-shared {
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+}
+
+.saved-filter-delete {
+  padding: 0.375rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.saved-filter-item:hover .saved-filter-delete {
+  opacity: 1;
+}
+
+.saved-filter-delete:hover {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+/* Save Filter Modal */
+.save-filter-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.save-filter-modal {
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 1.25rem;
+  width: 320px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.save-filter-modal h3 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.save-filter-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.save-filter-input:focus {
+  border-color: var(--primary);
+}
+
+.save-filter-shared-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.save-filter-shared-label input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.save-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 /* Card Assignees */
 .card-assignees {
   display: flex;
@@ -4015,4 +4218,141 @@ body {
 
 .issue-type-badge.issue-type-subtask {
   background: #8b5cf6;
+}
+
+/* Bulk Selection */
+.selection-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.selection-mode-toggle:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.selection-mode-toggle.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.card-select-checkbox {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.25rem 0.5rem 0.5rem;
+}
+
+.card-select-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.card-item.selected {
+  border-color: var(--primary);
+  background: #eef2ff;
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.bulk-action-bar {
+  position: fixed;
+  bottom: 0;
+  left: var(--sidebar-width);
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: #1e293b;
+  color: #fff;
+  z-index: 100;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.bulk-action-count {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bulk-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.bulk-action-bar .btn-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.bulk-action-bar .btn-sm:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.bulk-action-bar .btn-danger {
+  border-color: var(--danger);
+  color: #fca5a5;
+}
+
+.bulk-action-bar .btn-danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.bulk-action-dropdown-wrapper {
+  position: relative;
+}
+
+.bulk-action-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 0.375rem;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  z-index: 110;
+}
+
+.bulk-action-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.bulk-action-dropdown-item:hover {
+  background: var(--bg);
 }

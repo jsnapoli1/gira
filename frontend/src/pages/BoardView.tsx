@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { CardDetailModal } from '../components/CardDetailModal';
 import { DroppableColumn } from '../components/DroppableColumn';
@@ -7,9 +7,10 @@ import { BacklogView } from '../components/BacklogView';
 import { AddSwimlaneModal } from '../components/AddSwimlaneModal';
 import { AddCardModal } from '../components/AddCardModal';
 import { boards as boardsApi, cards as cardsApi, sprints as sprintsApi, gitea, users as usersApi } from '../api/client';
-import { Board, Card, Sprint, Repository, User, Label } from '../types';
+import { Board, Card, Sprint, Repository, User, Label, SavedFilter } from '../types';
 import { useBoardSSE } from '../hooks/useBoardSSE';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../context/AuthContext';
 import {
   DndContext,
   DragOverlay,
@@ -20,11 +21,13 @@ import {
   DragStartEvent,
   DragEndEvent,
 } from '@dnd-kit/core';
-import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search, AlertTriangle } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare } from 'lucide-react';
 
 export function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
   const { showToast } = useToast();
+  const { user: currentUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [board, setBoard] = useState<Board | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
@@ -39,12 +42,73 @@ export function BoardView() {
   const [showAddCard, setShowAddCard] = useState<{ swimlaneId: number; columnId: number } | null>(null);
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [viewMode, setViewMode] = useState<'board' | 'backlog'>('board');
-  const [filterAssignee, setFilterAssignee] = useState<number | null>(null);
-  const [filterLabel, setFilterLabel] = useState<number | null>(null);
-  const [filterSwimlane, setFilterSwimlane] = useState<number | null>(null);
-  const [filterPriority, setFilterPriority] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterOverdue, setFilterOverdue] = useState(false);
+
+  // Bulk selection state
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedCards, setSelectedCards] = useState<Set<number>>(new Set());
+  const [bulkActionDropdown, setBulkActionDropdown] = useState<string | null>(null);
+
+  // Saved filters state
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [showSavedFilters, setShowSavedFilters] = useState(false);
+  const [showSaveFilterModal, setShowSaveFilterModal] = useState(false);
+  const [saveFilterName, setSaveFilterName] = useState('');
+  const [saveFilterShared, setSaveFilterShared] = useState(false);
+  const savedFiltersRef = useRef<HTMLDivElement>(null);
+
+  // Initialize filter state from URL search params
+  const initializedRef = useRef(false);
+  const [filterAssignee, setFilterAssignee] = useState<number | null>(() => {
+    const v = searchParams.get('assignee');
+    return v ? parseInt(v) : null;
+  });
+  const [filterLabel, setFilterLabel] = useState<number | null>(() => {
+    const v = searchParams.get('label');
+    return v ? parseInt(v) : null;
+  });
+  const [filterSwimlane, setFilterSwimlane] = useState<number | null>(() => {
+    const v = searchParams.get('swimlane');
+    return v ? parseInt(v) : null;
+  });
+  const [filterPriority, setFilterPriority] = useState<string | null>(() => {
+    return searchParams.get('priority') || null;
+  });
+  const [searchQuery, setSearchQuery] = useState(() => {
+    return searchParams.get('q') || '';
+  });
+  const [filterOverdue, setFilterOverdue] = useState(() => {
+    return searchParams.get('overdue') === '1';
+  });
+
+  // Sync filter state to URL search params
+  useEffect(() => {
+    // Skip the initial render to avoid replacing URL params we just read
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      return;
+    }
+    const params = new URLSearchParams();
+    if (filterAssignee) params.set('assignee', String(filterAssignee));
+    if (filterLabel) params.set('label', String(filterLabel));
+    if (filterSwimlane) params.set('swimlane', String(filterSwimlane));
+    if (filterPriority) params.set('priority', filterPriority);
+    if (filterOverdue) params.set('overdue', '1');
+    if (searchQuery.trim()) params.set('q', searchQuery.trim());
+    setSearchParams(params, { replace: true });
+  }, [filterAssignee, filterLabel, filterSwimlane, filterPriority, filterOverdue, searchQuery]);
+
+  // Close saved filters dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (savedFiltersRef.current && !savedFiltersRef.current.contains(e.target as Node)) {
+        setShowSavedFilters(false);
+      }
+    }
+    if (showSavedFilters) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showSavedFilters]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -117,6 +181,9 @@ export function BoardView() {
       setUsers(usersData || []);
       setBoardLabels(labelsData || []);
       setCustomFields(customFieldsData || []);
+
+      // Load saved filters
+      boardsApi.getSavedFilters(parseInt(boardId)).then(setSavedFilters).catch(() => setSavedFilters([]));
 
       // Find active sprint
       const active = sprintsData?.find((s: Sprint) => s.status === 'active');
@@ -223,6 +290,145 @@ export function BoardView() {
       showToast('Failed to add swimlane', 'error');
     }
   };
+
+  // Serialize current filters to JSON
+  const serializeFilters = useCallback(() => {
+    const obj: Record<string, string | number | boolean> = {};
+    if (filterAssignee) obj.assignee = filterAssignee;
+    if (filterLabel) obj.label = filterLabel;
+    if (filterSwimlane) obj.swimlane = filterSwimlane;
+    if (filterPriority) obj.priority = filterPriority;
+    if (filterOverdue) obj.overdue = true;
+    if (searchQuery.trim()) obj.q = searchQuery.trim();
+    return JSON.stringify(obj);
+  }, [filterAssignee, filterLabel, filterSwimlane, filterPriority, filterOverdue, searchQuery]);
+
+  // Apply a saved filter
+  const applySavedFilter = useCallback((filter: SavedFilter) => {
+    try {
+      const parsed = JSON.parse(filter.filter_json);
+      setFilterAssignee(parsed.assignee ? Number(parsed.assignee) : null);
+      setFilterLabel(parsed.label ? Number(parsed.label) : null);
+      setFilterSwimlane(parsed.swimlane ? Number(parsed.swimlane) : null);
+      setFilterPriority(parsed.priority || null);
+      setFilterOverdue(!!parsed.overdue);
+      setSearchQuery(parsed.q || '');
+      setShowSavedFilters(false);
+    } catch {
+      showToast('Failed to apply filter', 'error');
+    }
+  }, [showToast]);
+
+  // Save current filter
+  const handleSaveFilter = useCallback(async () => {
+    if (!boardId || !saveFilterName.trim()) return;
+    try {
+      const filterJson = serializeFilters();
+      const created = await boardsApi.createSavedFilter(parseInt(boardId), saveFilterName.trim(), filterJson, saveFilterShared);
+      setSavedFilters((prev) => [...prev, created]);
+      setShowSaveFilterModal(false);
+      setSaveFilterName('');
+      setSaveFilterShared(false);
+      showToast('Filter saved', 'success');
+    } catch {
+      showToast('Failed to save filter', 'error');
+    }
+  }, [boardId, saveFilterName, saveFilterShared, serializeFilters, showToast]);
+
+  // Delete a saved filter
+  const handleDeleteFilter = useCallback(async (filterId: number) => {
+    if (!boardId) return;
+    try {
+      await boardsApi.deleteSavedFilter(parseInt(boardId), filterId);
+      setSavedFilters((prev) => prev.filter((f) => f.id !== filterId));
+      showToast('Filter deleted', 'success');
+    } catch {
+      showToast('Failed to delete filter', 'error');
+    }
+  }, [boardId, showToast]);
+
+  // Bulk selection handlers
+  const handleSelectCard = useCallback((cardId: number) => {
+    setSelectedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) {
+        next.delete(cardId);
+      } else {
+        next.add(cardId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedCards(new Set());
+  }, []);
+
+  const handleToggleSelectionMode = useCallback(() => {
+    setSelectionMode((prev) => {
+      if (prev) {
+        // Turning off - clear selection
+        setSelectedCards(new Set());
+        setBulkActionDropdown(null);
+      }
+      return !prev;
+    });
+  }, []);
+
+  const handleBulkMove = useCallback(async (columnId: number, state: string) => {
+    const cardIds = Array.from(selectedCards);
+    try {
+      await cardsApi.bulkMove(cardIds, columnId, state);
+      setCards((prev) => prev.map((c) => cardIds.includes(c.id) ? { ...c, column_id: columnId, state } : c));
+      showToast(`Moved ${cardIds.length} card${cardIds.length === 1 ? '' : 's'}`, 'success');
+      setSelectedCards(new Set());
+      setBulkActionDropdown(null);
+    } catch {
+      showToast('Failed to move cards', 'error');
+    }
+  }, [selectedCards, showToast]);
+
+  const handleBulkAssignSprint = useCallback(async (sprintId: number | null) => {
+    const cardIds = Array.from(selectedCards);
+    try {
+      await cardsApi.bulkAssignSprint(cardIds, sprintId);
+      setCards((prev) => prev.map((c) => cardIds.includes(c.id) ? { ...c, sprint_id: sprintId } : c));
+      showToast(`Updated sprint for ${cardIds.length} card${cardIds.length === 1 ? '' : 's'}`, 'success');
+      setSelectedCards(new Set());
+      setBulkActionDropdown(null);
+    } catch {
+      showToast('Failed to assign sprint', 'error');
+    }
+  }, [selectedCards, showToast]);
+
+  const handleBulkSetPriority = useCallback(async (priority: string) => {
+    const cardIds = Array.from(selectedCards);
+    try {
+      await cardsApi.bulkUpdate(cardIds, { priority });
+      setCards((prev) => prev.map((c) => cardIds.includes(c.id) ? { ...c, priority: priority as Card['priority'] } : c));
+      showToast(`Updated priority for ${cardIds.length} card${cardIds.length === 1 ? '' : 's'}`, 'success');
+      setSelectedCards(new Set());
+      setBulkActionDropdown(null);
+    } catch {
+      showToast('Failed to update priority', 'error');
+    }
+  }, [selectedCards, showToast]);
+
+  const handleBulkDelete = useCallback(async () => {
+    const cardIds = Array.from(selectedCards);
+    if (!window.confirm(`Delete ${cardIds.length} card${cardIds.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    try {
+      await cardsApi.bulkDelete(cardIds);
+      setCards((prev) => prev.filter((c) => !cardIds.includes(c.id)));
+      showToast(`Deleted ${cardIds.length} card${cardIds.length === 1 ? '' : 's'}`, 'success');
+      setSelectedCards(new Set());
+      setBulkActionDropdown(null);
+    } catch {
+      showToast('Failed to delete cards', 'error');
+    }
+  }, [selectedCards, showToast]);
+
+  const hasActiveFilters = !!(filterAssignee || filterLabel || filterSwimlane || filterPriority || filterOverdue || searchQuery);
 
   // Count overdue cards
   const overdueCount = useMemo(() => {
@@ -378,12 +584,96 @@ export function BoardView() {
                 <AlertTriangle size={14} />
                 Overdue
               </button>
-              {(filterAssignee || filterLabel || filterSwimlane || filterPriority || filterOverdue || searchQuery) && (
+              {hasActiveFilters && (
                 <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setFilterOverdue(false); setSearchQuery(''); }} title="Clear filters">
                   <X size={14} />
                 </button>
               )}
+              {hasActiveFilters && (
+                <button className="save-filter-btn" onClick={() => setShowSaveFilterModal(true)} title="Save current filters">
+                  <Save size={14} />
+                </button>
+              )}
+              <div className="saved-filters-container" ref={savedFiltersRef}>
+                <button
+                  className={`saved-filters-btn ${showSavedFilters ? 'active' : ''}`}
+                  onClick={() => setShowSavedFilters(!showSavedFilters)}
+                  title="Saved filters"
+                >
+                  <BookmarkCheck size={14} />
+                  <span>Saved</span>
+                  {savedFilters.length > 0 && (
+                    <span className="saved-filters-count">{savedFilters.length}</span>
+                  )}
+                </button>
+                {showSavedFilters && (
+                  <div className="saved-filters-dropdown">
+                    {savedFilters.length === 0 ? (
+                      <div className="saved-filters-empty">No saved filters</div>
+                    ) : (
+                      savedFilters.map((sf) => (
+                        <div key={sf.id} className="saved-filter-item">
+                          <button className="saved-filter-apply" onClick={() => applySavedFilter(sf)}>
+                            <span className="saved-filter-name">{sf.name}</span>
+                            {sf.is_shared && (
+                              <span className="saved-filter-shared" title="Shared filter">
+                                <Share2 size={11} />
+                              </span>
+                            )}
+                          </button>
+                          {currentUser && sf.owner_id === currentUser.id && (
+                            <button
+                              className="saved-filter-delete"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteFilter(sf.id); }}
+                              title="Delete filter"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
+            {/* Save Filter Modal */}
+            {showSaveFilterModal && (
+              <div className="save-filter-modal-overlay" onClick={() => setShowSaveFilterModal(false)}>
+                <div className="save-filter-modal" onClick={(e) => e.stopPropagation()}>
+                  <h3>Save Filter</h3>
+                  <input
+                    type="text"
+                    className="save-filter-input"
+                    placeholder="Filter name"
+                    value={saveFilterName}
+                    onChange={(e) => setSaveFilterName(e.target.value)}
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFilter(); }}
+                  />
+                  <label className="save-filter-shared-label">
+                    <input
+                      type="checkbox"
+                      checked={saveFilterShared}
+                      onChange={(e) => setSaveFilterShared(e.target.checked)}
+                    />
+                    Share with team
+                  </label>
+                  <div className="save-filter-actions">
+                    <button className="btn btn-secondary" onClick={() => setShowSaveFilterModal(false)}>Cancel</button>
+                    <button className="btn btn-primary" onClick={handleSaveFilter} disabled={!saveFilterName.trim()}>Save</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <button
+              className={`selection-mode-toggle ${selectionMode ? 'active' : ''}`}
+              onClick={handleToggleSelectionMode}
+              title={selectionMode ? 'Exit selection mode' : 'Select cards'}
+            >
+              <CheckSquare size={16} />
+              <span>{selectionMode ? 'Cancel' : 'Select'}</span>
+            </button>
             <div className="view-toggle">
               <button
                 className={`view-btn ${viewMode === 'board' ? 'active' : ''}`}
@@ -453,6 +743,9 @@ export function BoardView() {
                             });
                             setCards([...cards, card]);
                           }}
+                          selectionMode={selectionMode}
+                          selectedCards={selectedCards}
+                          onSelectCard={handleSelectCard}
                         />
                       ))}
                     </div>
@@ -498,6 +791,67 @@ export function BoardView() {
             onClose={() => setShowAddCard(null)}
             onAdd={handleAddCard}
           />
+        )}
+
+        {/* Bulk Action Bar */}
+        {selectionMode && selectedCards.size > 0 && (
+          <div className="bulk-action-bar">
+            <span className="bulk-action-count">{selectedCards.size} card{selectedCards.size === 1 ? '' : 's'} selected</span>
+            <div className="bulk-action-buttons">
+              <div className="bulk-action-dropdown-wrapper">
+                <button className="btn btn-sm" onClick={() => setBulkActionDropdown(bulkActionDropdown === 'move' ? null : 'move')}>
+                  Move to...
+                </button>
+                {bulkActionDropdown === 'move' && (
+                  <div className="bulk-action-dropdown">
+                    {(board.columns || []).map((col) => (
+                      <button key={col.id} className="bulk-action-dropdown-item" onClick={() => handleBulkMove(col.id, col.state)}>
+                        {col.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="bulk-action-dropdown-wrapper">
+                <button className="btn btn-sm" onClick={() => setBulkActionDropdown(bulkActionDropdown === 'sprint' ? null : 'sprint')}>
+                  Assign Sprint...
+                </button>
+                {bulkActionDropdown === 'sprint' && (
+                  <div className="bulk-action-dropdown">
+                    <button className="bulk-action-dropdown-item" onClick={() => handleBulkAssignSprint(null)}>
+                      Backlog (no sprint)
+                    </button>
+                    {sprints.map((sp) => (
+                      <button key={sp.id} className="bulk-action-dropdown-item" onClick={() => handleBulkAssignSprint(sp.id)}>
+                        {sp.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="bulk-action-dropdown-wrapper">
+                <button className="btn btn-sm" onClick={() => setBulkActionDropdown(bulkActionDropdown === 'priority' ? null : 'priority')}>
+                  Set Priority...
+                </button>
+                {bulkActionDropdown === 'priority' && (
+                  <div className="bulk-action-dropdown">
+                    {['highest', 'high', 'medium', 'low', 'lowest'].map((p) => (
+                      <button key={p} className="bulk-action-dropdown-item" onClick={() => handleBulkSetPriority(p)}>
+                        {p.charAt(0).toUpperCase() + p.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                <Trash2 size={14} />
+                Delete
+              </button>
+            </div>
+            <button className="btn btn-sm" onClick={handleDeselectAll}>
+              Deselect All
+            </button>
+          </div>
         )}
 
         {/* Card Detail Modal */}
