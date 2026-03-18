@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { boards as boardsApi, users as usersApi } from '../api/client';
-import { Board, Label, User } from '../types';
+import { Board, Label, User, WorkflowRule, IssueTypeDefinition } from '../types';
 import { ChevronLeft, Trash2, Plus, ChevronUp, ChevronDown, Edit2, User as UserIcon } from 'lucide-react';
+import { useToast } from '../components/Toast';
 
 export function BoardSettings() {
   const { boardId } = useParams<{ boardId: string }>();
@@ -33,11 +34,29 @@ export function BoardSettings() {
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedRole, setSelectedRole] = useState('member');
 
+  // Workflow rules
+  const [workflowEnabled, setWorkflowEnabled] = useState(false);
+  const [_workflowRules, setWorkflowRules] = useState<WorkflowRule[]>([]);
+  const [workflowMatrix, setWorkflowMatrix] = useState<Record<string, boolean>>({});
+  const [savingWorkflow, setSavingWorkflow] = useState(false);
+
+  // Issue types
+  const [issueTypes, setIssueTypes] = useState<IssueTypeDefinition[]>([]);
+  const [showAddIssueType, setShowAddIssueType] = useState(false);
+  const [newIssueTypeName, setNewIssueTypeName] = useState('');
+  const [newIssueTypeIcon, setNewIssueTypeIcon] = useState('');
+  const [newIssueTypeColor, setNewIssueTypeColor] = useState('#6366f1');
+  const [editingIssueType, setEditingIssueType] = useState<IssueTypeDefinition | null>(null);
+
+  const { showToast } = useToast();
+
   useEffect(() => {
     loadBoard();
     loadLabels();
     loadMembers();
     loadAllUsers();
+    loadWorkflowRules();
+    loadIssueTypes();
   }, [boardId]);
 
   const loadBoard = async (showLoading = true) => {
@@ -241,6 +260,122 @@ export function BoardSettings() {
     }
   };
 
+  // Workflow rules helpers
+  const loadWorkflowRules = async () => {
+    if (!boardId) return;
+    try {
+      const data = await boardsApi.getWorkflow(parseInt(boardId));
+      const rules = data || [];
+      setWorkflowRules(rules);
+      setWorkflowEnabled(rules.length > 0);
+      const matrix: Record<string, boolean> = {};
+      rules.forEach((r) => {
+        matrix[`${r.from_column_id}-${r.to_column_id}`] = true;
+      });
+      setWorkflowMatrix(matrix);
+    } catch (err) {
+      console.error('Failed to load workflow rules:', err);
+    }
+  };
+
+  const toggleWorkflowCell = (fromId: number, toId: number) => {
+    const key = `${fromId}-${toId}`;
+    setWorkflowMatrix((prev) => {
+      const next = { ...prev };
+      if (next[key]) {
+        delete next[key];
+      } else {
+        next[key] = true;
+      }
+      return next;
+    });
+  };
+
+  const handleSaveWorkflow = async () => {
+    if (!board) return;
+    setSavingWorkflow(true);
+    try {
+      const rules = workflowEnabled
+        ? Object.keys(workflowMatrix).map((key) => {
+            const [from, to] = key.split('-').map(Number);
+            return { from_column_id: from, to_column_id: to };
+          })
+        : [];
+      await boardsApi.setWorkflow(board.id, rules);
+      showToast('Workflow rules saved', 'success');
+      loadWorkflowRules();
+    } catch (err) {
+      console.error('Failed to save workflow:', err);
+      showToast('Failed to save workflow rules', 'error');
+    } finally {
+      setSavingWorkflow(false);
+    }
+  };
+
+  // Issue types helpers
+  const loadIssueTypes = async () => {
+    if (!boardId) return;
+    try {
+      const data = await boardsApi.getIssueTypes(parseInt(boardId));
+      setIssueTypes(data || []);
+    } catch (err) {
+      console.error('Failed to load issue types:', err);
+    }
+  };
+
+  const handleAddIssueType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!board) return;
+    try {
+      await boardsApi.createIssueType(board.id, newIssueTypeName, newIssueTypeIcon, newIssueTypeColor);
+      showToast('Issue type created', 'success');
+      loadIssueTypes();
+      setShowAddIssueType(false);
+      setNewIssueTypeName('');
+      setNewIssueTypeIcon('');
+      setNewIssueTypeColor('#6366f1');
+    } catch (err) {
+      console.error('Failed to create issue type:', err);
+      showToast('Failed to create issue type', 'error');
+    }
+  };
+
+  const handleUpdateIssueType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!board || !editingIssueType) return;
+    try {
+      await boardsApi.updateIssueType(board.id, editingIssueType.id, newIssueTypeName, newIssueTypeIcon, newIssueTypeColor);
+      showToast('Issue type updated', 'success');
+      loadIssueTypes();
+      setEditingIssueType(null);
+      setNewIssueTypeName('');
+      setNewIssueTypeIcon('');
+      setNewIssueTypeColor('#6366f1');
+    } catch (err) {
+      console.error('Failed to update issue type:', err);
+      showToast('Failed to update issue type', 'error');
+    }
+  };
+
+  const handleDeleteIssueType = async (typeId: number) => {
+    if (!confirm('Are you sure you want to delete this issue type?')) return;
+    try {
+      await boardsApi.deleteIssueType(board!.id, typeId);
+      showToast('Issue type deleted', 'success');
+      loadIssueTypes();
+    } catch (err) {
+      console.error('Failed to delete issue type:', err);
+      showToast('Failed to delete issue type', 'error');
+    }
+  };
+
+  const openEditIssueType = (issueType: IssueTypeDefinition) => {
+    setEditingIssueType(issueType);
+    setNewIssueTypeName(issueType.name);
+    setNewIssueTypeIcon(issueType.icon);
+    setNewIssueTypeColor(issueType.color);
+  };
+
   const availableUsers = allUsers.filter((u) => !members.some((m) => m.user_id === u.id));
 
   if (loading) {
@@ -363,6 +498,117 @@ export function BoardSettings() {
               ))}
               {columns.length === 0 && (
                 <p className="empty-list">No columns configured</p>
+              )}
+            </div>
+          </section>
+
+          {/* Workflow Rules */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>Workflow Rules</h2>
+            </div>
+            <p className="section-description">
+              Configure which column transitions are allowed. When no rules are set, all transitions are permitted.
+            </p>
+            <div className="workflow-toggle">
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={workflowEnabled}
+                  onChange={(e) => setWorkflowEnabled(e.target.checked)}
+                />
+                <span>Enable workflow rules</span>
+              </label>
+            </div>
+            {workflowEnabled && columns.length > 0 && (
+              <div className="workflow-matrix-wrapper">
+                <table className="workflow-matrix">
+                  <thead>
+                    <tr>
+                      <th className="workflow-matrix-corner">From \ To</th>
+                      {columns.map((col) => (
+                        <th key={col.id} className="workflow-matrix-header">{col.name}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {columns.map((fromCol) => (
+                      <tr key={fromCol.id}>
+                        <td className="workflow-matrix-row-header">{fromCol.name}</td>
+                        {columns.map((toCol) => (
+                          <td key={toCol.id} className="workflow-matrix-cell">
+                            {fromCol.id === toCol.id ? (
+                              <span className="workflow-matrix-disabled">-</span>
+                            ) : (
+                              <input
+                                type="checkbox"
+                                checked={!!workflowMatrix[`${fromCol.id}-${toCol.id}`]}
+                                onChange={() => toggleWorkflowCell(fromCol.id, toCol.id)}
+                              />
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {workflowEnabled && columns.length === 0 && (
+              <p className="empty-list">Add columns first to configure workflow rules.</p>
+            )}
+            <div className="form-actions" style={{ marginTop: '1rem' }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleSaveWorkflow}
+                disabled={savingWorkflow}
+              >
+                {savingWorkflow ? 'Saving...' : 'Save Workflow Rules'}
+              </button>
+            </div>
+          </section>
+
+          {/* Issue Types */}
+          <section className="settings-section">
+            <div className="section-header">
+              <h2>Issue Types</h2>
+              <button className="btn btn-sm" onClick={() => setShowAddIssueType(true)}>
+                <Plus size={16} />
+                Add Type
+              </button>
+            </div>
+            <p className="section-description">
+              Define custom issue types for cards on this board.
+            </p>
+            <div className="issue-types-list">
+              {issueTypes.map((issueType) => (
+                <div key={issueType.id} className="issue-type-item">
+                  <span className="issue-type-icon">{issueType.icon}</span>
+                  <div
+                    className="issue-type-color"
+                    style={{ backgroundColor: issueType.color }}
+                  />
+                  <div className="item-content">
+                    <span className="item-name">{issueType.name}</span>
+                  </div>
+                  <button
+                    className="item-edit"
+                    onClick={() => openEditIssueType(issueType)}
+                    title="Edit issue type"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    className="item-delete"
+                    onClick={() => handleDeleteIssueType(issueType.id)}
+                    title="Delete issue type"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+              {issueTypes.length === 0 && (
+                <p className="empty-list">No issue types configured</p>
               )}
             </div>
           </section>
@@ -633,6 +879,59 @@ export function BoardSettings() {
                   </button>
                   <button type="submit" className="btn btn-primary">
                     Add Member
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Add/Edit Issue Type Modal */}
+        {(showAddIssueType || editingIssueType) && (
+          <div className="modal-overlay" onClick={() => { setShowAddIssueType(false); setEditingIssueType(null); }}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h2>{editingIssueType ? 'Edit Issue Type' : 'Add Issue Type'}</h2>
+              <form onSubmit={editingIssueType ? handleUpdateIssueType : handleAddIssueType}>
+                <div className="form-group">
+                  <label>Name</label>
+                  <input
+                    type="text"
+                    value={newIssueTypeName}
+                    onChange={(e) => setNewIssueTypeName(e.target.value)}
+                    placeholder="e.g., Bug, Feature, Task"
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Icon</label>
+                  <input
+                    type="text"
+                    value={newIssueTypeIcon}
+                    onChange={(e) => setNewIssueTypeIcon(e.target.value)}
+                    placeholder="e.g., an emoji or short text"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Color</label>
+                  <div className="color-picker">
+                    {['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4'].map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={`color-option ${newIssueTypeColor === c ? 'selected' : ''}`}
+                        style={{ backgroundColor: c }}
+                        onClick={() => setNewIssueTypeColor(c)}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="form-actions">
+                  <button type="button" className="btn" onClick={() => { setShowAddIssueType(false); setEditingIssueType(null); setNewIssueTypeName(''); setNewIssueTypeIcon(''); setNewIssueTypeColor('#6366f1'); }}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    {editingIssueType ? 'Save Changes' : 'Add Issue Type'}
                   </button>
                 </div>
               </form>
