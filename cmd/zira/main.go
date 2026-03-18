@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/jsnapoli/zira/internal/config"
 	"github.com/jsnapoli/zira/internal/database"
@@ -25,7 +30,24 @@ func main() {
 
 	srv := server.New(cfg, db, version)
 
-	if err := srv.Start(); err != nil {
-		log.Fatal(err)
+	// Graceful shutdown on SIGINT/SIGTERM
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		if err := srv.Start(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	<-stop
+	log.Println("Shutting down gracefully...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Forced shutdown: %v", err)
 	}
+	log.Println("Server stopped")
 }

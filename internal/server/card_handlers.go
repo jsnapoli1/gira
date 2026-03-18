@@ -1018,6 +1018,16 @@ func (s *Server) handleAttachmentDownload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Verify the user has access to the card's board
+	card, err := s.DB.GetCardByID(attachment.CardID)
+	if err != nil || card == nil {
+		http.Error(w, "Card not found", http.StatusNotFound)
+		return
+	}
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleViewer) {
+		return
+	}
+
 	// Resolve the full path - StorePath may be just a filename (new) or full path (legacy)
 	filePath := attachment.StorePath
 	if !filepath.IsAbs(filePath) {
@@ -1491,6 +1501,22 @@ func (s *Server) handleBulkMoveCards(w http.ResponseWriter, r *http.Request) {
 		if c.BoardID != firstCard.BoardID {
 			http.Error(w, "All cards must belong to the same board", http.StatusBadRequest)
 			return
+		}
+	}
+
+	// Check workflow rules for each card's transition
+	for _, cardID := range req.CardIDs {
+		c, _ := s.DB.GetCardByID(cardID)
+		if c != nil {
+			allowed, err := s.DB.IsTransitionAllowed(c.BoardID, c.ColumnID, req.ColumnID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if !allowed {
+				http.Error(w, fmt.Sprintf("Workflow rules do not allow moving card %d to this column", cardID), http.StatusForbidden)
+				return
+			}
 		}
 	}
 

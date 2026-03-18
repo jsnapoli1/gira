@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/jsnapoli/zira/internal/auth"
 	"github.com/jsnapoli/zira/internal/config"
@@ -18,13 +20,14 @@ import (
 )
 
 type Server struct {
-	Config   *config.Config
-	Client   *gitea.Client
-	configMu sync.RWMutex // protects Config and Client
-	DB       *database.DB
-	Port     int
-	Version  string
-	SSEHub   *SSEHub
+	Config     *config.Config
+	Client     *gitea.Client
+	configMu   sync.RWMutex // protects Config and Client
+	DB         *database.DB
+	Port       int
+	Version    string
+	SSEHub     *SSEHub
+	httpServer *http.Server
 }
 
 func New(cfg *config.Config, db *database.DB, version string) *Server {
@@ -295,7 +298,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("DELETE /api/user/credentials/{id}", s.requireAuth(s.handleDeleteUserCredential))
 
 	// Attachment download route (no auth required - IDs are not guessable and images need to load in <img> tags)
-	mux.HandleFunc("GET /api/attachments/{id}", s.handleAttachmentDownload)
+	mux.HandleFunc("GET /api/attachments/{id}", s.requireAuth(s.handleAttachmentDownload))
 
 	// Notification routes
 	mux.HandleFunc("GET /api/notifications", s.requireAuth(s.handleGetNotifications))
@@ -316,7 +319,22 @@ func (s *Server) Start() error {
 	} else {
 		log.Println("Waiting for configuration via UI")
 	}
-	return http.ListenAndServe(addr, s.corsMiddleware(mux))
+	s.httpServer = &http.Server{
+		Addr:         addr,
+		Handler:      s.corsMiddleware(mux),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	return s.httpServer.ListenAndServe()
+}
+
+// Shutdown gracefully stops the HTTP server.
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer != nil {
+		return s.httpServer.Shutdown(ctx)
+	}
+	return nil
 }
 
 // handleSPA serves the frontend with SPA fallback for client-side routing
@@ -512,9 +530,14 @@ func (s *Server) checkBoardMembership(w http.ResponseWriter, r *http.Request, bo
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	status := "ok"
+	if err := s.DB.Ping(); err != nil {
+		status = "degraded"
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "ok",
+		"status":  status,
 		"version": s.Version,
 	})
 }
