@@ -8,7 +8,54 @@ import (
 	"github.com/jsnapoli/zira/internal/models"
 )
 
+// BoardTemplateColumns returns the column definitions for a given board template.
+// Supported templates: "kanban", "scrum", "bug_triage". Empty string uses default columns.
+type BoardColumn struct {
+	Name     string
+	State    string
+	Position int
+}
+
+func BoardTemplateColumns(template string) []BoardColumn {
+	switch template {
+	case "scrum":
+		return []BoardColumn{
+			{"Backlog", "open", 0},
+			{"To Do", "open", 1},
+			{"In Progress", "in_progress", 2},
+			{"Review", "in_progress", 3},
+			{"Done", "closed", 4},
+		}
+	case "bug_triage":
+		return []BoardColumn{
+			{"New", "open", 0},
+			{"Confirmed", "open", 1},
+			{"In Progress", "in_progress", 2},
+			{"Fixed", "closed", 3},
+			{"Won't Fix", "closed", 4},
+		}
+	case "kanban":
+		return []BoardColumn{
+			{"To Do", "open", 0},
+			{"In Progress", "in_progress", 1},
+			{"Done", "closed", 2},
+		}
+	default:
+		// Default columns (same as before)
+		return []BoardColumn{
+			{"To Do", "open", 0},
+			{"In Progress", "in_progress", 1},
+			{"In Review", "review", 2},
+			{"Done", "closed", 3},
+		}
+	}
+}
+
 func (d *DB) CreateBoard(name, description string, ownerID int64) (*models.Board, error) {
+	return d.CreateBoardWithTemplate(name, description, ownerID, "")
+}
+
+func (d *DB) CreateBoardWithTemplate(name, description string, ownerID int64, template string) (*models.Board, error) {
 	tx, err := d.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -28,22 +75,12 @@ func (d *DB) CreateBoard(name, description string, ownerID int64) (*models.Board
 		return nil, fmt.Errorf("failed to get board id: %w", err)
 	}
 
-	// Create default columns
-	defaultColumns := []struct {
-		name     string
-		state    string
-		position int
-	}{
-		{"To Do", "open", 0},
-		{"In Progress", "in_progress", 1},
-		{"In Review", "review", 2},
-		{"Done", "closed", 3},
-	}
-
-	for _, col := range defaultColumns {
+	// Create columns based on template
+	columns := BoardTemplateColumns(template)
+	for _, col := range columns {
 		_, err := tx.Exec(
 			`INSERT INTO columns (board_id, name, position, state) VALUES (?, ?, ?, ?)`,
-			boardID, col.name, col.position, col.state,
+			boardID, col.Name, col.Position, col.State,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create default column: %w", err)

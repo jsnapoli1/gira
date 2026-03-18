@@ -218,6 +218,15 @@ export interface UserCredential {
   created_at: string;
 }
 
+export interface CardTemplate {
+  id: number;
+  board_id: number;
+  name: string;
+  issue_type: string;
+  description_template: string;
+  created_at: string;
+}
+
 export interface SavedFilter {
   id: number;
   board_id: number;

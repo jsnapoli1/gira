@@ -134,12 +134,13 @@ func (s *Server) handleCreateBoard(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		Template    string `json:"template"` // "kanban", "scrum", "bug_triage", or empty
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	board, err := s.DB.CreateBoard(req.Name, req.Description, user.ID)
+	board, err := s.DB.CreateBoardWithTemplate(req.Name, req.Description, user.ID, req.Template)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -902,6 +903,89 @@ func (s *Server) handleDeleteBoardCustomField(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err := s.DB.DeleteCustomFieldDefinition(fieldID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Card template handlers
+
+func (s *Server) handleListCardTemplates(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanView() {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+	templates, err := s.DB.ListCardTemplates(board.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if templates == nil {
+		templates = []models.CardTemplate{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(templates)
+}
+
+func (s *Server) handleCreateCardTemplate(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Name                string `json:"name"`
+		IssueType           string `json:"issue_type"`
+		DescriptionTemplate string `json:"description_template"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+	if req.DescriptionTemplate == "" {
+		http.Error(w, "Description template is required", http.StatusBadRequest)
+		return
+	}
+	tmpl, err := s.DB.CreateCardTemplate(board.ID, req.Name, req.IssueType, req.DescriptionTemplate)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(tmpl)
+}
+
+func (s *Server) handleDeleteCardTemplate(w http.ResponseWriter, r *http.Request) {
+	_, r = s.loadBoardAndRole(w, r)
+	boardRole := getBoardRoleFromContext(r.Context())
+	if boardRole == "" {
+		return
+	}
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+	templateID, err := strconv.ParseInt(r.PathValue("templateId"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid template ID", http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.DeleteCardTemplate(templateID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

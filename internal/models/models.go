@@ -241,6 +241,16 @@ type SavedFilter struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+// CardTemplate stores a reusable description template for cards on a board
+type CardTemplate struct {
+	ID                  int64     `json:"id"`
+	BoardID             int64     `json:"board_id"`
+	Name                string    `json:"name"`
+	IssueType           string    `json:"issue_type"`
+	DescriptionTemplate string    `json:"description_template"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
 // UserCredential stores user-level API credentials for Gitea/GitHub
 type UserCredential struct {
 	ID          int64     `json:"id"`

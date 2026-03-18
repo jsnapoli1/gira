@@ -11,6 +11,7 @@ export function BoardsList() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
   const [newBoardDesc, setNewBoardDesc] = useState('');
+  const [newBoardTemplate, setNewBoardTemplate] = useState('');
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -32,11 +33,12 @@ export function BoardsList() {
     e.preventDefault();
     setCreating(true);
     try {
-      const board = await boardsApi.create(newBoardName, newBoardDesc);
+      const board = await boardsApi.create(newBoardName, newBoardDesc, newBoardTemplate || undefined);
       setBoards([...boards, board]);
       setShowCreateModal(false);
       setNewBoardName('');
       setNewBoardDesc('');
+      setNewBoardTemplate('');
     } catch (err) {
       console.error('Failed to create board:', err);
     } finally {
@@ -125,6 +127,19 @@ export function BoardsList() {
                   placeholder="Project description..."
                   rows={3}
                 />
+              </div>
+              <div className="form-group">
+                <label htmlFor="boardTemplate">Board Template</label>
+                <select
+                  id="boardTemplate"
+                  value={newBoardTemplate}
+                  onChange={(e) => setNewBoardTemplate(e.target.value)}
+                >
+                  <option value="">Default (To Do, In Progress, In Review, Done)</option>
+                  <option value="kanban">Kanban (To Do, In Progress, Done)</option>
+                  <option value="scrum">Scrum (Backlog, To Do, In Progress, Review, Done)</option>
+                  <option value="bug_triage">Bug Triage (New, Confirmed, In Progress, Fixed, Won't Fix)</option>
+                </select>
               </div>
               <div className="form-actions">
                 <button type="button" className="btn" onClick={() => setShowCreateModal(false)}>

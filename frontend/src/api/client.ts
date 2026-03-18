@@ -24,6 +24,7 @@ import type {
   CardLink,
   ActivityLog,
   SavedFilter,
+  CardTemplate,
   DashboardResponse,
 } from '../types';
 
@@ -103,10 +104,10 @@ export const dashboard = {
 export const boards = {
   list: () => request<Board[]>('/boards'),
   get: (id: number) => request<Board>(`/boards/${id}`),
-  create: (name: string, description: string) =>
+  create: (name: string, description: string, template?: string) =>
     request<Board>('/boards', {
       method: 'POST',
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify({ name, description, template: template || '' }),
     }),
   update: (id: number, name: string, description: string) =>
     request<Board>(`/boards/${id}`, {
@@ -206,6 +207,16 @@ export const boards = {
     const token = getToken();
     window.open(`/api/boards/${boardId}/export?token=${token}`, '_blank');
   },
+
+  // Card Templates
+  getTemplates: (boardId: number) => request<CardTemplate[]>(`/boards/${boardId}/templates`),
+  createTemplate: (boardId: number, name: string, issueType: string, descriptionTemplate: string) =>
+    request<CardTemplate>(`/boards/${boardId}/templates`, {
+      method: 'POST',
+      body: JSON.stringify({ name, issue_type: issueType, description_template: descriptionTemplate }),
+    }),
+  deleteTemplate: (boardId: number, templateId: number) =>
+    request(`/boards/${boardId}/templates/${templateId}`, { method: 'DELETE' }),
 
   // Saved Filters
   getSavedFilters: (boardId: number) => request<SavedFilter[]>(`/boards/${boardId}/filters`),

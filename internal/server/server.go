@@ -211,6 +211,11 @@ func (s *Server) Start() error {
 
 	mux.HandleFunc("GET /api/boards/{id}/time-summary", s.requireAuth(s.handleBoardTimeSummary))
 
+	// Card templates
+	mux.HandleFunc("GET /api/boards/{id}/templates", s.requireAuth(s.handleListCardTemplates))
+	mux.HandleFunc("POST /api/boards/{id}/templates", s.requireAuth(s.handleCreateCardTemplate))
+	mux.HandleFunc("DELETE /api/boards/{id}/templates/{templateId}", s.requireAuth(s.handleDeleteCardTemplate))
+
 	// Board single resource routes (after sub-resources for correct matching)
 	mux.HandleFunc("GET /api/boards/{id}/export", s.handleExportBoardCards)
 	mux.HandleFunc("GET /api/boards/{id}", s.requireAuth(s.handleGetBoard))

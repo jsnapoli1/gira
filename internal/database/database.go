@@ -366,6 +366,19 @@ func (d *DB) migrate() error {
 	)`)
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_saved_filters_board ON saved_filters(board_id)`)
 
+	// Card templates
+	d.Exec(`CREATE TABLE IF NOT EXISTS card_templates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		board_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		issue_type TEXT DEFAULT 'task',
+		description_template TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+		UNIQUE(board_id, name)
+	)`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_card_templates_board ON card_templates(board_id)`)
+
 	// Card watchers
 	d.Exec(`CREATE TABLE IF NOT EXISTS card_watchers (
 		card_id INTEGER NOT NULL,
