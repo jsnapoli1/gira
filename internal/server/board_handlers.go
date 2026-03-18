@@ -1,10 +1,14 @@
 package server
 
 import (
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/jsnapoli/zira/internal/auth"
 	"github.com/jsnapoli/zira/internal/models"
 )
 
@@ -796,4 +800,93 @@ func (s *Server) handleDeleteBoardCustomField(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleExportBoardCards exports all cards for a board as CSV.
+func (s *Server) handleExportBoardCards(w http.ResponseWriter, r *http.Request) {
+	boardID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid board ID", http.StatusBadRequest)
+		return
+	}
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	claims, err := auth.ValidateToken(token)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+	user, err := s.DB.GetUserByID(claims.UserID)
+	if err != nil || user == nil {
+		http.Error(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+	board, err := s.DB.GetBoardByID(boardID)
+	if err != nil || board == nil {
+		http.Error(w, "Board not found", http.StatusNotFound)
+		return
+	}
+	if board.OwnerID != user.ID && !user.IsAdmin {
+		isMember, _, err := s.DB.IsBoardMember(boardID, user.ID)
+		if err != nil || !isMember {
+			http.Error(w, "Access denied", http.StatusForbidden)
+			return
+		}
+	}
+	cards, err := s.DB.ListCardsForBoard(boardID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sprintsList, _ := s.DB.ListSprintsForBoard(boardID)
+	sprintMap := make(map[int64]string)
+	for _, sp := range sprintsList {
+		sprintMap[sp.ID] = sp.Name
+	}
+	columns, _ := s.DB.GetBoardColumns(boardID)
+	columnMap := make(map[int64]string)
+	for _, col := range columns {
+		columnMap[col.ID] = col.Name
+	}
+	swimlanes, _ := s.DB.GetBoardSwimlanes(boardID)
+	swimlaneMap := make(map[int64]string)
+	for _, sl := range swimlanes {
+		swimlaneMap[sl.ID] = sl.Name
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s-cards.csv\"", board.Name))
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+	writer.Write([]string{"ID", "Title", "Type", "State", "Column", "Swimlane", "Priority", "Assignees", "Labels", "Sprint", "Story Points", "Due Date", "Created"})
+	for _, c := range cards {
+		assigneeNames := make([]string, len(c.Assignees))
+		for i, a := range c.Assignees {
+			assigneeNames[i] = a.DisplayName
+		}
+		labelNames := make([]string, len(c.Labels))
+		for i, l := range c.Labels {
+			labelNames[i] = l.Name
+		}
+		sp := ""
+		if c.SprintID != nil {
+			sp = sprintMap[*c.SprintID]
+		}
+		pts := ""
+		if c.StoryPoints != nil {
+			pts = strconv.Itoa(*c.StoryPoints)
+		}
+		due := ""
+		if c.DueDate != nil {
+			due = c.DueDate.Format("2006-01-02")
+		}
+		writer.Write([]string{
+			strconv.FormatInt(c.ID, 10), c.Title, c.IssueType, c.State,
+			columnMap[c.ColumnID], swimlaneMap[c.SwimlaneID], c.Priority,
+			strings.Join(assigneeNames, "; "), strings.Join(labelNames, "; "),
+			sp, pts, due, c.CreatedAt.Format("2006-01-02"),
+		})
+	}
 }

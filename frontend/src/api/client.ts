@@ -195,6 +195,12 @@ export const boards = {
       `/boards/${boardId}/time-summary${sprintId ? `?sprint_id=${sprintId}` : ''}`
     ),
 
+  // Export
+  exportCards: (boardId: number) => {
+    const token = getToken();
+    window.open(`/api/boards/${boardId}/export?token=${token}`, '_blank');
+  },
+
   // Saved Filters
   getSavedFilters: (boardId: number) => request<SavedFilter[]>(`/boards/${boardId}/filters`),
   createSavedFilter: (boardId: number, name: string, filterJson: string, isShared: boolean) =>

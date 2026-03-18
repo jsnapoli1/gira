@@ -21,7 +21,7 @@ import {
   DragStartEvent,
   DragEndEvent,
 } from '@dnd-kit/core';
-import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle } from 'lucide-react';
 
 export function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
@@ -42,6 +42,7 @@ export function BoardView() {
   const [showAddCard, setShowAddCard] = useState<{ swimlaneId: number; columnId: number } | null>(null);
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [viewMode, setViewMode] = useState<'board' | 'backlog'>('board');
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   // Bulk selection state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -170,6 +171,44 @@ export function BoardView() {
   useEffect(() => {
     loadBoard();
   }, [boardId]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      switch (e.key) {
+        case '?':
+          setShowShortcutsHelp(prev => !prev);
+          break;
+        case 'n':
+          if (board?.swimlanes?.[0] && board?.columns?.[0]) {
+            setShowAddCard({ swimlaneId: board.swimlanes[0].id, columnId: board.columns[0].id });
+          }
+          break;
+        case 'b':
+          setViewMode(prev => prev === 'board' ? 'backlog' : 'board');
+          break;
+        case '/':
+          e.preventDefault();
+          document.querySelector<HTMLInputElement>('.search-input input')?.focus();
+          break;
+        case 'Escape':
+          if (showShortcutsHelp) setShowShortcutsHelp(false);
+          else if (selectedCard) setSelectedCard(null);
+          else if (selectionMode) { setSelectionMode(false); setSelectedCards(new Set()); }
+          break;
+        case 's':
+          if (!selectedCard) {
+            setSelectionMode(prev => !prev);
+            if (selectionMode) setSelectedCards(new Set());
+          }
+          break;
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [board, selectedCard, selectionMode, showShortcutsHelp]);
 
   const loadBoard = async () => {
     if (!boardId) return;
@@ -533,6 +572,12 @@ export function BoardView() {
             )}
           </div>
           <div className="board-header-right">
+            <button className="btn btn-sm btn-ghost" onClick={() => boardsApi.exportCards(parseInt(boardId!))} title="Export to CSV">
+              <Download size={14} />
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
+              <HelpCircle size={14} />
+            </button>
             <div className="board-filters">
               <div className="search-input">
                 <Search size={14} />
@@ -887,6 +932,26 @@ export function BoardView() {
           />
         )}
       </div>
+      {showShortcutsHelp && (
+        <div className="shortcuts-modal-overlay" onClick={() => setShowShortcutsHelp(false)}>
+          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="shortcuts-modal-header">
+              <h3>Keyboard Shortcuts</h3>
+              <button onClick={() => setShowShortcutsHelp(false)}><X size={16} /></button>
+            </div>
+            <table className="shortcuts-table">
+              <tbody>
+                <tr><td><kbd>?</kbd></td><td>Show/hide shortcuts</td></tr>
+                <tr><td><kbd>n</kbd></td><td>New card</td></tr>
+                <tr><td><kbd>b</kbd></td><td>Toggle board/backlog</td></tr>
+                <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
+                <tr><td><kbd>s</kbd></td><td>Toggle selection mode</td></tr>
+                <tr><td><kbd>Esc</kbd></td><td>Close modal / deselect</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }
