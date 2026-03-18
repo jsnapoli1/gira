@@ -617,6 +617,69 @@ func (s *Server) handleDeleteBoardLabel(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Workflow handlers
+
+func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
+	board, _ := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	rules, err := s.DB.GetWorkflowRules(board.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if rules == nil {
+		rules = []models.WorkflowRule{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(rules)
+}
+
+func (s *Server) handleSetWorkflow(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Rules []struct {
+			FromColumnID int64 `json:"from_column_id"`
+			ToColumnID   int64 `json:"to_column_id"`
+		} `json:"rules"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	var rules []models.WorkflowRule
+	for _, r := range req.Rules {
+		rules = append(rules, models.WorkflowRule{
+			FromColumnID: r.FromColumnID,
+			ToColumnID:   r.ToColumnID,
+		})
+	}
+	if err := s.DB.SetWorkflowRules(board.ID, rules); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Return the saved rules
+	saved, err := s.DB.GetWorkflowRules(board.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if saved == nil {
+		saved = []models.WorkflowRule{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(saved)
+}
+
 // Board custom fields handlers
 
 func (s *Server) handleGetBoardCustomFields(w http.ResponseWriter, r *http.Request) {

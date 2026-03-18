@@ -214,6 +214,14 @@ type CardLink struct {
 	TargetCard *Card `json:"target_card,omitempty"`
 }
 
+// WorkflowRule defines an allowed column transition for a board
+type WorkflowRule struct {
+	ID           int64 `json:"id"`
+	BoardID      int64 `json:"board_id"`
+	FromColumnID int64 `json:"from_column_id"`
+	ToColumnID   int64 `json:"to_column_id"`
+}
+
 // ActivityLog records a change to a card or board entity
 type ActivityLog struct {
 	ID           int64     `json:"id"`

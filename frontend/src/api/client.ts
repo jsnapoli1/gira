@@ -26,6 +26,7 @@ import type {
   SavedFilter,
   CardTemplate,
   DashboardResponse,
+  WorkflowRule,
 } from '../types';
 
 const API_BASE = '/api';
@@ -232,6 +233,13 @@ export const boards = {
     }),
   deleteSavedFilter: (boardId: number, filterId: number) =>
     request(`/boards/${boardId}/filters/${filterId}`, { method: 'DELETE' }),
+  // Workflow Rules
+  getWorkflow: (boardId: number) => request<WorkflowRule[]>(`/boards/${boardId}/workflow`),
+  setWorkflow: (boardId: number, rules: { from_column_id: number; to_column_id: number }[]) =>
+    request<WorkflowRule[]>(`/boards/${boardId}/workflow`, {
+      method: 'PUT',
+      body: JSON.stringify({ rules }),
+    }),
 };
 
 // Sprints

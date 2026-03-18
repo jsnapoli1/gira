@@ -294,6 +294,13 @@ export interface CardLink {
   target_card?: Card;
 }
 
+export interface WorkflowRule {
+  id: number;
+  board_id: number;
+  from_column_id: number;
+  to_column_id: number;
+}
+
 export interface GiteaIssue {
   id: number;
   number: number;

@@ -393,6 +393,18 @@ func (d *DB) migrate() error {
 	// Comment threading
 	d.Exec(`ALTER TABLE comments ADD COLUMN parent_comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE`)
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_comment_id)`)
+	// Workflow rules table
+	d.Exec(`CREATE TABLE IF NOT EXISTS workflow_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		board_id INTEGER NOT NULL,
+		from_column_id INTEGER NOT NULL,
+		to_column_id INTEGER NOT NULL,
+		FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+		FOREIGN KEY (from_column_id) REFERENCES columns(id) ON DELETE CASCADE,
+		FOREIGN KEY (to_column_id) REFERENCES columns(id) ON DELETE CASCADE,
+		UNIQUE(board_id, from_column_id, to_column_id)
+	)`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_workflow_rules_board ON workflow_rules(board_id)`)
 
 	// Bootstrap: If no admins exist and users exist, promote first user to admin
 	var adminCount int

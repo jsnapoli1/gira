@@ -493,6 +493,17 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	// Check workflow rules before allowing the move
+	allowed, err := s.DB.IsTransitionAllowed(card.BoardID, card.ColumnID, req.ColumnID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(w, "This column transition is not allowed by the board's workflow rules", http.StatusForbidden)
+		return
+	}
+
 	oldState := card.State
 	position := float64(0)
 	if req.Position != nil {
