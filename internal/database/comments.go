@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/jsnapoli/zira/internal/models"
 )
@@ -116,15 +115,6 @@ func (d *DB) GetCommentsForCard(cardID int64) ([]models.Comment, error) {
 	}
 
 	return topLevel, nil
-}
-
-// UpdateComment updates a comment's body
-func (d *DB) UpdateComment(id int64, body string) error {
-	_, err := d.Exec(
-		`UPDATE comments SET body = ?, updated_at = ? WHERE id = ?`,
-		body, time.Now(), id,
-	)
-	return err
 }
 
 // DeleteComment deletes a comment

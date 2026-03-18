@@ -105,35 +105,6 @@ func (d *DB) GetCardByID(id int64) (*models.Card, error) {
 	return &card, nil
 }
 
-func (d *DB) GetCardByGiteaIssue(boardID, swimlaneID, giteaIssueID int64) (*models.Card, error) {
-	var card models.Card
-	var sprintID sql.NullInt64
-	var storyPoints sql.NullInt64
-
-	err := d.QueryRow(
-		`SELECT id, board_id, swimlane_id, column_id, sprint_id, gitea_issue_id, title, description, state, story_points, priority, created_at, updated_at
-		 FROM cards WHERE board_id = ? AND swimlane_id = ? AND gitea_issue_id = ?`,
-		boardID, swimlaneID, giteaIssueID,
-	).Scan(&card.ID, &card.BoardID, &card.SwimlaneID, &card.ColumnID, &sprintID, &card.GiteaIssueID, &card.Title, &card.Description, &card.State, &storyPoints, &card.Priority, &card.CreatedAt, &card.UpdatedAt)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get card: %w", err)
-	}
-
-	if sprintID.Valid {
-		card.SprintID = &sprintID.Int64
-	}
-	if storyPoints.Valid {
-		sp := int(storyPoints.Int64)
-		card.StoryPoints = &sp
-	}
-
-	return &card, nil
-}
-
 func (d *DB) ListCardsForBoard(boardID int64) ([]models.Card, error) {
 	return d.listCards(`WHERE board_id = ?`, boardID)
 }
@@ -500,15 +471,6 @@ func (d *DB) BulkDeleteCards(cardIDs []int64) error {
 // ListChildCards returns all cards that have the given card as their parent
 func (d *DB) ListChildCards(parentID int64) ([]models.Card, error) {
 	return d.listCards(`WHERE parent_id = ?`, parentID)
-}
-
-// SetCardParent updates the parent_id and issue_type of a card
-func (d *DB) SetCardParent(cardID int64, parentID *int64, issueType string) error {
-	_, err := d.Exec(
-		`UPDATE cards SET parent_id = ?, issue_type = ?, updated_at = ? WHERE id = ?`,
-		parentID, issueType, time.Now(), cardID,
-	)
-	return err
 }
 
 // GetUserAssignedCards returns cards assigned to a user across all boards, ordered by most recently updated.

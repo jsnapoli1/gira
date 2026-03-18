@@ -2,7 +2,6 @@ package database
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/jsnapoli/zira/internal/models"
 )
@@ -101,42 +100,4 @@ func (d *DB) GetCardLabels(cardID int64) ([]models.Label, error) {
 		labels = append(labels, label)
 	}
 	return labels, nil
-}
-
-// GetLabelsForCards fetches labels for multiple cards in one query
-func (d *DB) GetLabelsForCards(cardIDs []int64) (map[int64][]models.Label, error) {
-	if len(cardIDs) == 0 {
-		return make(map[int64][]models.Label), nil
-	}
-
-	placeholders := make([]string, len(cardIDs))
-	args := make([]interface{}, len(cardIDs))
-	for i, id := range cardIDs {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-
-	query := `SELECT cl.card_id, l.id, l.name, l.color
-		FROM labels l
-		JOIN card_labels cl ON l.id = cl.label_id
-		WHERE cl.card_id IN (` + strings.Join(placeholders, ",") + `)
-		ORDER BY l.name`
-
-	rows, err := d.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[int64][]models.Label)
-	for rows.Next() {
-		var cardID int64
-		var label models.Label
-		if err := rows.Scan(&cardID, &label.ID, &label.Name, &label.Color); err != nil {
-			return nil, err
-		}
-		result[cardID] = append(result[cardID], label)
-	}
-
-	return result, nil
 }

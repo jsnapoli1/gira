@@ -48,13 +48,3 @@ func (d *DB) GetWatchers(cardID int64) ([]models.User, error) {
 	}
 	return watchers, rows.Err()
 }
-
-// IsWatching checks if a user is watching a card.
-func (d *DB) IsWatching(cardID, userID int64) (bool, error) {
-	var count int
-	err := d.QueryRow(`SELECT COUNT(*) FROM card_watchers WHERE card_id = ? AND user_id = ?`, cardID, userID).Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("is watching: %w", err)
-	}
-	return count > 0, nil
-}

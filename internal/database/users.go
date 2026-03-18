@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/jsnapoli/zira/internal/models"
 )
@@ -64,17 +63,6 @@ func (d *DB) GetUserByEmail(email string) (*models.User, error) {
 	}
 
 	return &user, nil
-}
-
-func (d *DB) UpdateUser(user *models.User) error {
-	_, err := d.Exec(
-		`UPDATE users SET display_name = ?, avatar_url = ?, updated_at = ? WHERE id = ?`,
-		user.DisplayName, user.AvatarURL, time.Now(), user.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update user: %w", err)
-	}
-	return nil
 }
 
 func (d *DB) ListUsers() ([]models.User, error) {

@@ -301,14 +301,6 @@ func (d *DB) CreateColumn(boardID int64, name, state string) (*models.Column, er
 	}, nil
 }
 
-func (d *DB) UpdateColumn(col *models.Column) error {
-	_, err := d.Exec(
-		`UPDATE columns SET name = ?, position = ?, state = ? WHERE id = ?`,
-		col.Name, col.Position, col.State, col.ID,
-	)
-	return err
-}
-
 func (d *DB) DeleteColumn(id int64) error {
 	_, err := d.Exec(`DELETE FROM columns WHERE id = ?`, id)
 	return err
