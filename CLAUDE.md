@@ -66,7 +66,8 @@ Set via environment variables or `~/.config/zira/config.json`:
 ### Code Style
 - Go: Standard `gofmt` formatting
 - TypeScript: Follow existing patterns in `src/`
-- No unit tests currently - focus on E2E tests
+- Go unit tests: `go test ./internal/...` (auth, database, models packages)
+- E2E tests: `cd frontend && npm test`
 
 ### API Routes
 - Auth: `/api/auth/*`
@@ -79,6 +80,7 @@ Set via environment variables or `~/.config/zira/config.json`:
 - Migrations run automatically on startup
 - Foreign keys enabled
 - **SQLite requires `SetMaxOpenConns(1)`** — concurrent writes cause "database is locked"
+- Tables: `users`, `boards`, `columns`, `swimlanes`, `sprints`, `cards`, `board_members`, `card_assignees`, `sprint_metrics`, `work_items`, `labels`, `card_labels`, `comments`, `attachments`, `custom_field_definitions`, `custom_field_values`, `notifications`, `swimlane_credentials`, `user_credentials`, `card_links`, `activity_log`, `saved_filters`, `card_watchers`, `card_templates`, `workflow_rules`, `issue_type_definitions`
 
 ### Security Notes
 - Never commit API keys or secrets

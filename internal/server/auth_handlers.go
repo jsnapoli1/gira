@@ -3,11 +3,44 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/jsnapoli/zira/internal/auth"
 )
 
+// Simple in-memory rate limiter for auth endpoints
+var authRateLimiter = struct {
+	sync.Mutex
+	attempts map[string][]time.Time
+}{attempts: make(map[string][]time.Time)}
+
+func checkAuthRateLimit(ip string) bool {
+	authRateLimiter.Lock()
+	defer authRateLimiter.Unlock()
+	now := time.Now()
+	window := now.Add(-1 * time.Minute)
+	// Remove old entries
+	recent := authRateLimiter.attempts[ip]
+	filtered := recent[:0]
+	for _, t := range recent {
+		if t.After(window) {
+			filtered = append(filtered, t)
+		}
+	}
+	authRateLimiter.attempts[ip] = filtered
+	if len(filtered) >= 10 { // max 10 attempts per minute
+		return false
+	}
+	authRateLimiter.attempts[ip] = append(filtered, now)
+	return true
+}
+
 func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
+	if !checkAuthRateLimit(r.RemoteAddr) {
+		http.Error(w, "Too many requests, try again later", http.StatusTooManyRequests)
+		return
+	}
 	var req struct {
 		Email       string `json:"email"`
 		Password    string `json:"password"`
@@ -60,6 +93,10 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !checkAuthRateLimit(r.RemoteAddr) {
+		http.Error(w, "Too many requests, try again later", http.StatusTooManyRequests)
+		return
+	}
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
