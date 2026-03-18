@@ -507,6 +507,49 @@ func (d *DB) SetCardParent(cardID int64, parentID *int64, issueType string) erro
 	return err
 }
 
+// GetUserAssignedCards returns cards assigned to a user across all boards, ordered by most recently updated.
+func (d *DB) GetUserAssignedCards(userID int64, limit int) ([]models.Card, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	return d.listCards(`WHERE id IN (SELECT card_id FROM card_assignees WHERE user_id = ?) ORDER BY updated_at DESC LIMIT ?`, userID, limit)
+}
+
+// GetActiveSprintsForUser returns active sprints from all boards the user is a member of.
+func (d *DB) GetActiveSprintsForUser(userID int64) ([]models.Sprint, error) {
+	rows, err := d.Query(
+		`SELECT s.id, s.board_id, s.name, s.goal, s.start_date, s.end_date, s.status, s.created_at, s.updated_at
+		 FROM sprints s
+		 JOIN boards b ON s.board_id = b.id
+		 LEFT JOIN board_members bm ON b.id = bm.board_id
+		 WHERE s.status = 'active' AND (b.owner_id = ? OR bm.user_id = ?)
+		 GROUP BY s.id
+		 ORDER BY s.start_date DESC`,
+		userID, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active sprints: %w", err)
+	}
+	defer rows.Close()
+
+	var sprints []models.Sprint
+	for rows.Next() {
+		var sprint models.Sprint
+		var startDate, endDate sql.NullTime
+		if err := rows.Scan(&sprint.ID, &sprint.BoardID, &sprint.Name, &sprint.Goal, &startDate, &endDate, &sprint.Status, &sprint.CreatedAt, &sprint.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan sprint: %w", err)
+		}
+		if startDate.Valid {
+			sprint.StartDate = &startDate.Time
+		}
+		if endDate.Valid {
+			sprint.EndDate = &endDate.Time
+		}
+		sprints = append(sprints, sprint)
+	}
+	return sprints, nil
+}
+
 // Card assignees
 
 func (d *DB) AddCardAssignee(cardID, userID int64) error {

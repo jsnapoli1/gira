@@ -297,3 +297,21 @@ export interface GiteaIssue {
   created_at: string;
   updated_at: string;
 }
+
+export interface DashboardCardWithBoard extends Card {
+  board_name: string;
+}
+
+export interface DashboardSprintWithProgress extends Sprint {
+  total_cards: number;
+  completed_cards: number;
+  total_points: number;
+  completed_points: number;
+  board_name: string;
+}
+
+export interface DashboardResponse {
+  boards: Board[];
+  my_cards: DashboardCardWithBoard[];
+  active_sprints: DashboardSprintWithProgress[];
+}

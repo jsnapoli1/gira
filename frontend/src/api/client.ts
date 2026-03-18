@@ -24,6 +24,7 @@ import type {
   CardLink,
   ActivityLog,
   SavedFilter,
+  DashboardResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -91,6 +92,11 @@ export const config = {
       method: 'POST',
       body: JSON.stringify({ gitea_url: giteaUrl, gitea_api_key: giteaApiKey }),
     }),
+};
+
+// Dashboard
+export const dashboard = {
+  get: () => request<DashboardResponse>('/dashboard'),
 };
 
 // Boards

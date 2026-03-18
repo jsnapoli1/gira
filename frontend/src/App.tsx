@@ -8,6 +8,7 @@ import { BoardView } from './pages/BoardView';
 import { BoardSettings } from './pages/BoardSettings';
 import { Reports } from './pages/Reports';
 import { Settings } from './pages/Settings';
+import { Dashboard } from './pages/Dashboard';
 import './App.css';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -32,7 +33,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (user) {
-    return <Navigate to="/boards" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;
@@ -55,6 +56,14 @@ function AppRoutes() {
           <PublicRoute>
             <Signup />
           </PublicRoute>
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          <PrivateRoute>
+            <Dashboard />
+          </PrivateRoute>
         }
       />
       <Route
@@ -97,7 +106,7 @@ function AppRoutes() {
           </PrivateRoute>
         }
       />
-      <Route path="/" element={<Navigate to="/boards" replace />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

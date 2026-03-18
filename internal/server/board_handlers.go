@@ -12,6 +12,112 @@ import (
 	"github.com/jsnapoli/zira/internal/models"
 )
 
+// handleDashboard returns a combined dashboard view with boards, assigned cards, and active sprints.
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+
+	boards, err := s.DB.ListBoardsForUser(user.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if boards == nil {
+		boards = []models.Board{}
+	}
+
+	myCards, err := s.DB.GetUserAssignedCards(user.ID, 20)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if myCards == nil {
+		myCards = []models.Card{}
+	}
+
+	activeSprints, err := s.DB.GetActiveSprintsForUser(user.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if activeSprints == nil {
+		activeSprints = []models.Sprint{}
+	}
+
+	// For active sprints, compute card counts
+	type sprintWithProgress struct {
+		models.Sprint
+		TotalCards     int    `json:"total_cards"`
+		CompletedCards int    `json:"completed_cards"`
+		TotalPoints    int    `json:"total_points"`
+		CompletedPts   int    `json:"completed_points"`
+		BoardName      string `json:"board_name"`
+	}
+
+	sprintsOut := make([]sprintWithProgress, 0, len(activeSprints))
+	for _, sp := range activeSprints {
+		swp := sprintWithProgress{Sprint: sp}
+		board, err := s.DB.GetBoardByID(sp.BoardID)
+		if err == nil && board != nil {
+			swp.BoardName = board.Name
+		}
+		sprintCards, err := s.DB.ListCardsForSprint(sp.ID)
+		if err == nil {
+			swp.TotalCards = len(sprintCards)
+			for _, c := range sprintCards {
+				if c.State == "closed" || c.State == "done" {
+					swp.CompletedCards++
+					if c.StoryPoints != nil {
+						swp.CompletedPts += *c.StoryPoints
+					}
+				}
+				if c.StoryPoints != nil {
+					swp.TotalPoints += *c.StoryPoints
+				}
+			}
+		}
+		sprintsOut = append(sprintsOut, swp)
+	}
+
+	// Build board name map for cards
+	boardNameMap := make(map[int64]string)
+	for _, b := range boards {
+		boardNameMap[b.ID] = b.Name
+	}
+
+	type cardWithBoard struct {
+		models.Card
+		BoardName string `json:"board_name"`
+	}
+
+	cardsOut := make([]cardWithBoard, 0, len(myCards))
+	for _, c := range myCards {
+		cwb := cardWithBoard{Card: c}
+		if name, ok := boardNameMap[c.BoardID]; ok {
+			cwb.BoardName = name
+		} else {
+			board, err := s.DB.GetBoardByID(c.BoardID)
+			if err == nil && board != nil {
+				cwb.BoardName = board.Name
+				boardNameMap[c.BoardID] = board.Name
+			}
+		}
+		cardsOut = append(cardsOut, cwb)
+	}
+
+	result := struct {
+		Boards        []models.Board       `json:"boards"`
+		MyCards       []cardWithBoard      `json:"my_cards"`
+		ActiveSprints []sprintWithProgress `json:"active_sprints"`
+	}{
+		Boards:        boards,
+		MyCards:       cardsOut,
+		ActiveSprints: sprintsOut,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func (s *Server) handleListBoards(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r.Context())
 	boards, err := s.DB.ListBoardsForUser(user.ID)

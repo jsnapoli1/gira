@@ -166,6 +166,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/labels", s.requireAuth(s.requireConfig(s.handleLabels)))
 	mux.HandleFunc("GET /api/milestones", s.requireAuth(s.requireConfig(s.handleMilestones)))
 
+	// Dashboard
+	mux.HandleFunc("GET /api/dashboard", s.requireAuth(s.handleDashboard))
+
 	// Board routes
 	mux.HandleFunc("GET /api/boards", s.requireAuth(s.handleListBoards))
 	mux.HandleFunc("POST /api/boards", s.requireAuth(s.handleCreateBoard))

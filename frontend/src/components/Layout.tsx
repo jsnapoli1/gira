@@ -124,6 +124,7 @@ export function Layout({ children }: LayoutProps) {
   };
 
   const navItems = [
+    { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/boards', icon: Kanban, label: 'Boards' },
     { to: '/reports', icon: BarChart3, label: 'Reports' },
     { to: '/settings', icon: Settings, label: 'Settings' },
