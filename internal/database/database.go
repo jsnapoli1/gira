@@ -377,6 +377,10 @@ func (d *DB) migrate() error {
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_card_watchers_card ON card_watchers(card_id)`)
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_card_watchers_user ON card_watchers(user_id)`)
 
+	// Comment threading
+	d.Exec(`ALTER TABLE comments ADD COLUMN parent_comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_comment_id)`)
+
 	// Bootstrap: If no admins exist and users exist, promote first user to admin
 	var adminCount int
 	d.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin = 1`).Scan(&adminCount)

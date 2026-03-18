@@ -123,6 +123,7 @@ export interface Comment {
   id: number;
   card_id: number;
   user_id: number;
+  parent_comment_id?: number | null;
   body: string;
   user?: {
     id: number;
@@ -130,6 +131,8 @@ export interface Comment {
     display_name: string;
     avatar_url: string;
   };
+  attachments?: Attachment[];
+  replies?: Comment[];
   created_at: string;
   updated_at: string;
 }

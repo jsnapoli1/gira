@@ -2042,6 +2042,69 @@ body {
   line-height: 1.4;
 }
 
+.comment-thread {
+  display: flex;
+  flex-direction: column;
+}
+
+.btn-reply {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.15rem 0;
+  align-self: flex-start;
+  margin-top: 0.25rem;
+}
+
+.btn-reply:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.comment-replies {
+  margin-left: 1.5rem;
+  border-left: 2px solid var(--border);
+  padding-left: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.comment-reply {
+  background: var(--bg-secondary, var(--bg));
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+}
+
+.comment-reply-form {
+  margin-left: 1.5rem;
+  border-left: 2px solid var(--primary);
+  padding-left: 0.75rem;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.comment-reply-form textarea {
+  width: 100%;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.comment-reply-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .comment-form-compact {
   display: flex;
   flex-direction: column;

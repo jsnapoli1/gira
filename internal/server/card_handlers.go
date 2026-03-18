@@ -731,8 +731,9 @@ func (s *Server) handleCreateCardComment(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req struct {
-		Body          string  `json:"body"`
-		AttachmentIDs []int64 `json:"attachment_ids"`
+		Body            string  `json:"body"`
+		AttachmentIDs   []int64 `json:"attachment_ids"`
+		ParentCommentID *int64  `json:"parent_comment_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -743,7 +744,7 @@ func (s *Server) handleCreateCardComment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	comment, err := s.DB.CreateComment(card.ID, user.ID, req.Body)
+	comment, err := s.DB.CreateComment(card.ID, user.ID, req.Body, req.ParentCommentID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

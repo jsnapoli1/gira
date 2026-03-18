@@ -141,14 +141,16 @@ type WorkItem struct {
 
 // Comment represents a comment on a card (local, not from Gitea)
 type Comment struct {
-	ID          int64         `json:"id"`
-	CardID      int64         `json:"card_id"`
-	UserID      int64         `json:"user_id"`
-	User        *User         `json:"user,omitempty"`
-	Body        string        `json:"body"`
-	Attachments []*Attachment `json:"attachments,omitempty"`
-	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at"`
+	ID              int64         `json:"id"`
+	CardID          int64         `json:"card_id"`
+	UserID          int64         `json:"user_id"`
+	ParentCommentID *int64        `json:"parent_comment_id"`
+	User            *User         `json:"user,omitempty"`
+	Body            string        `json:"body"`
+	Attachments     []*Attachment `json:"attachments,omitempty"`
+	Replies         []Comment     `json:"replies,omitempty"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
 }
 
 // Attachment represents a file attached to a card

@@ -316,15 +316,15 @@ export const cards = {
     request(`/cards/${id}/assignees/${userId}`, { method: 'DELETE' }),
   getAssignees: (id: number) => request<User[]>(`/cards/${id}/assignees`),
   getComments: (id: number) => request<Comment[]>(`/cards/${id}/comments`),
-  addComment: (id: number, body: string) =>
+  addComment: (id: number, body: string, parentCommentId?: number | null) =>
     request<Comment>(`/cards/${id}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, parent_comment_id: parentCommentId || undefined }),
     }),
-  addCommentWithAttachments: (id: number, body: string, attachmentIds: number[]) =>
+  addCommentWithAttachments: (id: number, body: string, attachmentIds: number[], parentCommentId?: number | null) =>
     request<Comment>(`/cards/${id}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body, attachment_ids: attachmentIds }),
+      body: JSON.stringify({ body, attachment_ids: attachmentIds, parent_comment_id: parentCommentId || undefined }),
     }),
   getLabels: (id: number) => request<Label[]>(`/cards/${id}/labels`),
   addLabel: (id: number, labelId: number) =>

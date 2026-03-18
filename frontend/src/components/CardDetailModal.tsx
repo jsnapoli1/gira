@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { cards as cardsApi } from '../api/client';
-import { Card, Column, Swimlane, Sprint, User, Label, CardLink, LinkType, ActivityLog } from '../types';
+import { Card, Column, Swimlane, Sprint, User, Label, CardLink, LinkType, ActivityLog, Comment } from '../types';
 import { useToast } from '../components/Toast';
 import { Clock, Calendar, User as UserIcon, X, Check, Link as LinkIcon, CheckSquare, Plus } from 'lucide-react';
 
@@ -138,10 +138,13 @@ export function CardDetailModal({
   };
 
   // Comments state
-  const [comments, setComments] = useState<any[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
   const [newComment, setNewComment] = useState('');
   const [postingComment, setPostingComment] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [postingReply, setPostingReply] = useState(false);
 
   // Mention autocomplete state
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
@@ -516,6 +519,25 @@ export function CardDetailModal({
       showToast('Failed to post comment', 'error');
     } finally {
       setPostingComment(false);
+    }
+  };
+
+  const handlePostReply = async (parentId: number) => {
+    if (!replyText.trim()) return;
+    setPostingReply(true);
+    try {
+      const reply = await cardsApi.addComment(card.id, replyText, parentId);
+      if (reply) {
+        // Reload comments to get the threaded structure from the server
+        await loadComments();
+      }
+      setReplyText('');
+      setReplyingTo(null);
+    } catch (err) {
+      console.error('Failed to post reply:', err);
+      showToast('Failed to post reply', 'error');
+    } finally {
+      setPostingReply(false);
     }
   };
 
@@ -980,28 +1002,85 @@ export function CardDetailModal({
                   ) : (
                     <div className="comments-list-compact">
                       {comments.map((comment) => (
-                        <div key={comment.id} className="comment-item-compact">
-                          <div className="comment-header-compact">
-                            {comment.user?.avatar_url ? (
-                              <img src={comment.user.avatar_url} alt={comment.user.display_name} className="comment-avatar-small" />
-                            ) : (
-                              <div className="comment-avatar-small placeholder"><UserIcon size={12} /></div>
+                        <div key={comment.id} className="comment-thread">
+                          <div className="comment-item-compact">
+                            <div className="comment-header-compact">
+                              {comment.user?.avatar_url ? (
+                                <img src={comment.user.avatar_url} alt={comment.user.display_name} className="comment-avatar-small" />
+                              ) : (
+                                <div className="comment-avatar-small placeholder"><UserIcon size={12} /></div>
+                              )}
+                              <span className="comment-author">{comment.user?.display_name || 'Unknown'}</span>
+                              <span className="comment-time">{formatDate(comment.created_at)}</span>
+                            </div>
+                            <p className="comment-body-compact">{renderCommentBody(comment.body)}</p>
+                            {comment.attachments && comment.attachments.length > 0 && (
+                              <div className="comment-attachments">
+                                {comment.attachments.map((att: any) => (
+                                  att.mime_type.startsWith('image/') ? (
+                                    <img key={att.id} src={`/api/attachments/${att.id}`} alt={att.filename} className="comment-attachment-thumb" onClick={() => setViewingImage(`/api/attachments/${att.id}`)} style={{ cursor: 'pointer' }} />
+                                  ) : (
+                                    <a key={att.id} href={`/api/attachments/${att.id}`} download={att.filename}>
+                                      <span className="comment-attachment-file">📎 {att.filename}</span>
+                                    </a>
+                                  )
+                                ))}
+                              </div>
                             )}
-                            <span className="comment-author">{comment.user?.display_name || 'Unknown'}</span>
-                            <span className="comment-time">{formatDate(comment.created_at)}</span>
+                            <button
+                              type="button"
+                              className="btn-reply"
+                              onClick={() => { setReplyingTo(replyingTo === comment.id ? null : comment.id); setReplyText(''); }}
+                            >
+                              Reply
+                            </button>
                           </div>
-                          <p className="comment-body-compact">{renderCommentBody(comment.body)}</p>
-                          {comment.attachments && comment.attachments.length > 0 && (
-                            <div className="comment-attachments">
-                              {comment.attachments.map((att: any) => (
-                                att.mime_type.startsWith('image/') ? (
-                                  <img key={att.id} src={`/api/attachments/${att.id}`} alt={att.filename} className="comment-attachment-thumb" onClick={() => setViewingImage(`/api/attachments/${att.id}`)} style={{ cursor: 'pointer' }} />
-                                ) : (
-                                  <a key={att.id} href={`/api/attachments/${att.id}`} download={att.filename}>
-                                    <span className="comment-attachment-file">📎 {att.filename}</span>
-                                  </a>
-                                )
+                          {/* Replies */}
+                          {comment.replies && comment.replies.length > 0 && (
+                            <div className="comment-replies">
+                              {comment.replies.map((reply) => (
+                                <div key={reply.id} className="comment-item-compact comment-reply">
+                                  <div className="comment-header-compact">
+                                    {reply.user?.avatar_url ? (
+                                      <img src={reply.user.avatar_url} alt={reply.user.display_name} className="comment-avatar-small" />
+                                    ) : (
+                                      <div className="comment-avatar-small placeholder"><UserIcon size={12} /></div>
+                                    )}
+                                    <span className="comment-author">{reply.user?.display_name || 'Unknown'}</span>
+                                    <span className="comment-time">{formatDate(reply.created_at)}</span>
+                                  </div>
+                                  <p className="comment-body-compact">{renderCommentBody(reply.body)}</p>
+                                </div>
                               ))}
+                            </div>
+                          )}
+                          {/* Inline reply form */}
+                          {replyingTo === comment.id && (
+                            <div className="comment-reply-form">
+                              <textarea
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                                placeholder="Write a reply..."
+                                rows={2}
+                                autoFocus
+                              />
+                              <div className="comment-reply-actions">
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-sm"
+                                  disabled={postingReply || !replyText.trim()}
+                                  onClick={() => handlePostReply(comment.id)}
+                                >
+                                  {postingReply ? '...' : 'Reply'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => { setReplyingTo(null); setReplyText(''); }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>

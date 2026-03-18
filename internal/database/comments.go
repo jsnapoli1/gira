@@ -9,10 +9,10 @@ import (
 )
 
 // CreateComment creates a new comment on a card
-func (d *DB) CreateComment(cardID, userID int64, body string) (*models.Comment, error) {
+func (d *DB) CreateComment(cardID, userID int64, body string, parentCommentID *int64) (*models.Comment, error) {
 	result, err := d.Exec(
-		`INSERT INTO comments (card_id, user_id, body) VALUES (?, ?, ?)`,
-		cardID, userID, body,
+		`INSERT INTO comments (card_id, user_id, body, parent_comment_id) VALUES (?, ?, ?, ?)`,
+		cardID, userID, body, parentCommentID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create comment: %w", err)
@@ -29,9 +29,9 @@ func (d *DB) CreateComment(cardID, userID int64, body string) (*models.Comment, 
 func (d *DB) GetCommentByID(id int64) (*models.Comment, error) {
 	var comment models.Comment
 	err := d.QueryRow(
-		`SELECT id, card_id, user_id, body, created_at, updated_at FROM comments WHERE id = ?`,
+		`SELECT id, card_id, user_id, body, parent_comment_id, created_at, updated_at FROM comments WHERE id = ?`,
 		id,
-	).Scan(&comment.ID, &comment.CardID, &comment.UserID, &comment.Body, &comment.CreatedAt, &comment.UpdatedAt)
+	).Scan(&comment.ID, &comment.CardID, &comment.UserID, &comment.Body, &comment.ParentCommentID, &comment.CreatedAt, &comment.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -52,7 +52,7 @@ func (d *DB) GetCommentByID(id int64) (*models.Comment, error) {
 // GetCommentsForCard retrieves all comments for a card
 func (d *DB) GetCommentsForCard(cardID int64) ([]models.Comment, error) {
 	rows, err := d.Query(
-		`SELECT c.id, c.card_id, c.user_id, c.body, c.created_at, c.updated_at,
+		`SELECT c.id, c.card_id, c.user_id, c.body, c.parent_comment_id, c.created_at, c.updated_at,
 				u.id, u.email, u.display_name, u.avatar_url
 		 FROM comments c
 		 LEFT JOIN users u ON c.user_id = u.id
@@ -65,14 +65,14 @@ func (d *DB) GetCommentsForCard(cardID int64) ([]models.Comment, error) {
 	}
 	defer rows.Close()
 
-	var comments []models.Comment
+	var allComments []models.Comment
 	for rows.Next() {
 		var comment models.Comment
 		var user models.User
 		var avatarURL sql.NullString
 
 		if err := rows.Scan(
-			&comment.ID, &comment.CardID, &comment.UserID, &comment.Body, &comment.CreatedAt, &comment.UpdatedAt,
+			&comment.ID, &comment.CardID, &comment.UserID, &comment.Body, &comment.ParentCommentID, &comment.CreatedAt, &comment.UpdatedAt,
 			&user.ID, &user.Email, &user.DisplayName, &avatarURL,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan comment: %w", err)
@@ -82,22 +82,40 @@ func (d *DB) GetCommentsForCard(cardID int64) ([]models.Comment, error) {
 			user.AvatarURL = avatarURL.String
 		}
 		comment.User = &user
-		comments = append(comments, comment)
-	}
-
-	if comments == nil {
-		comments = []models.Comment{}
+		allComments = append(allComments, comment)
 	}
 
 	// Load attachments for each comment
-	for i := range comments {
-		attachments, err := d.GetAttachmentsForComment(comments[i].ID)
+	for i := range allComments {
+		attachments, err := d.GetAttachmentsForComment(allComments[i].ID)
 		if err == nil {
-			comments[i].Attachments = attachments
+			allComments[i].Attachments = attachments
 		}
 	}
 
-	return comments, nil
+	// Build thread tree: nest replies under their parents
+	commentMap := make(map[int64]*models.Comment)
+	for i := range allComments {
+		allComments[i].Replies = []models.Comment{}
+		commentMap[allComments[i].ID] = &allComments[i]
+	}
+
+	var topLevel []models.Comment
+	for i := range allComments {
+		if allComments[i].ParentCommentID != nil {
+			if parent, ok := commentMap[*allComments[i].ParentCommentID]; ok {
+				parent.Replies = append(parent.Replies, allComments[i])
+				continue
+			}
+		}
+		topLevel = append(topLevel, allComments[i])
+	}
+
+	if topLevel == nil {
+		topLevel = []models.Comment{}
+	}
+
+	return topLevel, nil
 }
 
 // UpdateComment updates a comment's body
