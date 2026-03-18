@@ -578,7 +578,7 @@ export function BoardView() {
             <button className="btn btn-sm btn-ghost" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
               <HelpCircle size={14} />
             </button>
-            <div className="board-filters">
+            <div className="board-filters" aria-label="Filter controls">
               <div className="search-input">
                 <Search size={14} />
                 <input
@@ -760,7 +760,7 @@ export function BoardView() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div className="board-content">
+            <div className="board-content" role="main">
               {(board.swimlanes || []).length === 0 ? (
                 <div className="empty-swimlanes">
                   <p>Add a swimlane to start tracking issues from a repository</p>

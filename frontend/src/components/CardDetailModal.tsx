@@ -738,7 +738,7 @@ export function CardDetailModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={handleClose}>
+    <div className="modal-overlay" onClick={handleClose} role="dialog" aria-modal="true" aria-label="Card details">
       <div className="modal card-detail-modal-unified" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="card-detail-header">
@@ -763,7 +763,7 @@ export function CardDetailModal({
                 <button className="btn btn-sm btn-danger" onClick={handleDelete}>Delete</button>
               </>
             )}
-            <button className="btn btn-sm modal-close-btn" onClick={handleClose} title="Close">
+            <button className="btn btn-sm modal-close-btn" onClick={handleClose} title="Close" aria-label="Close">
               <X size={18} />
             </button>
           </div>

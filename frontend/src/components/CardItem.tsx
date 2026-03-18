@@ -85,6 +85,8 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, 
       className={`card-item${selected ? ' selected' : ''}`}
       onClick={handleClick}
       {...attributes}
+      role="article"
+      aria-label={card.title}
     >
       {selectionMode ? (
         <div className="card-select-checkbox">
@@ -113,6 +115,7 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, 
               className="card-priority"
               style={{ color: priorityColors[card.priority] }}
               title={`Priority: ${card.priority}`}
+              aria-label={`Priority: ${card.priority}`}
             >
               <AlertCircle size={12} />
             </span>
@@ -144,7 +147,7 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, 
             </span>
           )}
           {card.due_date && (
-            <span className={`card-due-date ${isOverdue(card.due_date) ? 'overdue' : isDueSoon(card.due_date) ? 'due-soon' : isNotUrgent(card.due_date) ? 'not-urgent' : ''}`} title={`Due: ${formatDueDate(card.due_date)}`}>
+            <span className={`card-due-date ${isOverdue(card.due_date) ? 'overdue' : isDueSoon(card.due_date) ? 'due-soon' : isNotUrgent(card.due_date) ? 'not-urgent' : ''}`} title={`Due: ${formatDueDate(card.due_date)}`} aria-label={`Due: ${formatDueDate(card.due_date)}`}>
               <Calendar size={12} />
               {formatDueDate(card.due_date)}
             </span>
