@@ -17,6 +17,14 @@ services:
       - GITEA_API_KEY=${GITEA_API_KEY}
       - GITEA_INSECURE_TLS=${GITEA_INSECURE_TLS:-true}
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9002/healthz"]
       interval: 30s
