@@ -326,6 +326,32 @@ func (s *Server) handleUpdateCard(w http.ResponseWriter, r *http.Request) {
 		oldDueDate = card.DueDate.Format("2006-01-02")
 	}
 
+	// Validate parent_id to prevent circular references
+	if req.ParentID != nil {
+		if *req.ParentID == card.ID {
+			http.Error(w, "A card cannot be its own parent", http.StatusBadRequest)
+			return
+		}
+		// Walk up the parent chain to detect cycles
+		visited := map[int64]bool{card.ID: true}
+		currentID := *req.ParentID
+		for {
+			if visited[currentID] {
+				http.Error(w, "Circular parent reference detected", http.StatusBadRequest)
+				return
+			}
+			visited[currentID] = true
+			parent, err := s.DB.GetCardByID(currentID)
+			if err != nil || parent == nil {
+				break
+			}
+			if parent.ParentID == nil {
+				break
+			}
+			currentID = *parent.ParentID
+		}
+	}
+
 	card.Title = req.Title
 	card.Description = req.Description
 	card.StoryPoints = req.StoryPoints
@@ -1441,6 +1467,9 @@ func (s *Server) handleBulkMoveCards(w http.ResponseWriter, r *http.Request) {
 
 	user := getUserFromContext(r.Context())
 	for _, cardID := range req.CardIDs {
+		if err := s.DB.LogActivity(firstCard.BoardID, &cardID, user.ID, "moved", "card", "state", "", req.State); err != nil {
+			log.Printf("Failed to log bulk move activity: %v", err)
+		}
 		s.SSEHub.Broadcast(BoardEvent{
 			Type:      "card_moved",
 			BoardID:   firstCard.BoardID,
@@ -1501,7 +1530,14 @@ func (s *Server) handleBulkAssignSprint(w http.ResponseWriter, r *http.Request) 
 	}
 
 	user := getUserFromContext(r.Context())
+	newSprint := ""
+	if req.SprintID != nil {
+		newSprint = strconv.FormatInt(*req.SprintID, 10)
+	}
 	for _, cardID := range req.CardIDs {
+		if err := s.DB.LogActivity(firstCard.BoardID, &cardID, user.ID, "updated", "card", "sprint_id", "", newSprint); err != nil {
+			log.Printf("Failed to log bulk sprint assign activity: %v", err)
+		}
 		s.SSEHub.Broadcast(BoardEvent{
 			Type:      "card_updated",
 			BoardID:   firstCard.BoardID,
@@ -1558,10 +1594,17 @@ func (s *Server) handleBulkUpdateCards(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	user := getUserFromContext(r.Context())
+
 	if req.Priority != "" {
 		if err := s.DB.BulkUpdatePriority(req.CardIDs, req.Priority); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		for _, cardID := range req.CardIDs {
+			if err := s.DB.LogActivity(firstCard.BoardID, &cardID, user.ID, "updated", "card", "priority", "", req.Priority); err != nil {
+				log.Printf("Failed to log bulk update activity: %v", err)
+			}
 		}
 	}
 
@@ -1581,7 +1624,6 @@ func (s *Server) handleBulkUpdateCards(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	user := getUserFromContext(r.Context())
 	for _, cardID := range req.CardIDs {
 		s.SSEHub.Broadcast(BoardEvent{
 			Type:      "card_updated",
@@ -1636,12 +1678,19 @@ func (s *Server) handleBulkDeleteCards(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Log activity before deletion
+	user := getUserFromContext(r.Context())
+	for _, cardID := range req.CardIDs {
+		if err := s.DB.LogActivity(firstCard.BoardID, &cardID, user.ID, "deleted", "card", "", "", ""); err != nil {
+			log.Printf("Failed to log bulk delete activity: %v", err)
+		}
+	}
+
 	if err := s.DB.BulkDeleteCards(req.CardIDs); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	user := getUserFromContext(r.Context())
 	for _, cardID := range req.CardIDs {
 		s.SSEHub.Broadcast(BoardEvent{
 			Type:      "card_deleted",

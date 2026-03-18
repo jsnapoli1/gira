@@ -668,6 +668,16 @@ func (s *Server) handleCreateSavedFilter(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Filter JSON is required", http.StatusBadRequest)
 		return
 	}
+	if len(req.FilterJSON) > 65536 {
+		http.Error(w, "Filter JSON exceeds maximum size (64KB)", http.StatusBadRequest)
+		return
+	}
+	// Validate filter_json is valid JSON
+	var jsonCheck json.RawMessage
+	if err := json.Unmarshal([]byte(req.FilterJSON), &jsonCheck); err != nil {
+		http.Error(w, "filter_json must be valid JSON", http.StatusBadRequest)
+		return
+	}
 	filter, err := s.DB.CreateSavedFilter(board.ID, user.ID, req.Name, req.FilterJSON, req.IsShared)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -710,6 +720,17 @@ func (s *Server) handleUpdateSavedFilter(w http.ResponseWriter, r *http.Request)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
+	}
+	if req.FilterJSON != "" {
+		if len(req.FilterJSON) > 65536 {
+			http.Error(w, "Filter JSON exceeds maximum size (64KB)", http.StatusBadRequest)
+			return
+		}
+		var jsonCheck json.RawMessage
+		if err := json.Unmarshal([]byte(req.FilterJSON), &jsonCheck); err != nil {
+			http.Error(w, "filter_json must be valid JSON", http.StatusBadRequest)
+			return
+		}
 	}
 	if err := s.DB.UpdateSavedFilter(filterID, req.Name, req.FilterJSON, req.IsShared); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
