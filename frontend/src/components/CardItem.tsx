@@ -23,7 +23,15 @@ function isDueSoon(dateStr: string): boolean {
   const now = new Date();
   const diff = date.getTime() - now.getTime();
   const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-  return days >= 0 && days <= 3;
+  return days >= 0 && days <= 7;
+}
+
+function isNotUrgent(dateStr: string): boolean {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = date.getTime() - now.getTime();
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+  return days > 7;
 }
 
 function isOverdue(dateStr: string): boolean {
@@ -101,6 +109,11 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick }
           </div>
         )}
         <div className="card-meta">
+          {card.issue_type && card.issue_type !== 'task' && (
+            <span className={`issue-type-badge issue-type-${card.issue_type}`}>
+              {card.issue_type === 'epic' ? 'Epic' : card.issue_type === 'story' ? 'Story' : card.issue_type === 'subtask' ? 'Subtask' : card.issue_type}
+            </span>
+          )}
           {card.story_points !== null && (
             <span className="card-points" title="Story points">
               <Tag size={12} />
@@ -108,7 +121,7 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick }
             </span>
           )}
           {card.due_date && (
-            <span className={`card-due-date ${isDueSoon(card.due_date) ? 'due-soon' : ''} ${isOverdue(card.due_date) ? 'overdue' : ''}`} title={`Due: ${formatDueDate(card.due_date)}`}>
+            <span className={`card-due-date ${isOverdue(card.due_date) ? 'overdue' : isDueSoon(card.due_date) ? 'due-soon' : isNotUrgent(card.due_date) ? 'not-urgent' : ''}`} title={`Due: ${formatDueDate(card.due_date)}`}>
               <Calendar size={12} />
               {formatDueDate(card.due_date)}
             </span>

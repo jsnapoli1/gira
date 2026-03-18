@@ -20,7 +20,7 @@ import {
   DragStartEvent,
   DragEndEvent,
 } from '@dnd-kit/core';
-import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search, AlertTriangle } from 'lucide-react';
 
 export function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
@@ -44,6 +44,7 @@ export function BoardView() {
   const [filterSwimlane, setFilterSwimlane] = useState<number | null>(null);
   const [filterPriority, setFilterPriority] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterOverdue, setFilterOverdue] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -223,7 +224,13 @@ export function BoardView() {
     }
   };
 
-  // Filter cards by assignee, label, swimlane, priority, and search query
+  // Count overdue cards
+  const overdueCount = useMemo(() => {
+    const now = new Date();
+    return cards.filter((c) => c.due_date && new Date(c.due_date) < now).length;
+  }, [cards]);
+
+  // Filter cards by assignee, label, swimlane, priority, overdue, and search query
   const filteredCards = useMemo(() => {
     let filtered = cards;
     if (filterAssignee) {
@@ -238,6 +245,10 @@ export function BoardView() {
     if (filterPriority) {
       filtered = filtered.filter((c) => c.priority === filterPriority);
     }
+    if (filterOverdue) {
+      const now = new Date();
+      filtered = filtered.filter((c) => c.due_date && new Date(c.due_date) < now);
+    }
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter((c) =>
@@ -246,7 +257,7 @@ export function BoardView() {
       );
     }
     return filtered;
-  }, [cards, filterAssignee, filterLabel, filterSwimlane, filterPriority, searchQuery]);
+  }, [cards, filterAssignee, filterLabel, filterSwimlane, filterPriority, filterOverdue, searchQuery]);
 
   // Group cards by swimlane and column
   const cardsBySwimlanAndColumn = useMemo(() => {
@@ -296,6 +307,12 @@ export function BoardView() {
               <span className="active-sprint-badge">
                 <Clock size={14} />
                 {activeSprint.name}
+              </span>
+            )}
+            {overdueCount > 0 && (
+              <span className="overdue-badge" title={`${overdueCount} overdue card${overdueCount === 1 ? '' : 's'}`}>
+                <AlertTriangle size={14} />
+                {overdueCount} overdue
               </span>
             )}
           </div>
@@ -353,8 +370,16 @@ export function BoardView() {
                 <option value="low">Low</option>
                 <option value="lowest">Lowest</option>
               </select>
-              {(filterAssignee || filterLabel || filterSwimlane || filterPriority || searchQuery) && (
-                <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setSearchQuery(''); }} title="Clear filters">
+              <button
+                className={`filter-overdue ${filterOverdue ? 'active' : ''}`}
+                onClick={() => setFilterOverdue(!filterOverdue)}
+                title="Show only overdue cards"
+              >
+                <AlertTriangle size={14} />
+                Overdue
+              </button>
+              {(filterAssignee || filterLabel || filterSwimlane || filterPriority || filterOverdue || searchQuery) && (
+                <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setFilterOverdue(false); setSearchQuery(''); }} title="Clear filters">
                   <X size={14} />
                 </button>
               )}
@@ -480,6 +505,7 @@ export function BoardView() {
           <CardDetailModal
             card={selectedCard}
             swimlane={board.swimlanes.find((s) => s.id === selectedCard.swimlane_id)!}
+            columns={board.columns}
             sprints={sprints}
             users={users}
             boardLabels={boardLabels}
