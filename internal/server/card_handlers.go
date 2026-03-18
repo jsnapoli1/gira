@@ -31,6 +31,11 @@ func (s *Server) handleSearchCards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check board membership
+	if !s.checkBoardMembership(w, r, boardID, models.BoardRoleViewer) {
+		return
+	}
+
 	params := database.CardSearchParams{
 		BoardID: boardID,
 		Query:   q.Get("q"),
@@ -80,6 +85,9 @@ func (s *Server) handleSearchCards(w http.ResponseWriter, r *http.Request) {
 		if n, err := strconv.Atoi(v); err == nil {
 			params.Limit = n
 		}
+	}
+	if params.Limit > 500 {
+		params.Limit = 500
 	}
 
 	if v := q.Get("offset"); v != "" {
@@ -513,11 +521,20 @@ func (s *Server) handleReorderCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check board membership
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleMember) {
+		return
+	}
+
 	var req struct {
 		Position float64 `json:"position"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Position <= 0 || req.Position >= 1e10 {
+		http.Error(w, "Position must be > 0 and < 10000000000", http.StatusBadRequest)
 		return
 	}
 	if err := s.DB.ReorderCard(card.ID, req.Position); err != nil {
@@ -1205,12 +1222,20 @@ func (s *Server) handleGetCardActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check board membership
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleViewer) {
+		return
+	}
+
 	limit := 50
 	offset := 0
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			limit = n
 		}
+	}
+	if limit > 500 {
+		limit = 500
 	}
 	if v := r.URL.Query().Get("offset"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
@@ -1237,6 +1262,12 @@ func (s *Server) handleGetCardLinks(w http.ResponseWriter, r *http.Request) {
 	if card == nil {
 		return
 	}
+
+	// Check board membership
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleViewer) {
+		return
+	}
+
 	links, err := s.DB.GetCardLinks(card.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1249,6 +1280,11 @@ func (s *Server) handleGetCardLinks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateCardLink(w http.ResponseWriter, r *http.Request) {
 	card := s.loadCard(w, r)
 	if card == nil {
+		return
+	}
+
+	// Check board membership
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleMember) {
 		return
 	}
 
@@ -1295,6 +1331,12 @@ func (s *Server) handleCreateCardLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify target card belongs to the same board
+	if targetCard.BoardID != card.BoardID {
+		http.Error(w, "Target card must belong to the same board", http.StatusBadRequest)
+		return
+	}
+
 	link, err := s.DB.CreateCardLink(card.ID, req.TargetCardID, req.LinkType, user.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1312,9 +1354,32 @@ func (s *Server) handleDeleteCardLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check board membership
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleMember) {
+		return
+	}
+
 	linkID, err := strconv.ParseInt(r.PathValue("linkId"), 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid link ID", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the link belongs to this card (as source or target)
+	links, err := s.DB.GetCardLinks(card.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	linkFound := false
+	for _, l := range links {
+		if l.ID == linkID {
+			linkFound = true
+			break
+		}
+	}
+	if !linkFound {
+		http.Error(w, "Link not found for this card", http.StatusNotFound)
 		return
 	}
 
@@ -1341,6 +1406,33 @@ func (s *Server) handleBulkMoveCards(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "card_ids must not be empty", http.StatusBadRequest)
 		return
 	}
+	if len(req.CardIDs) > 100 {
+		http.Error(w, "max 100 cards per bulk operation", http.StatusBadRequest)
+		return
+	}
+
+	// Load first card to get board ID and check membership
+	firstCard, err := s.DB.GetCardByID(req.CardIDs[0])
+	if err != nil || firstCard == nil {
+		http.Error(w, "Card not found", http.StatusNotFound)
+		return
+	}
+	if !s.checkBoardMembership(w, r, firstCard.BoardID, models.BoardRoleMember) {
+		return
+	}
+
+	// Verify all cards belong to the same board
+	for _, cardID := range req.CardIDs[1:] {
+		c, err := s.DB.GetCardByID(cardID)
+		if err != nil || c == nil {
+			http.Error(w, fmt.Sprintf("Card %d not found", cardID), http.StatusNotFound)
+			return
+		}
+		if c.BoardID != firstCard.BoardID {
+			http.Error(w, "All cards must belong to the same board", http.StatusBadRequest)
+			return
+		}
+	}
 
 	if err := s.DB.BulkMoveCards(req.CardIDs, req.ColumnID, req.State); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1351,6 +1443,7 @@ func (s *Server) handleBulkMoveCards(w http.ResponseWriter, r *http.Request) {
 	for _, cardID := range req.CardIDs {
 		s.SSEHub.Broadcast(BoardEvent{
 			Type:      "card_moved",
+			BoardID:   firstCard.BoardID,
 			Payload:   map[string]interface{}{"card_id": cardID, "column_id": req.ColumnID, "state": req.State},
 			Timestamp: time.Now(),
 			UserID:    user.ID,
@@ -1374,6 +1467,33 @@ func (s *Server) handleBulkAssignSprint(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "card_ids must not be empty", http.StatusBadRequest)
 		return
 	}
+	if len(req.CardIDs) > 100 {
+		http.Error(w, "max 100 cards per bulk operation", http.StatusBadRequest)
+		return
+	}
+
+	// Load first card to get board ID and check membership
+	firstCard, err := s.DB.GetCardByID(req.CardIDs[0])
+	if err != nil || firstCard == nil {
+		http.Error(w, "Card not found", http.StatusNotFound)
+		return
+	}
+	if !s.checkBoardMembership(w, r, firstCard.BoardID, models.BoardRoleMember) {
+		return
+	}
+
+	// Verify all cards belong to the same board
+	for _, cardID := range req.CardIDs[1:] {
+		c, err := s.DB.GetCardByID(cardID)
+		if err != nil || c == nil {
+			http.Error(w, fmt.Sprintf("Card %d not found", cardID), http.StatusNotFound)
+			return
+		}
+		if c.BoardID != firstCard.BoardID {
+			http.Error(w, "All cards must belong to the same board", http.StatusBadRequest)
+			return
+		}
+	}
 
 	if err := s.DB.BulkAssignSprint(req.CardIDs, req.SprintID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1384,6 +1504,7 @@ func (s *Server) handleBulkAssignSprint(w http.ResponseWriter, r *http.Request) 
 	for _, cardID := range req.CardIDs {
 		s.SSEHub.Broadcast(BoardEvent{
 			Type:      "card_updated",
+			BoardID:   firstCard.BoardID,
 			Payload:   map[string]interface{}{"card_id": cardID, "sprint_id": req.SprintID},
 			Timestamp: time.Now(),
 			UserID:    user.ID,
@@ -1408,6 +1529,33 @@ func (s *Server) handleBulkUpdateCards(w http.ResponseWriter, r *http.Request) {
 	if len(req.CardIDs) == 0 {
 		http.Error(w, "card_ids must not be empty", http.StatusBadRequest)
 		return
+	}
+	if len(req.CardIDs) > 100 {
+		http.Error(w, "max 100 cards per bulk operation", http.StatusBadRequest)
+		return
+	}
+
+	// Load first card to get board ID and check membership
+	firstCard, err := s.DB.GetCardByID(req.CardIDs[0])
+	if err != nil || firstCard == nil {
+		http.Error(w, "Card not found", http.StatusNotFound)
+		return
+	}
+	if !s.checkBoardMembership(w, r, firstCard.BoardID, models.BoardRoleMember) {
+		return
+	}
+
+	// Verify all cards belong to the same board
+	for _, cardID := range req.CardIDs[1:] {
+		c, err := s.DB.GetCardByID(cardID)
+		if err != nil || c == nil {
+			http.Error(w, fmt.Sprintf("Card %d not found", cardID), http.StatusNotFound)
+			return
+		}
+		if c.BoardID != firstCard.BoardID {
+			http.Error(w, "All cards must belong to the same board", http.StatusBadRequest)
+			return
+		}
 	}
 
 	if req.Priority != "" {
@@ -1437,6 +1585,7 @@ func (s *Server) handleBulkUpdateCards(w http.ResponseWriter, r *http.Request) {
 	for _, cardID := range req.CardIDs {
 		s.SSEHub.Broadcast(BoardEvent{
 			Type:      "card_updated",
+			BoardID:   firstCard.BoardID,
 			Payload:   map[string]interface{}{"card_id": cardID},
 			Timestamp: time.Now(),
 			UserID:    user.ID,
@@ -1459,6 +1608,33 @@ func (s *Server) handleBulkDeleteCards(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "card_ids must not be empty", http.StatusBadRequest)
 		return
 	}
+	if len(req.CardIDs) > 100 {
+		http.Error(w, "max 100 cards per bulk operation", http.StatusBadRequest)
+		return
+	}
+
+	// Load first card to get board ID and check membership
+	firstCard, err := s.DB.GetCardByID(req.CardIDs[0])
+	if err != nil || firstCard == nil {
+		http.Error(w, "Card not found", http.StatusNotFound)
+		return
+	}
+	if !s.checkBoardMembership(w, r, firstCard.BoardID, models.BoardRoleMember) {
+		return
+	}
+
+	// Verify all cards belong to the same board
+	for _, cardID := range req.CardIDs[1:] {
+		c, err := s.DB.GetCardByID(cardID)
+		if err != nil || c == nil {
+			http.Error(w, fmt.Sprintf("Card %d not found", cardID), http.StatusNotFound)
+			return
+		}
+		if c.BoardID != firstCard.BoardID {
+			http.Error(w, "All cards must belong to the same board", http.StatusBadRequest)
+			return
+		}
+	}
 
 	if err := s.DB.BulkDeleteCards(req.CardIDs); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1469,6 +1645,7 @@ func (s *Server) handleBulkDeleteCards(w http.ResponseWriter, r *http.Request) {
 	for _, cardID := range req.CardIDs {
 		s.SSEHub.Broadcast(BoardEvent{
 			Type:      "card_deleted",
+			BoardID:   firstCard.BoardID,
 			Payload:   map[string]interface{}{"card_id": cardID},
 			Timestamp: time.Now(),
 			UserID:    user.ID,
