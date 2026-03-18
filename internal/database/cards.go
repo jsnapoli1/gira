@@ -147,8 +147,12 @@ func (d *DB) ListCardsForBacklog(boardID int64) ([]models.Card, error) {
 }
 
 func (d *DB) listCards(whereClause string, args ...interface{}) ([]models.Card, error) {
+	orderClause := ` ORDER BY position, created_at`
+	if strings.Contains(strings.ToUpper(whereClause), "ORDER BY") {
+		orderClause = ""
+	}
 	query := `SELECT id, board_id, swimlane_id, column_id, sprint_id, parent_id, issue_type, gitea_issue_id, title, description, state, story_points, priority, due_date, time_estimate, position, created_at, updated_at
-		 FROM cards ` + whereClause + ` ORDER BY position, created_at`
+		 FROM cards ` + whereClause + orderClause
 
 	rows, err := d.Query(query, args...)
 	if err != nil {
