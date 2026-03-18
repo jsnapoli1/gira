@@ -15,7 +15,7 @@ import {
   Area,
   AreaChart,
 } from 'recharts';
-import { TrendingDown, TrendingUp, Activity } from 'lucide-react';
+import { TrendingDown, TrendingUp, Activity, Clock } from 'lucide-react';
 
 export function Reports() {
   const [boards, setBoards] = useState<Board[]>([]);
@@ -24,6 +24,11 @@ export function Reports() {
   const [selectedSprint, setSelectedSprint] = useState<Sprint | null>(null);
   const [burndownData, setBurndownData] = useState<SprintMetrics[]>([]);
   const [velocityData, setVelocityData] = useState<VelocityPoint[]>([]);
+  const [timeSummary, setTimeSummary] = useState<{
+    by_user: Array<{ user_id: number; display_name: string; total_logged: number }>;
+    total_logged: number;
+    total_estimated: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -42,6 +47,12 @@ export function Reports() {
       loadSprintMetrics(selectedSprint.id);
     }
   }, [selectedSprint]);
+
+  useEffect(() => {
+    if (selectedBoard) {
+      loadTimeSummary(selectedBoard.id, selectedSprint?.id);
+    }
+  }, [selectedBoard, selectedSprint]);
 
   const loadBoards = async () => {
     try {
@@ -84,6 +95,15 @@ export function Reports() {
     } catch (err: any) {
       console.error('Failed to load sprint metrics:', err);
       setError(err?.message || 'Failed to load sprint metrics');
+    }
+  };
+
+  const loadTimeSummary = async (boardId: number, sprintId?: number) => {
+    try {
+      const data = await boardsApi.getTimeSummary(boardId, sprintId);
+      setTimeSummary(data);
+    } catch (err: any) {
+      console.error('Failed to load time summary:', err);
     }
   };
 
@@ -347,6 +367,78 @@ export function Reports() {
                 )}
               </div>
             </div>
+
+            {/* Time Tracking Section */}
+            {timeSummary && (
+              <div className="time-tracking-section">
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '32px', marginBottom: '16px' }}>
+                  <Clock size={24} />
+                  Time Tracking
+                </h2>
+
+                {/* Total Logged vs Estimated */}
+                <div className="chart-card" style={{ marginBottom: '16px' }}>
+                  <h3>Total Time: Logged vs Estimated</h3>
+                  <div style={{ padding: '16px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#6b7280' }}>
+                      <span>
+                        {Math.floor(timeSummary.total_logged / 60)}h {timeSummary.total_logged % 60}m logged
+                      </span>
+                      <span>
+                        {timeSummary.total_estimated > 0
+                          ? `${Math.floor(timeSummary.total_estimated / 60)}h ${timeSummary.total_estimated % 60}m estimated`
+                          : 'No estimate'}
+                      </span>
+                    </div>
+                    <div style={{ background: '#e5e7eb', borderRadius: '8px', height: '24px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          background: timeSummary.total_estimated > 0 && timeSummary.total_logged > timeSummary.total_estimated
+                            ? '#ef4444'
+                            : '#6366f1',
+                          height: '100%',
+                          borderRadius: '8px',
+                          width: timeSummary.total_estimated > 0
+                            ? `${Math.min(100, (timeSummary.total_logged / timeSummary.total_estimated) * 100)}%`
+                            : '0%',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                    {timeSummary.total_estimated > 0 && (
+                      <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '13px', color: '#6b7280' }}>
+                        {Math.round((timeSummary.total_logged / timeSummary.total_estimated) * 100)}% of estimate used
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Per-User Bar Chart */}
+                <div className="chart-card">
+                  <h3>Time Logged by Team Member</h3>
+                  {timeSummary.by_user.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart
+                        data={timeSummary.by_user.map((u) => ({
+                          name: u.display_name,
+                          hours: Math.round((u.total_logged / 60) * 100) / 100,
+                        }))}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis label={{ value: 'Hours', angle: -90, position: 'insideLeft' }} />
+                        <Tooltip formatter={(value) => [`${value}h`, 'Time Logged']} />
+                        <Bar dataKey="hours" fill="#6366f1" name="Hours Logged" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="chart-empty">
+                      <p>No time logged yet</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jsnapoli/zira/internal/database"
 	"github.com/jsnapoli/zira/internal/models"
 )
 
@@ -267,6 +268,51 @@ func (s *Server) handleBurndown(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(metrics)
+}
+
+func (s *Server) handleBoardTimeSummary(w http.ResponseWriter, r *http.Request) {
+	boardID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid board ID", http.StatusBadRequest)
+		return
+	}
+
+	if !s.checkBoardMembership(w, r, boardID, models.BoardRoleViewer) {
+		return
+	}
+
+	var sprintID *int64
+	if sid := r.URL.Query().Get("sprint_id"); sid != "" {
+		id, err := strconv.ParseInt(sid, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid sprint_id", http.StatusBadRequest)
+			return
+		}
+		sprintID = &id
+	}
+
+	entries, totalLogged, totalEstimated, err := s.DB.GetBoardTimeSummary(boardID, sprintID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if entries == nil {
+		entries = []database.TimeSummaryEntry{}
+	}
+
+	resp := struct {
+		ByUser         []database.TimeSummaryEntry `json:"by_user"`
+		TotalLogged    int                         `json:"total_logged"`
+		TotalEstimated int                         `json:"total_estimated"`
+	}{
+		ByUser:         entries,
+		TotalLogged:    totalLogged,
+		TotalEstimated: totalEstimated,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleVelocity(w http.ResponseWriter, r *http.Request) {

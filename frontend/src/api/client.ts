@@ -189,6 +189,12 @@ export const boards = {
   deleteCustomField: (boardId: number, fieldId: number) =>
     request(`/boards/${boardId}/custom-fields/${fieldId}`, { method: 'DELETE' }),
 
+  // Time Summary
+  getTimeSummary: (boardId: number, sprintId?: number) =>
+    request<{ by_user: Array<{ user_id: number; display_name: string; total_logged: number }>; total_logged: number; total_estimated: number }>(
+      `/boards/${boardId}/time-summary${sprintId ? `?sprint_id=${sprintId}` : ''}`
+    ),
+
   // Saved Filters
   getSavedFilters: (boardId: number) => request<SavedFilter[]>(`/boards/${boardId}/filters`),
   createSavedFilter: (boardId: number, name: string, filterJson: string, isShared: boolean) =>

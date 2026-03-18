@@ -117,6 +117,26 @@ export function CardDetailModal({
   const [assignees, setAssignees] = useState<User[]>(card.assignees || []);
   const [labels, setLabels] = useState<Label[]>(card.labels || []);
 
+  // Unsaved changes detection
+  const hasUnsavedChanges = () => {
+    return (
+      title !== card.title ||
+      description !== card.description ||
+      priority !== card.priority ||
+      (storyPoints !== (card.story_points?.toString() || '')) ||
+      (dueDate !== (card.due_date ? card.due_date.split('T')[0] : '')) ||
+      (timeEstimate !== (card.time_estimate?.toString() || '')) ||
+      issueType !== (card.issue_type || 'task')
+    );
+  };
+
+  const handleClose = () => {
+    if (hasUnsavedChanges() && !window.confirm('You have unsaved changes. Close anyway?')) {
+      return;
+    }
+    onClose();
+  };
+
   // Comments state
   const [comments, setComments] = useState<any[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
@@ -718,7 +738,7 @@ export function CardDetailModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleClose}>
       <div className="modal card-detail-modal-unified" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="card-detail-header">
@@ -743,7 +763,7 @@ export function CardDetailModal({
                 <button className="btn btn-sm btn-danger" onClick={handleDelete}>Delete</button>
               </>
             )}
-            <button className="btn btn-sm modal-close-btn" onClick={onClose} title="Close">
+            <button className="btn btn-sm modal-close-btn" onClick={handleClose} title="Close">
               <X size={18} />
             </button>
           </div>

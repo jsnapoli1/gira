@@ -672,7 +672,7 @@ func (s *Server) handleAddCardAssignee(w http.ResponseWriter, r *http.Request) {
 	// Create notification for the assigned user (if not self-assigning)
 	if req.UserID != currentUser.ID {
 		link := fmt.Sprintf("/boards/%d?card=%d", card.BoardID, card.ID)
-		s.createNotification(req.UserID, "assignment", "You've been assigned", fmt.Sprintf("%s assigned you to: %s", currentUser.DisplayName, card.Title), link)
+		s.createNotification(card.BoardID, req.UserID, "assignment", "You've been assigned", fmt.Sprintf("%s assigned you to: %s", currentUser.DisplayName, card.Title), link)
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -792,7 +792,7 @@ func (s *Server) handleCreateCardComment(w http.ResponseWriter, r *http.Request)
 
 	for _, mentionedID := range mentionedUserIDs {
 		if mentionedID != user.ID {
-			s.createNotification(mentionedID, "mention", "You were mentioned", fmt.Sprintf("%s mentioned you in: %s", user.DisplayName, card.Title), link)
+			s.createNotification(card.BoardID, mentionedID, "mention", "You were mentioned", fmt.Sprintf("%s mentioned you in: %s", user.DisplayName, card.Title), link)
 			notifiedUsers[mentionedID] = true
 		}
 	}
@@ -801,7 +801,7 @@ func (s *Server) handleCreateCardComment(w http.ResponseWriter, r *http.Request)
 	assignees, _ := s.DB.GetCardAssignees(card.ID)
 	for _, assignee := range assignees {
 		if assignee.ID != user.ID && !notifiedUsers[assignee.ID] {
-			s.createNotification(assignee.ID, "comment", "New comment", fmt.Sprintf("%s commented on: %s", user.DisplayName, card.Title), link)
+			s.createNotification(card.BoardID, assignee.ID, "comment", "New comment", fmt.Sprintf("%s commented on: %s", user.DisplayName, card.Title), link)
 		}
 	}
 
@@ -1245,9 +1245,21 @@ func (s *Server) handleDeleteCardWorkLog(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Helper function to create notifications
-func (s *Server) createNotification(userID int64, notificationType, title, message, link string) {
+// Helper function to create notifications and broadcast via SSE
+func (s *Server) createNotification(boardID, userID int64, notificationType, title, message, link string) {
 	s.DB.CreateNotification(userID, notificationType, title, message, link)
+	// Broadcast notification event on the board's SSE hub so connected clients can refresh
+	s.SSEHub.Broadcast(BoardEvent{
+		Type:    "notification",
+		BoardID: boardID,
+		Payload: map[string]interface{}{
+			"user_id": userID,
+			"type":    notificationType,
+			"title":   title,
+		},
+		Timestamp: time.Now(),
+		UserID:    userID,
+	})
 }
 
 // Card activity handler

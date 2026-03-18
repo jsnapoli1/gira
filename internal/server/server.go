@@ -206,6 +206,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("PUT /api/boards/{id}/filters/{filterId}", s.requireAuth(s.handleUpdateSavedFilter))
 	mux.HandleFunc("DELETE /api/boards/{id}/filters/{filterId}", s.requireAuth(s.handleDeleteSavedFilter))
 
+	mux.HandleFunc("GET /api/boards/{id}/time-summary", s.requireAuth(s.handleBoardTimeSummary))
+
 	// Board single resource routes (after sub-resources for correct matching)
 	mux.HandleFunc("GET /api/boards/{id}", s.requireAuth(s.handleGetBoard))
 	mux.HandleFunc("PUT /api/boards/{id}", s.requireAuth(s.handleUpdateBoard))

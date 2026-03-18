@@ -20,12 +20,19 @@ interface BoardEvent {
   user_id: number;
 }
 
+export interface NotificationPayload {
+  user_id: number;
+  type: string;
+  title: string;
+}
+
 export interface UseBoardSSEOptions {
   boardId: number;
   onCardCreated?: (card: Card) => void;
   onCardUpdated?: (card: Card) => void;
   onCardMoved?: (cardId: number, columnId: number, state: string) => void;
   onCardDeleted?: (cardId: number) => void;
+  onNotification?: (payload: NotificationPayload) => void;
   enabled?: boolean;
 }
 
@@ -35,6 +42,7 @@ export function useBoardSSE({
   onCardUpdated,
   onCardMoved,
   onCardDeleted,
+  onNotification,
   enabled = true,
 }: UseBoardSSEOptions) {
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -99,6 +107,13 @@ export function useBoardSSE({
       }
     });
 
+    eventSource.addEventListener('notification', (e) => {
+      const event: BoardEvent = JSON.parse(e.data);
+      if (onNotification) {
+        onNotification(event.payload as unknown as NotificationPayload);
+      }
+    });
+
     eventSource.onerror = () => {
       console.log('SSE: Connection error, will reconnect...');
       eventSource.close();
@@ -112,7 +127,7 @@ export function useBoardSSE({
         connect();
       }, delay);
     };
-  }, [boardId, enabled, onCardCreated, onCardUpdated, onCardMoved, onCardDeleted]);
+  }, [boardId, enabled, onCardCreated, onCardUpdated, onCardMoved, onCardDeleted, onNotification]);
 
   useEffect(() => {
     connect();

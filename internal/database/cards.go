@@ -605,6 +605,59 @@ func (d *DB) DeleteWorkLog(id int64) error {
 	return err
 }
 
+// TimeSummaryEntry represents time logged by a single user.
+type TimeSummaryEntry struct {
+	UserID      int64  `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	TotalLogged int    `json:"total_logged"` // minutes
+}
+
+// GetBoardTimeSummary returns aggregated time tracking data for a board, optionally filtered by sprint.
+func (d *DB) GetBoardTimeSummary(boardID int64, sprintID *int64) ([]TimeSummaryEntry, int, int, error) {
+	// Build WHERE clause for cards
+	cardWhere := "c.board_id = ?"
+	args := []interface{}{boardID}
+	if sprintID != nil {
+		cardWhere += " AND c.sprint_id = ?"
+		args = append(args, *sprintID)
+	}
+
+	// Get time logged by user
+	query := `SELECT w.user_id, u.display_name, SUM(w.time_spent) as total
+		FROM work_items w
+		JOIN cards c ON w.card_id = c.id
+		JOIN users u ON w.user_id = u.id
+		WHERE ` + cardWhere + `
+		GROUP BY w.user_id
+		ORDER BY total DESC`
+
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("failed to get time summary: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []TimeSummaryEntry
+	totalLogged := 0
+	for rows.Next() {
+		var e TimeSummaryEntry
+		if err := rows.Scan(&e.UserID, &e.DisplayName, &e.TotalLogged); err != nil {
+			return nil, 0, 0, fmt.Errorf("failed to scan time summary: %w", err)
+		}
+		totalLogged += e.TotalLogged
+		entries = append(entries, e)
+	}
+
+	// Get total estimated time
+	estimateQuery := `SELECT COALESCE(SUM(time_estimate), 0) FROM cards c WHERE ` + cardWhere
+	var totalEstimated int
+	if err := d.QueryRow(estimateQuery, args...).Scan(&totalEstimated); err != nil {
+		return nil, 0, 0, fmt.Errorf("failed to get time estimate: %w", err)
+	}
+
+	return entries, totalLogged, totalEstimated, nil
+}
+
 func (d *DB) GetWorkLogByID(id int64) (*models.WorkItem, error) {
 	var w models.WorkItem
 	err := d.QueryRow(

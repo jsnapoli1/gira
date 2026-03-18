@@ -139,12 +139,21 @@ export function BoardView() {
     setCards((prev) =>
       prev.map((c) => (c.id === cardId ? { ...c, column_id: columnId, state } : c))
     );
+    // Update selectedCard if the moved card is currently open in the modal
+    setSelectedCard((prev) =>
+      prev?.id === cardId ? { ...prev, column_id: columnId, state } : prev
+    );
   }, []);
 
   const handleCardDeleted = useCallback((cardId: number) => {
     setCards((prev) => prev.filter((c) => c.id !== cardId));
     // Close modal if the deleted card was selected
     setSelectedCard((prev) => (prev?.id === cardId ? null : prev));
+  }, []);
+
+  // When an SSE notification event arrives, dispatch a custom DOM event so Layout can refresh
+  const handleNotification = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('zira:notification'));
   }, []);
 
   // Connect to SSE for real-time board updates
@@ -154,6 +163,7 @@ export function BoardView() {
     onCardUpdated: handleCardUpdated,
     onCardMoved: handleCardMoved,
     onCardDeleted: handleCardDeleted,
+    onNotification: handleNotification,
     enabled: !!boardId && !loading,
   });
 
