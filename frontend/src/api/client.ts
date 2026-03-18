@@ -408,6 +408,11 @@ export const cards = {
     const query = params.toString();
     return request<ActivityLog[]>(`/cards/${id}/activity${query ? `?${query}` : ''}`);
   },
+
+  // Watchers
+  getWatchers: (id: number) => request<User[]>(`/cards/${id}/watchers`),
+  watch: (id: number) => request(`/cards/${id}/watch`, { method: 'POST' }),
+  unwatch: (id: number) => request(`/cards/${id}/watch`, { method: 'DELETE' }),
 };
 
 // Metrics

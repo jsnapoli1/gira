@@ -17,16 +17,16 @@ type Client struct {
 }
 
 type Issue struct {
-	ID        int64     `json:"id"`
-	Number    int64     `json:"number"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	State     string    `json:"state"`
-	Labels    []Label   `json:"labels"`
-	Assignees []User    `json:"assignees"`
+	ID        int64      `json:"id"`
+	Number    int64      `json:"number"`
+	Title     string     `json:"title"`
+	Body      string     `json:"body"`
+	State     string     `json:"state"`
+	Labels    []Label    `json:"labels"`
+	Assignees []User     `json:"assignees"`
 	Milestone *Milestone `json:"milestone"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 type Label struct {

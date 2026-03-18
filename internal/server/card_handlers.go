@@ -1732,6 +1732,60 @@ func (s *Server) handleBulkDeleteCards(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": len(req.CardIDs)})
 }
 
+// Card watchers handlers
+
+func (s *Server) handleGetCardWatchers(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleViewer) {
+		return
+	}
+	watchers, err := s.DB.GetWatchers(card.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if watchers == nil {
+		watchers = []models.User{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(watchers)
+}
+
+func (s *Server) handleWatchCard(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleMember) {
+		return
+	}
+	user := getUserFromContext(r.Context())
+	if err := s.DB.AddWatcher(card.ID, user.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) handleUnwatchCard(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+	if !s.checkBoardMembership(w, r, card.BoardID, models.BoardRoleMember) {
+		return
+	}
+	user := getUserFromContext(r.Context())
+	if err := s.DB.RemoveWatcher(card.ID, user.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // parseMentions extracts @mentions from text and returns user IDs
 // Supports @display_name format (display names are matched case-insensitively)
 func (s *Server) parseMentions(body string) []int64 {

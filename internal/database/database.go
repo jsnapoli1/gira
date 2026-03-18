@@ -366,6 +366,17 @@ func (d *DB) migrate() error {
 	)`)
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_saved_filters_board ON saved_filters(board_id)`)
 
+	// Card watchers
+	d.Exec(`CREATE TABLE IF NOT EXISTS card_watchers (
+		card_id INTEGER NOT NULL,
+		user_id INTEGER NOT NULL,
+		PRIMARY KEY (card_id, user_id),
+		FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	)`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_card_watchers_card ON card_watchers(card_id)`)
+	d.Exec(`CREATE INDEX IF NOT EXISTS idx_card_watchers_user ON card_watchers(user_id)`)
+
 	// Bootstrap: If no admins exist and users exist, promote first user to admin
 	var adminCount int
 	d.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin = 1`).Scan(&adminCount)

@@ -61,12 +61,12 @@ func (c *Config) SaveToFile() error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		return err
 	}
-	
+
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	
+
 	return os.WriteFile(configPath, data, 0600)
 }
 
