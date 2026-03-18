@@ -1097,6 +1097,16 @@ func (s *Server) handleSetCardCustomField(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	// Validate required fields
+	fieldDef, err := s.DB.GetCustomFieldDefinition(fieldID)
+	if err != nil || fieldDef == nil {
+		http.Error(w, "Custom field not found", http.StatusNotFound)
+		return
+	}
+	if fieldDef.Required && req.Value == "" {
+		http.Error(w, fmt.Sprintf("Field '%s' is required", fieldDef.Name), http.StatusBadRequest)
+		return
+	}
 	if err := s.DB.SetCustomFieldValue(card.ID, fieldID, req.Value); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1597,6 +1607,11 @@ func (s *Server) handleBulkUpdateCards(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r.Context())
 
 	if req.Priority != "" {
+		validPriorities := map[string]bool{"highest": true, "high": true, "medium": true, "low": true, "lowest": true}
+		if !validPriorities[req.Priority] {
+			http.Error(w, "Invalid priority value", http.StatusBadRequest)
+			return
+		}
 		if err := s.DB.BulkUpdatePriority(req.CardIDs, req.Priority); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
