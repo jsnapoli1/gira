@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { cards as cardsApi } from '../api/client';
-import { Card, Swimlane, Sprint, User, Label, CardLink, LinkType, ActivityLog } from '../types';
+import { Card, Column, Swimlane, Sprint, User, Label, CardLink, LinkType, ActivityLog } from '../types';
 import { useToast } from '../components/Toast';
-import { Clock, Calendar, User as UserIcon, X, Check, Link as LinkIcon } from 'lucide-react';
+import { Clock, Calendar, User as UserIcon, X, Check, Link as LinkIcon, CheckSquare, Plus } from 'lucide-react';
 
 // Render comment body with highlighted @mentions
 function renderCommentBody(body: string): React.ReactNode {
@@ -79,6 +79,7 @@ function formatRelativeTime(dateStr: string): string {
 export interface CardDetailModalProps {
   card: Card;
   swimlane: Swimlane;
+  columns: Column[];
   sprints: Sprint[];
   users: User[];
   boardLabels: Label[];
@@ -92,6 +93,7 @@ export interface CardDetailModalProps {
 export function CardDetailModal({
   card,
   swimlane,
+  columns,
   sprints,
   users,
   boardLabels,
@@ -162,6 +164,13 @@ export function CardDetailModal({
   const [hasMoreActivities, setHasMoreActivities] = useState(false);
   const ACTIVITY_PAGE_SIZE = 20;
 
+  // Subtasks state
+  const [subtasks, setSubtasks] = useState<Card[]>([]);
+  const [loadingSubtasks, setLoadingSubtasks] = useState(true);
+  const [showAddSubtask, setShowAddSubtask] = useState(false);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [creatingSubtask, setCreatingSubtask] = useState(false);
+
   // Load all data on mount
   useEffect(() => {
     loadComments();
@@ -169,10 +178,71 @@ export function CardDetailModal({
     loadWorkLogs();
     loadLinks();
     loadActivities();
+    loadSubtasks();
     if (customFields.length > 0) {
       loadCustomFieldValues();
     }
   }, [card.id]);
+
+  const loadSubtasks = async () => {
+    setLoadingSubtasks(true);
+    try {
+      const data = await cardsApi.getChildren(card.id);
+      setSubtasks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load subtasks:', err);
+      setSubtasks([]);
+    } finally {
+      setLoadingSubtasks(false);
+    }
+  };
+
+  const sortedColumns = useMemo(() => {
+    return [...columns].sort((a, b) => a.position - b.position);
+  }, [columns]);
+
+  const handleCreateSubtask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSubtaskTitle.trim()) return;
+    setCreatingSubtask(true);
+    try {
+      const firstColumn = sortedColumns[0];
+      if (!firstColumn) return;
+      await cardsApi.create({
+        board_id: card.board_id,
+        swimlane_id: card.swimlane_id,
+        column_id: firstColumn.id,
+        parent_id: card.id,
+        issue_type: 'subtask',
+        title: newSubtaskTitle.trim(),
+        description: '',
+      });
+      setNewSubtaskTitle('');
+      setShowAddSubtask(false);
+      showToast('Subtask created', 'success');
+      await loadSubtasks();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create subtask', 'error');
+    } finally {
+      setCreatingSubtask(false);
+    }
+  };
+
+  const handleToggleSubtask = async (subtask: Card) => {
+    const lastColumn = sortedColumns[sortedColumns.length - 1];
+    const firstColumn = sortedColumns[0];
+    if (!lastColumn || !firstColumn) return;
+
+    const isClosed = subtask.state === lastColumn.state;
+    const targetColumn = isClosed ? firstColumn : lastColumn;
+
+    try {
+      await cardsApi.move(subtask.id, targetColumn.id, targetColumn.state);
+      await loadSubtasks();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update subtask', 'error');
+    }
+  };
 
   const loadAttachments = async () => {
     setLoadingAttachments(true);
@@ -966,6 +1036,109 @@ export function CardDetailModal({
                 </form>
               </div>
             )}
+
+            {/* Subtasks */}
+            <div className="subtasks-section">
+              <div className="subtasks-header">
+                <h4>
+                  <CheckSquare size={16} />
+                  Subtasks {!loadingSubtasks && `(${subtasks.length})`}
+                </h4>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => setShowAddSubtask(!showAddSubtask)}
+                  title="Add subtask"
+                >
+                  <Plus size={14} />
+                  Add
+                </button>
+              </div>
+
+              {subtasks.length > 0 && (() => {
+                const lastColumn = sortedColumns[sortedColumns.length - 1];
+                const completedCount = lastColumn ? subtasks.filter(s => s.state === lastColumn.state).length : 0;
+                const total = subtasks.length;
+                const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+                return (
+                  <div className="subtask-progress">
+                    <div className="subtask-progress-info">
+                      <span>{completedCount}/{total} completed</span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div className="subtask-progress-track">
+                      <div className="subtask-progress-bar" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {showAddSubtask && (
+                <form className="add-subtask-form" onSubmit={handleCreateSubtask}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Subtask title..."
+                    value={newSubtaskTitle}
+                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                    autoFocus
+                  />
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={creatingSubtask || !newSubtaskTitle.trim()}>
+                    {creatingSubtask ? '...' : 'Create'}
+                  </button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setShowAddSubtask(false); setNewSubtaskTitle(''); }}>
+                    Cancel
+                  </button>
+                </form>
+              )}
+
+              {loadingSubtasks ? (
+                <div className="loading-inline">Loading...</div>
+              ) : subtasks.length === 0 ? (
+                <p className="empty-text">No subtasks</p>
+              ) : (
+                <div className="subtask-list">
+                  {subtasks.map((subtask) => {
+                    const lastColumn = sortedColumns[sortedColumns.length - 1];
+                    const isCompleted = lastColumn ? subtask.state === lastColumn.state : false;
+                    const priorityColors: Record<string, string> = {
+                      highest: '#dc2626',
+                      high: '#ea580c',
+                      medium: '#ca8a04',
+                      low: '#16a34a',
+                      lowest: '#6b7280',
+                    };
+                    return (
+                      <div key={subtask.id} className={`subtask-item ${isCompleted ? 'subtask-completed' : ''}`}>
+                        <input
+                          type="checkbox"
+                          className="subtask-checkbox"
+                          checked={isCompleted}
+                          onChange={() => handleToggleSubtask(subtask)}
+                        />
+                        <span
+                          className="subtask-priority-dot"
+                          style={{ background: priorityColors[subtask.priority] || '#ca8a04' }}
+                          title={`Priority: ${subtask.priority}`}
+                        />
+                        <span className="subtask-title" onClick={() => {
+                          onClose();
+                          // Allow the modal to close, then trigger navigation via card click
+                          // The parent BoardView will handle opening the new card
+                          setTimeout(() => {
+                            const evt = new CustomEvent('open-card', { detail: { cardId: subtask.id } });
+                            window.dispatchEvent(evt);
+                          }, 100);
+                        }}>
+                          <span className="subtask-designator">{swimlane.designator}{subtask.gitea_issue_id}</span>
+                          {subtask.title}
+                        </span>
+                        <span className={`subtask-state state-${subtask.state}`}>{subtask.state.replace(/_/g, ' ')}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Activity Log */}
             <div className="activity-log-section">
