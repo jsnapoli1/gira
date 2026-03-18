@@ -214,6 +214,11 @@ export interface UserCredential {
   created_at: string;
 }
 
+export interface CardSearchResult {
+  cards: Card[];
+  total: number;
+}
+
 export interface BoardMember {
   id: number;
   board_id: number;

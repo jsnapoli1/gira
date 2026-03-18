@@ -17,6 +17,94 @@ import (
 	"github.com/jsnapoli/zira/internal/models"
 )
 
+func (s *Server) handleSearchCards(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	boardIDStr := q.Get("board_id")
+	if boardIDStr == "" {
+		http.Error(w, "board_id is required", http.StatusBadRequest)
+		return
+	}
+	boardID, err := strconv.ParseInt(boardIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid board_id", http.StatusBadRequest)
+		return
+	}
+
+	params := database.CardSearchParams{
+		BoardID: boardID,
+		Query:   q.Get("q"),
+	}
+
+	if v := q.Get("assignee"); v != "" {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			params.Assignee = &id
+		}
+	}
+
+	if v := q.Get("label"); v != "" {
+		for _, s := range strings.Split(v, ",") {
+			if id, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+				params.LabelIDs = append(params.LabelIDs, id)
+			}
+		}
+	}
+
+	params.Priority = q.Get("priority")
+	params.State = q.Get("state")
+	params.IssueType = q.Get("issue_type")
+
+	if v := q.Get("sprint_id"); v != "" {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			params.SprintID = &id
+		}
+	}
+
+	if q.Get("overdue") == "true" {
+		params.Overdue = true
+	}
+
+	if v := q.Get("due_before"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			params.DueBefore = &t
+		}
+	}
+
+	if v := q.Get("due_after"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			params.DueAfter = &t
+		}
+	}
+
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			params.Limit = n
+		}
+	}
+
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			params.Offset = n
+		}
+	}
+
+	cards, total, err := s.DB.SearchCards(params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if cards == nil {
+		cards = []models.Card{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"cards": cards,
+		"total": total,
+	})
+}
+
 // loadCard parses the card ID from the path value and loads the card.
 // Returns the card or nil if an error was written.
 func (s *Server) loadCard(w http.ResponseWriter, r *http.Request) *models.Card {

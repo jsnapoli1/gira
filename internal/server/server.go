@@ -217,6 +217,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/sprints/{id}/metrics", s.requireAuth(s.handleGetSprintMetrics))
 
 	// Card routes
+	mux.HandleFunc("GET /api/cards/search", s.requireAuth(s.handleSearchCards))
 	mux.HandleFunc("POST /api/cards", s.requireAuth(s.handleCreateCard))
 	mux.HandleFunc("GET /api/cards/{id}", s.requireAuth(s.handleGetCard))
 	mux.HandleFunc("PUT /api/cards/{id}", s.requireAuth(s.handleUpdateCard))

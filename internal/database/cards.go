@@ -249,6 +249,116 @@ func (d *DB) listCards(whereClause string, args ...interface{}) ([]models.Card, 
 	return cards, nil
 }
 
+// CardSearchParams defines filters for searching cards.
+type CardSearchParams struct {
+	BoardID   int64
+	Query     string  // text search on title/description
+	Assignee  *int64  // filter by assignee user ID
+	LabelIDs  []int64 // filter by label IDs (AND logic)
+	Priority  string  // filter by priority
+	State     string  // filter by state
+	SprintID  *int64  // filter by sprint (use -1 for "no sprint"/backlog)
+	IssueType string  // filter by issue type
+	Overdue   bool    // filter cards with due_date < now
+	DueBefore *time.Time
+	DueAfter  *time.Time
+	Limit     int
+	Offset    int
+}
+
+// SearchCards returns cards matching the given filters and the total count.
+func (d *DB) SearchCards(params CardSearchParams) ([]models.Card, int, error) {
+	var conditions []string
+	var args []interface{}
+
+	conditions = append(conditions, "board_id = ?")
+	args = append(args, params.BoardID)
+
+	if params.Query != "" {
+		conditions = append(conditions, "(title LIKE ? OR description LIKE ?)")
+		q := "%" + params.Query + "%"
+		args = append(args, q, q)
+	}
+
+	if params.Assignee != nil {
+		conditions = append(conditions, "id IN (SELECT card_id FROM card_assignees WHERE user_id = ?)")
+		args = append(args, *params.Assignee)
+	}
+
+	if len(params.LabelIDs) > 0 {
+		placeholders := make([]string, len(params.LabelIDs))
+		for i, lid := range params.LabelIDs {
+			placeholders[i] = "?"
+			args = append(args, lid)
+		}
+		conditions = append(conditions, "id IN (SELECT card_id FROM card_labels WHERE label_id IN ("+strings.Join(placeholders, ",")+"))")
+	}
+
+	if params.Priority != "" {
+		conditions = append(conditions, "priority = ?")
+		args = append(args, params.Priority)
+	}
+
+	if params.State != "" {
+		conditions = append(conditions, "state = ?")
+		args = append(args, params.State)
+	}
+
+	if params.SprintID != nil {
+		if *params.SprintID == -1 {
+			conditions = append(conditions, "sprint_id IS NULL")
+		} else {
+			conditions = append(conditions, "sprint_id = ?")
+			args = append(args, *params.SprintID)
+		}
+	}
+
+	if params.IssueType != "" {
+		conditions = append(conditions, "issue_type = ?")
+		args = append(args, params.IssueType)
+	}
+
+	if params.Overdue {
+		conditions = append(conditions, "due_date IS NOT NULL AND due_date < datetime('now')")
+	}
+
+	if params.DueBefore != nil {
+		conditions = append(conditions, "due_date IS NOT NULL AND due_date <= ?")
+		args = append(args, *params.DueBefore)
+	}
+
+	if params.DueAfter != nil {
+		conditions = append(conditions, "due_date IS NOT NULL AND due_date >= ?")
+		args = append(args, *params.DueAfter)
+	}
+
+	whereClause := "WHERE " + strings.Join(conditions, " AND ")
+
+	// Get total count
+	countQuery := "SELECT COUNT(*) FROM cards " + whereClause
+	var total int
+	if err := d.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count search results: %w", err)
+	}
+
+	// Apply limit and offset
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	offset := params.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	cards, err := d.listCards(whereClause+" ORDER BY created_at DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search cards: %w", err)
+	}
+
+	return cards, total, nil
+}
+
 func (d *DB) UpdateCard(card *models.Card) error {
 	_, err := d.Exec(
 		`UPDATE cards SET swimlane_id = ?, column_id = ?, sprint_id = ?, parent_id = ?, issue_type = ?, title = ?, description = ?, state = ?, story_points = ?, priority = ?, due_date = ?, time_estimate = ?, updated_at = ?

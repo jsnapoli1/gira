@@ -20,6 +20,7 @@ import type {
   NotificationsResponse,
   WorkLogsResponse,
   UserCredential,
+  CardSearchResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -228,6 +229,30 @@ export const cards = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  search: (boardId: number, params?: {
+    q?: string;
+    assignee?: number;
+    label?: number;
+    priority?: string;
+    state?: string;
+    sprint_id?: number;
+    issue_type?: string;
+    overdue?: boolean;
+    due_before?: string;
+    due_after?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const searchParams = new URLSearchParams({ board_id: String(boardId) });
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          searchParams.set(key, String(value));
+        }
+      });
+    }
+    return request<CardSearchResult>(`/cards/search?${searchParams.toString()}`);
+  },
   get: (id: number) => request<Card>(`/cards/${id}`),
   update: (id: number, data: { title: string; description: string; story_points?: number | null; priority?: string; due_date?: string | null; time_estimate?: number | null; parent_id?: number | null; issue_type?: string }) =>
     request<Card>(`/cards/${id}`, {
