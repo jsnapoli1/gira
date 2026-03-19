@@ -32,8 +32,6 @@ RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
 # Copy binary and static assets
 COPY --from=backend /app/zira .
 COPY --from=backend /app/frontend/dist frontend/dist/
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
 
 # Expose port
 EXPOSE 9002
