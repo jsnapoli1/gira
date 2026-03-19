@@ -130,7 +130,7 @@ export function Dashboard() {
           </div>
           {boards.length === 0 ? (
             <p className="dashboard-empty">
-              No boards yet. <Link to="/boards">Create your first board</Link>.
+              No boards yet. <Link to="/boards" className="btn btn-primary">Create your first board</Link>
             </p>
           ) : (
             <div className="dashboard-boards-grid">
@@ -141,7 +141,7 @@ export function Dashboard() {
                   className="dashboard-board-card"
                 >
                   <div className="dashboard-board-icon">
-                    <Kanban size={20} />
+                    <Kanban size={24} />
                   </div>
                   <div className="dashboard-board-info">
                     <h3>{board.name}</h3>

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { boards as boardsApi } from '../api/client';
 import { Board } from '../types';
 import { Plus, Kanban, Trash2 } from 'lucide-react';
+import { useToast } from '../components/Toast';
 
 export function BoardsList() {
   const [boards, setBoards] = useState<Board[]>([]);
@@ -13,6 +14,8 @@ export function BoardsList() {
   const [newBoardDesc, setNewBoardDesc] = useState('');
   const [newBoardTemplate, setNewBoardTemplate] = useState('');
   const [creating, setCreating] = useState(false);
+  const navigate = useNavigate();
+  const { showToast } = useToast();
 
   useEffect(() => {
     loadBoards();
@@ -39,8 +42,10 @@ export function BoardsList() {
       setNewBoardName('');
       setNewBoardDesc('');
       setNewBoardTemplate('');
+      navigate(`/boards/${board.id}`);
     } catch (err) {
       console.error('Failed to create board:', err);
+      showToast('Failed to create board', 'error');
     } finally {
       setCreating(false);
     }

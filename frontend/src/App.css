@@ -4666,6 +4666,10 @@ kbd {
   color: var(--text);
 }
 
+.dashboard-section-header > svg {
+  color: var(--primary);
+}
+
 .dashboard-section-header h2 {
   margin: 0;
   font-size: 1.1rem;
@@ -4675,9 +4679,9 @@ kbd {
 .dashboard-count {
   background: #eef2ff;
   color: var(--primary);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  padding: 0.125rem 0.5rem;
+  padding: 0.25rem 0.625rem;
   border-radius: 10px;
   margin-left: 0.25rem;
 }
