@@ -3,8 +3,10 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -285,7 +287,12 @@ func (d *DB) migrate() error {
 	) WHERE position = 0 OR position IS NULL`)
 
 	// Add is_admin column to users (ignore error if already exists)
-	d.Exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`)
+	if _, err := d.Exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`); err != nil {
+		// Only log if it's not a "duplicate column" error
+		if !strings.Contains(err.Error(), "duplicate column") {
+			log.Printf("Warning: ALTER TABLE users ADD is_admin: %v", err)
+		}
+	}
 
 	// Add comment_id to attachments for linking images to comments
 	d.Exec(`ALTER TABLE attachments ADD COLUMN comment_id INTEGER REFERENCES comments(id) ON DELETE SET NULL`)
