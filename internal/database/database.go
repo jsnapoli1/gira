@@ -59,6 +59,7 @@ func (d *DB) migrate() error {
 			password_hash TEXT NOT NULL,
 			display_name TEXT NOT NULL,
 			avatar_url TEXT DEFAULT '',
+			is_admin INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
