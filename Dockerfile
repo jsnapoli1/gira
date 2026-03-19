@@ -20,21 +20,20 @@ RUN CGO_ENABLED=1 go build -ldflags="-X main.version=${GIT_SHA}" -o zira ./cmd/z
 
 # Stage 3: Runtime
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates sqlite
+RUN apk add --no-cache ca-certificates sqlite su-exec
 WORKDIR /app
 
 # Add non-root user
 RUN adduser -D -u 1001 appuser
 
 # Create directories for persistent data
-RUN mkdir -p /app/data && chown appuser:appuser /app/data
+RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
 
 # Copy binary and static assets
 COPY --from=backend /app/zira .
 COPY --from=backend /app/frontend/dist frontend/dist/
-
-# Switch to non-root user
-USER appuser
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
 # Expose port
 EXPOSE 9002
@@ -43,4 +42,7 @@ EXPOSE 9002
 ENV PORT=9002
 ENV DB_PATH=/app/data/zira.db
 ENV DATA_DIR=/app/data
-CMD ["./zira"]
+
+# Run as root to handle volume permission issues, then exec as the binary
+# The volume may be owned by root from Docker; chown at startup
+ENTRYPOINT ["sh", "-c", "chown -R appuser:appuser /app/data 2>/dev/null; exec su-exec appuser ./zira"]
