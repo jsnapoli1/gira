@@ -50,7 +50,8 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("Signup decode error: %v, Content-Type: %s, Content-Length: %s", err, r.Header.Get("Content-Type"), r.Header.Get("Content-Length"))
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
