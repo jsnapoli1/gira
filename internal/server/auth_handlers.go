@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -50,8 +49,8 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("Signup decode error: %v, Content-Type: %s, Content-Length: %s", err, r.Header.Get("Content-Type"), r.Header.Get("Content-Length"))
-		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+		log.Printf("Signup decode error: %v", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -79,7 +78,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	user, err := s.DB.CreateUser(req.Email, hash, req.DisplayName)
 	if err != nil {
 		log.Printf("Failed to create user in DB: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to create user: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}
 
