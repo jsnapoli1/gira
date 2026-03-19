@@ -118,6 +118,7 @@ func (d *DB) migrate() error {
 			priority TEXT DEFAULT 'medium',
 			due_date DATETIME,
 			time_estimate INTEGER,
+			position REAL DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
