@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -77,7 +78,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	user, err := s.DB.CreateUser(req.Email, hash, req.DisplayName)
 	if err != nil {
 		log.Printf("Failed to create user in DB: %v", err)
-		http.Error(w, "Failed to create user", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to create user: %v", err), http.StatusInternalServerError)
 		return
 	}
 
