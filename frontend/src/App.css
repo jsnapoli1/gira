@@ -246,6 +246,7 @@ body {
 
 .app-layout.sidebar-collapsed .main-content {
   margin-left: 64px;
+  max-width: calc(100vw - 64px);
 }
 
 .sidebar-header {
@@ -575,6 +576,8 @@ body {
   flex: 1;
   margin-left: var(--sidebar-width);
   min-height: 100vh;
+  max-width: calc(100vw - var(--sidebar-width));
+  overflow-x: hidden;
 }
 
 /* Page Header */
@@ -746,6 +749,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .board-header {
@@ -755,6 +760,9 @@ body {
   padding: 1rem 1.5rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .board-header-left {
@@ -808,6 +816,8 @@ body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .view-toggle {
