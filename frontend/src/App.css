@@ -4643,6 +4643,8 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 4px;
   box-shadow: 0 1px 0 var(--border);
+}
+
 /* Dashboard */
 .dashboard-content {
   padding: 1.5rem 2rem;
