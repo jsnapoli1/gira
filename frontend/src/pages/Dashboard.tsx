@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { dashboard as dashboardApi } from '../api/client';
 import type { Board, DashboardCardWithBoard, DashboardSprintWithProgress } from '../types';
-import { Kanban, CheckSquare, Zap, Clock, AlertCircle } from 'lucide-react';
+import { Kanban, CheckSquare, Zap, AlertCircle, Tag, Calendar } from 'lucide-react';
 
 const priorityColors: Record<string, string> = {
   highest: '#dc2626',
@@ -12,6 +12,13 @@ const priorityColors: Record<string, string> = {
   low: '#22c55e',
   lowest: '#94a3b8',
 };
+
+const stateColumns = [
+  { key: 'open', label: 'Open' },
+  { key: 'in_progress', label: 'In Progress' },
+  { key: 'review', label: 'In Review' },
+  { key: 'closed', label: 'Done' },
+];
 
 export function Dashboard() {
   const [boards, setBoards] = useState<Board[]>([]);
@@ -39,14 +46,38 @@ export function Dashboard() {
     }
   };
 
+  const cardsByState = useMemo(() => {
+    const grouped: Record<string, DashboardCardWithBoard[]> = {};
+    for (const col of stateColumns) {
+      grouped[col.key] = [];
+    }
+    for (const card of myCards) {
+      const state = card.state || 'open';
+      if (grouped[state]) {
+        grouped[state].push(card);
+      } else {
+        // Unknown state goes to open
+        grouped['open'].push(card);
+      }
+    }
+    return grouped;
+  }, [myCards]);
+
+  // Only show columns that have cards
+  const activeColumns = useMemo(() => {
+    return stateColumns.filter(col => cardsByState[col.key]?.length > 0);
+  }, [cardsByState]);
+
   const formatDueDate = (dateStr: string | null) => {
     if (!dateStr) return null;
     const date = new Date(dateStr);
     const now = new Date();
     const diffDays = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return { text: 'Overdue', className: 'dashboard-due-overdue' };
+    if (diffDays === 0) return { text: 'Today', className: 'dashboard-due-soon' };
+    if (diffDays === 1) return { text: 'Tomorrow', className: 'dashboard-due-soon' };
+    if (diffDays <= 7) return { text: `${diffDays}d`, className: 'dashboard-due-soon' };
     const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    if (diffDays < 0) return { text: formatted, className: 'dashboard-due-overdue' };
-    if (diffDays <= 2) return { text: formatted, className: 'dashboard-due-soon' };
     return { text: formatted, className: 'dashboard-due-normal' };
   };
 
@@ -72,8 +103,8 @@ export function Dashboard() {
       </div>
 
       <div className="dashboard-content">
-        {/* My Cards Section */}
-        <section className="dashboard-section">
+        {/* My Cards Section - Mini Kanban Board */}
+        <section className="dashboard-section dashboard-section-wide">
           <div className="dashboard-section-header">
             <CheckSquare size={20} />
             <h2>My Cards</h2>
@@ -82,41 +113,68 @@ export function Dashboard() {
           {myCards.length === 0 ? (
             <p className="dashboard-empty">No cards assigned to you.</p>
           ) : (
-            <div className="dashboard-card-list">
-              {myCards.map((card) => {
-                const due = formatDueDate(card.due_date);
-                return (
-                  <div
-                    key={card.id}
-                    className="dashboard-card-item"
-                    onClick={() => navigate(`/boards/${card.board_id}?card=${card.id}`)}
-                  >
-                    <div className="dashboard-card-priority">
-                      <span
-                        className="dashboard-priority-dot"
-                        style={{ background: priorityColors[card.priority] || '#94a3b8' }}
-                        title={card.priority}
-                      />
-                    </div>
-                    <div className="dashboard-card-info">
-                      <div className="dashboard-card-title">{card.title}</div>
-                      <div className="dashboard-card-meta">
-                        <span className="dashboard-card-board">{card.board_name}</span>
-                        <span className="dashboard-card-state">{card.state}</span>
-                        {card.story_points !== null && (
-                          <span className="dashboard-card-points">{card.story_points} pts</span>
-                        )}
-                      </div>
-                    </div>
-                    {due && (
-                      <div className={`dashboard-card-due ${due.className}`}>
-                        <Clock size={12} />
-                        {due.text}
-                      </div>
-                    )}
+            <div className="dashboard-kanban">
+              {activeColumns.map((col) => (
+                <div key={col.key} className="dashboard-kanban-column">
+                  <div className="dashboard-kanban-column-header">
+                    <span className="dashboard-kanban-column-title">{col.label}</span>
+                    <span className="dashboard-kanban-column-count">{cardsByState[col.key].length}</span>
                   </div>
-                );
-              })}
+                  <div className="dashboard-kanban-cards">
+                    {cardsByState[col.key].map((card) => {
+                      const due = formatDueDate(card.due_date);
+                      return (
+                        <div
+                          key={card.id}
+                          className="dashboard-kanban-card"
+                          onClick={() => navigate(`/boards/${card.board_id}?card=${card.id}`)}
+                        >
+                          <div className="dashboard-kanban-card-header">
+                            <span
+                              className="dashboard-priority-dot"
+                              style={{ background: priorityColors[card.priority] || '#94a3b8' }}
+                              title={card.priority}
+                            />
+                            <span className="dashboard-kanban-card-board">{card.board_name}</span>
+                          </div>
+                          <div className="dashboard-kanban-card-title">{card.title}</div>
+                          <div className="dashboard-kanban-card-meta">
+                            {card.story_points !== null && (
+                              <span className="dashboard-kanban-card-points">
+                                <Tag size={10} />
+                                {card.story_points}
+                              </span>
+                            )}
+                            {due && (
+                              <span className={`dashboard-kanban-card-due ${due.className}`}>
+                                <Calendar size={10} />
+                                {due.text}
+                              </span>
+                            )}
+                            {card.labels && card.labels.length > 0 && (
+                              <div className="dashboard-kanban-card-labels">
+                                {card.labels.slice(0, 2).map((label) => (
+                                  <span
+                                    key={label.id}
+                                    className="dashboard-kanban-label"
+                                    style={{ backgroundColor: label.color }}
+                                    title={label.name}
+                                  >
+                                    {label.name}
+                                  </span>
+                                ))}
+                                {card.labels.length > 2 && (
+                                  <span className="dashboard-kanban-label more">+{card.labels.length - 2}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>
