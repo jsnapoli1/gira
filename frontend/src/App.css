@@ -755,14 +755,36 @@ body {
 
 .board-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.5rem;
+  flex-direction: column;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
-  gap: 0.75rem;
   min-width: 0;
+}
+
+.board-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.board-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.board-header-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.5rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  flex-wrap: wrap;
 }
 
 .board-header-left {
@@ -819,6 +841,8 @@ body {
   flex-wrap: wrap;
   min-width: 0;
 }
+
+/* Legacy — kept for backward compat but .board-header-actions is preferred */
 
 .view-toggle {
   display: flex;
@@ -3495,12 +3519,13 @@ body {
     align-items: flex-start;
   }
 
-  .board-header-right {
+  .board-header-right,
+  .board-header-actions {
     width: 100%;
-    overflow-x: auto;
   }
 
-  .board-filters {
+  .board-filters,
+  .board-header-filters {
     flex-wrap: wrap;
   }
 

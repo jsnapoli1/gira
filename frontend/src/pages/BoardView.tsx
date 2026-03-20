@@ -553,205 +553,207 @@ export function BoardView() {
     <Layout>
       <div className="board-page">
         <div className="board-header">
-          <div className="board-header-left">
-            <Link to="/boards" className="back-link">
-              <ChevronLeft size={20} />
-            </Link>
-            <h1>{board.name}</h1>
-            {activeSprint && (
-              <span className="active-sprint-badge">
-                <Clock size={14} />
-                {activeSprint.name}
-              </span>
-            )}
-            {overdueCount > 0 && (
-              <span className="overdue-badge" title={`${overdueCount} overdue card${overdueCount === 1 ? '' : 's'}`}>
-                <AlertTriangle size={14} />
-                {overdueCount} overdue
-              </span>
-            )}
-          </div>
-          <div className="board-header-right">
-            <button className="btn btn-sm btn-ghost" onClick={() => boardsApi.exportCards(parseInt(boardId!))} title="Export to CSV">
-              <Download size={14} />
-            </button>
-            <button className="btn btn-sm btn-ghost" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
-              <HelpCircle size={14} />
-            </button>
-            <div className="board-filters" aria-label="Filter controls">
-              <div className="search-input">
-                <Search size={14} />
-                <input
-                  type="text"
-                  placeholder="Search cards..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <Filter size={16} />
-              <select
-                value={filterSwimlane || ''}
-                onChange={(e) => setFilterSwimlane(e.target.value ? parseInt(e.target.value) : null)}
-                className="filter-select"
-              >
-                <option value="">All swimlanes</option>
-                {(board?.swimlanes || []).map((sl) => (
-                  <option key={sl.id} value={sl.id}>{sl.name}</option>
-                ))}
-              </select>
-              <select
-                value={filterAssignee || ''}
-                onChange={(e) => setFilterAssignee(e.target.value ? parseInt(e.target.value) : null)}
-                className="filter-select"
-              >
-                <option value="">All assignees</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>{user.display_name}</option>
-                ))}
-              </select>
-              <select
-                value={filterLabel || ''}
-                onChange={(e) => setFilterLabel(e.target.value ? parseInt(e.target.value) : null)}
-                className="filter-select"
-              >
-                <option value="">All labels</option>
-                {boardLabels.map((label) => (
-                  <option key={label.id} value={label.id}>{label.name}</option>
-                ))}
-              </select>
-              <select
-                value={filterPriority || ''}
-                onChange={(e) => setFilterPriority(e.target.value || null)}
-                className="filter-select"
-              >
-                <option value="">All priorities</option>
-                <option value="highest">Highest</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-                <option value="lowest">Lowest</option>
-              </select>
+          <div className="board-header-top">
+            <div className="board-header-left">
+              <Link to="/boards" className="back-link">
+                <ChevronLeft size={20} />
+              </Link>
+              <h1>{board.name}</h1>
+              {activeSprint && (
+                <span className="active-sprint-badge">
+                  <Clock size={14} />
+                  {activeSprint.name}
+                </span>
+              )}
+              {overdueCount > 0 && (
+                <span className="overdue-badge" title={`${overdueCount} overdue card${overdueCount === 1 ? '' : 's'}`}>
+                  <AlertTriangle size={14} />
+                  {overdueCount} overdue
+                </span>
+              )}
+            </div>
+            <div className="board-header-actions">
               <button
-                className={`filter-overdue ${filterOverdue ? 'active' : ''}`}
-                onClick={() => setFilterOverdue(!filterOverdue)}
-                title="Show only overdue cards"
+                className={`selection-mode-toggle ${selectionMode ? 'active' : ''}`}
+                onClick={handleToggleSelectionMode}
+                title={selectionMode ? 'Exit selection mode' : 'Select cards'}
               >
-                <AlertTriangle size={14} />
-                Overdue
+                <CheckSquare size={16} />
+                <span>{selectionMode ? 'Cancel' : 'Select'}</span>
               </button>
-              {hasActiveFilters && (
-                <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setFilterOverdue(false); setSearchQuery(''); }} title="Clear filters">
-                  <X size={14} />
-                </button>
-              )}
-              {hasActiveFilters && (
-                <button className="save-filter-btn" onClick={() => setShowSaveFilterModal(true)} title="Save current filters">
-                  <Save size={14} />
-                </button>
-              )}
-              <div className="saved-filters-container" ref={savedFiltersRef}>
+              <div className="view-toggle">
                 <button
-                  className={`saved-filters-btn ${showSavedFilters ? 'active' : ''}`}
-                  onClick={() => setShowSavedFilters(!showSavedFilters)}
-                  title="Saved filters"
+                  className={`view-btn ${viewMode === 'board' ? 'active' : ''}`}
+                  onClick={() => setViewMode('board')}
                 >
-                  <BookmarkCheck size={14} />
-                  <span>Saved</span>
-                  {savedFilters.length > 0 && (
-                    <span className="saved-filters-count">{savedFilters.length}</span>
-                  )}
+                  Board
                 </button>
-                {showSavedFilters && (
-                  <div className="saved-filters-dropdown">
-                    {savedFilters.length === 0 ? (
-                      <div className="saved-filters-empty">No saved filters</div>
-                    ) : (
-                      savedFilters.map((sf) => (
-                        <div key={sf.id} className="saved-filter-item">
-                          <button className="saved-filter-apply" onClick={() => applySavedFilter(sf)}>
-                            <span className="saved-filter-name">{sf.name}</span>
-                            {sf.is_shared && (
-                              <span className="saved-filter-shared" title="Shared filter">
-                                <Share2 size={11} />
-                              </span>
-                            )}
-                          </button>
-                          {currentUser && sf.owner_id === currentUser.id && (
-                            <button
-                              className="saved-filter-delete"
-                              onClick={(e) => { e.stopPropagation(); handleDeleteFilter(sf.id); }}
-                              title="Delete filter"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
+                <button
+                  className={`view-btn ${viewMode === 'backlog' ? 'active' : ''}`}
+                  onClick={() => setViewMode('backlog')}
+                >
+                  Backlog
+                </button>
               </div>
+              <button className="btn btn-sm btn-ghost" onClick={() => boardsApi.exportCards(parseInt(boardId!))} title="Export to CSV">
+                <Download size={14} />
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
+                <HelpCircle size={14} />
+              </button>
+              <button className="btn" onClick={() => setShowAddSwimlane(true)}>
+                <Plus size={18} />
+                <span>Add Swimlane</span>
+              </button>
+              <Link to={`/boards/${board.id}/settings`} className="btn">
+                <Settings size={18} />
+              </Link>
             </div>
-            {/* Save Filter Modal */}
-            {showSaveFilterModal && (
-              <div className="save-filter-modal-overlay" onClick={() => setShowSaveFilterModal(false)}>
-                <div className="save-filter-modal" onClick={(e) => e.stopPropagation()}>
-                  <h3>Save Filter</h3>
-                  <input
-                    type="text"
-                    className="save-filter-input"
-                    placeholder="Filter name"
-                    value={saveFilterName}
-                    onChange={(e) => setSaveFilterName(e.target.value)}
-                    autoFocus
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFilter(); }}
-                  />
-                  <label className="save-filter-shared-label">
-                    <input
-                      type="checkbox"
-                      checked={saveFilterShared}
-                      onChange={(e) => setSaveFilterShared(e.target.checked)}
-                    />
-                    Share with team
-                  </label>
-                  <div className="save-filter-actions">
-                    <button className="btn btn-secondary" onClick={() => setShowSaveFilterModal(false)}>Cancel</button>
-                    <button className="btn btn-primary" onClick={handleSaveFilter} disabled={!saveFilterName.trim()}>Save</button>
-                  </div>
-                </div>
-              </div>
-            )}
-            <button
-              className={`selection-mode-toggle ${selectionMode ? 'active' : ''}`}
-              onClick={handleToggleSelectionMode}
-              title={selectionMode ? 'Exit selection mode' : 'Select cards'}
+          </div>
+          <div className="board-header-filters" aria-label="Filter controls">
+            <div className="search-input">
+              <Search size={14} />
+              <input
+                type="text"
+                placeholder="Search cards..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <Filter size={16} />
+            <select
+              value={filterSwimlane || ''}
+              onChange={(e) => setFilterSwimlane(e.target.value ? parseInt(e.target.value) : null)}
+              className="filter-select"
             >
-              <CheckSquare size={16} />
-              <span>{selectionMode ? 'Cancel' : 'Select'}</span>
+              <option value="">All swimlanes</option>
+              {(board?.swimlanes || []).map((sl) => (
+                <option key={sl.id} value={sl.id}>{sl.name}</option>
+              ))}
+            </select>
+            <select
+              value={filterAssignee || ''}
+              onChange={(e) => setFilterAssignee(e.target.value ? parseInt(e.target.value) : null)}
+              className="filter-select"
+            >
+              <option value="">All assignees</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>{user.display_name}</option>
+              ))}
+            </select>
+            <select
+              value={filterLabel || ''}
+              onChange={(e) => setFilterLabel(e.target.value ? parseInt(e.target.value) : null)}
+              className="filter-select"
+            >
+              <option value="">All labels</option>
+              {boardLabels.map((label) => (
+                <option key={label.id} value={label.id}>{label.name}</option>
+              ))}
+            </select>
+            <select
+              value={filterPriority || ''}
+              onChange={(e) => setFilterPriority(e.target.value || null)}
+              className="filter-select"
+            >
+              <option value="">All priorities</option>
+              <option value="highest">Highest</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+              <option value="lowest">Lowest</option>
+            </select>
+            <button
+              className={`filter-overdue ${filterOverdue ? 'active' : ''}`}
+              onClick={() => setFilterOverdue(!filterOverdue)}
+              title="Show only overdue cards"
+            >
+              <AlertTriangle size={14} />
+              Overdue
             </button>
-            <div className="view-toggle">
-              <button
-                className={`view-btn ${viewMode === 'board' ? 'active' : ''}`}
-                onClick={() => setViewMode('board')}
-              >
-                Board
+            {hasActiveFilters && (
+              <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setFilterOverdue(false); setSearchQuery(''); }} title="Clear filters">
+                <X size={14} />
               </button>
-              <button
-                className={`view-btn ${viewMode === 'backlog' ? 'active' : ''}`}
-                onClick={() => setViewMode('backlog')}
-              >
-                Backlog
+            )}
+            {hasActiveFilters && (
+              <button className="save-filter-btn" onClick={() => setShowSaveFilterModal(true)} title="Save current filters">
+                <Save size={14} />
               </button>
+            )}
+            <div className="saved-filters-container" ref={savedFiltersRef}>
+              <button
+                className={`saved-filters-btn ${showSavedFilters ? 'active' : ''}`}
+                onClick={() => setShowSavedFilters(!showSavedFilters)}
+                title="Saved filters"
+              >
+                <BookmarkCheck size={14} />
+                <span>Saved</span>
+                {savedFilters.length > 0 && (
+                  <span className="saved-filters-count">{savedFilters.length}</span>
+                )}
+              </button>
+              {showSavedFilters && (
+                <div className="saved-filters-dropdown">
+                  {savedFilters.length === 0 ? (
+                    <div className="saved-filters-empty">No saved filters</div>
+                  ) : (
+                    savedFilters.map((sf) => (
+                      <div key={sf.id} className="saved-filter-item">
+                        <button className="saved-filter-apply" onClick={() => applySavedFilter(sf)}>
+                          <span className="saved-filter-name">{sf.name}</span>
+                          {sf.is_shared && (
+                            <span className="saved-filter-shared" title="Shared filter">
+                              <Share2 size={11} />
+                            </span>
+                          )}
+                        </button>
+                        {currentUser && sf.owner_id === currentUser.id && (
+                          <button
+                            className="saved-filter-delete"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteFilter(sf.id); }}
+                            title="Delete filter"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
-            <button className="btn" onClick={() => setShowAddSwimlane(true)}>
-              <Plus size={18} />
-              <span>Add Swimlane</span>
-            </button>
-            <Link to={`/boards/${board.id}/settings`} className="btn">
-              <Settings size={18} />
-            </Link>
           </div>
         </div>
+        {/* Save Filter Modal */}
+        {showSaveFilterModal && (
+          <div className="save-filter-modal-overlay" onClick={() => setShowSaveFilterModal(false)}>
+            <div className="save-filter-modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Save Filter</h3>
+              <input
+                type="text"
+                className="save-filter-input"
+                placeholder="Filter name"
+                value={saveFilterName}
+                onChange={(e) => setSaveFilterName(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFilter(); }}
+              />
+              <label className="save-filter-shared-label">
+                <input
+                  type="checkbox"
+                  checked={saveFilterShared}
+                  onChange={(e) => setSaveFilterShared(e.target.checked)}
+                />
+                Share with team
+              </label>
+              <div className="save-filter-actions">
+                <button className="btn btn-secondary" onClick={() => setShowSaveFilterModal(false)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSaveFilter} disabled={!saveFilterName.trim()}>Save</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {viewMode === 'board' ? (
           <DndContext
