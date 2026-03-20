@@ -4948,6 +4948,8 @@ kbd {
   color: var(--text-secondary);
   min-width: 32px;
   text-align: right;
+}
+
 /* Mobile nav toggle — hidden by default, shown via 768px media query */
 .mobile-nav-toggle {
   display: none;
