@@ -21,7 +21,7 @@ import {
   DragStartEvent,
   DragEndEvent,
 } from '@dnd-kit/core';
-import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
 
 export function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
@@ -56,6 +56,14 @@ export function BoardView() {
   const [saveFilterName, setSaveFilterName] = useState('');
   const [saveFilterShared, setSaveFilterShared] = useState(false);
   const savedFiltersRef = useRef<HTMLDivElement>(null);
+
+  // Jira import state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importProjectKeys, setImportProjectKeys] = useState<string[]>([]);
+  const [importSelectedProject, setImportSelectedProject] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
 
   // Initialize filter state from URL search params
   const initializedRef = useRef(false);
@@ -598,6 +606,9 @@ export function BoardView() {
               <button className="btn btn-sm btn-ghost" onClick={() => boardsApi.exportCards(parseInt(boardId!))} title="Export to CSV">
                 <Download size={14} />
               </button>
+              <button className="btn btn-sm btn-ghost" onClick={() => { setShowImportModal(true); setImportFile(null); setImportProjectKeys([]); setImportSelectedProject(''); setImportResult(null); }} title="Import from Jira CSV">
+                <Upload size={14} />
+              </button>
               <button className="btn btn-sm btn-ghost" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
                 <HelpCircle size={14} />
               </button>
@@ -934,6 +945,120 @@ export function BoardView() {
           />
         )}
       </div>
+      {showImportModal && (
+        <div className="import-modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="import-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="import-modal-header">
+              <h3>Import from Jira CSV</h3>
+              <button onClick={() => setShowImportModal(false)}><X size={16} /></button>
+            </div>
+            <div className="import-modal-body">
+              <label className="import-file-label">
+                CSV File
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setImportFile(f);
+                    setImportResult(null);
+                    if (f) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const text = ev.target?.result as string;
+                        const lines = text.split('\n');
+                        if (lines.length < 2) return;
+                        const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+                        const pkIdx = headers.indexOf('Project key');
+                        if (pkIdx === -1) return;
+                        const keys = new Set<string>();
+                        for (let i = 1; i < lines.length; i++) {
+                          // Simple CSV field extraction
+                          const fields: string[] = [];
+                          let field = '';
+                          let inQuotes = false;
+                          for (let j = 0; j < lines[i].length; j++) {
+                            const ch = lines[i][j];
+                            if (ch === '"') { inQuotes = !inQuotes; }
+                            else if (ch === ',' && !inQuotes) { fields.push(field.trim()); field = ''; }
+                            else { field += ch; }
+                          }
+                          fields.push(field.trim());
+                          const pk = fields[pkIdx];
+                          if (pk) keys.add(pk);
+                        }
+                        setImportProjectKeys(Array.from(keys).sort());
+                      };
+                      reader.readAsText(f);
+                    } else {
+                      setImportProjectKeys([]);
+                    }
+                  }}
+                />
+              </label>
+              {importProjectKeys.length > 0 && (
+                <label className="import-file-label">
+                  Project
+                  <select
+                    value={importSelectedProject}
+                    onChange={(e) => setImportSelectedProject(e.target.value)}
+                    className="import-select"
+                  >
+                    <option value="">All Projects</option>
+                    {importProjectKeys.map(k => (
+                      <option key={k} value={k}>{k}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {importResult && (
+                <div className="import-result">
+                  <p><strong>{importResult.imported}</strong> cards imported</p>
+                  {importResult.sprints_created > 0 && <p>{importResult.sprints_created} sprints created</p>}
+                  {importResult.labels_created > 0 && <p>{importResult.labels_created} labels created</p>}
+                  {importResult.errors?.length > 0 && (
+                    <details>
+                      <summary>{importResult.errors.length} error(s)</summary>
+                      <ul className="import-errors">
+                        {importResult.errors.map((e: string, i: number) => <li key={i}>{e}</li>)}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="import-modal-actions">
+              <button className="btn btn-ghost" onClick={() => setShowImportModal(false)}>
+                {importResult ? 'Close' : 'Cancel'}
+              </button>
+              {!importResult && (
+                <button
+                  className="btn btn-primary"
+                  disabled={!importFile || importLoading}
+                  onClick={async () => {
+                    if (!importFile) return;
+                    setImportLoading(true);
+                    try {
+                      const result = await boardsApi.importJira(parseInt(boardId!), importFile, importSelectedProject);
+                      setImportResult(result);
+                      if (result.imported > 0) {
+                        loadBoard();
+                      }
+                    } catch (err: any) {
+                      showToast(err.message || 'Import failed', 'error');
+                    } finally {
+                      setImportLoading(false);
+                    }
+                  }}
+                >
+                  {importLoading ? 'Importing...' : 'Import'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showShortcutsHelp && (
         <div className="shortcuts-modal-overlay" onClick={() => setShowShortcutsHelp(false)}>
           <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>

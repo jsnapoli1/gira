@@ -256,6 +256,21 @@ export const boards = {
     }),
   deleteIssueType: (boardId: number, typeId: number) =>
     request(`/boards/${boardId}/issue-types/${typeId}`, { method: 'DELETE' }),
+
+  // Jira Import
+  importJira: async (boardId: number, file: File, projectKey: string): Promise<any> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('project_key', projectKey);
+    const token = localStorage.getItem('token');
+    const res = await fetch(`/api/boards/${boardId}/import/jira`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
 };
 
 // Sprints

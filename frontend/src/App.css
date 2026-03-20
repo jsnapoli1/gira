@@ -5235,3 +5235,105 @@ kbd {
   border-radius: 2px;
   flex-shrink: 0;
 }
+
+/* Jira Import Modal */
+.import-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.import-modal {
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 1.25rem;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.import-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.import-modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.import-modal-header button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px;
+}
+
+.import-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.import-file-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.import-file-label input[type="file"] {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.import-select {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+.import-select:focus {
+  border-color: var(--primary);
+}
+
+.import-result {
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.import-result p {
+  margin: 0 0 0.25rem 0;
+}
+
+.import-errors {
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding-left: 1.25rem;
+  margin: 0.5rem 0 0 0;
+}
+
+.import-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
