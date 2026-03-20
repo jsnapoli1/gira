@@ -1122,6 +1122,7 @@ body {
   padding: 1.5rem;
   background: var(--bg);
   min-height: calc(100vh - 65px);
+  overflow-x: hidden;
 }
 
 .backlog-header {
@@ -1200,6 +1201,7 @@ body {
   margin-bottom: 0.5rem;
   cursor: pointer;
   transition: all 0.15s;
+  min-width: 0;
 }
 
 .backlog-card:hover {
@@ -1217,6 +1219,10 @@ body {
 .backlog-card .card-title {
   flex: 1;
   font-size: 0.9rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .backlog-card .card-state {
