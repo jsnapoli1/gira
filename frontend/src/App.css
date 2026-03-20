@@ -4740,6 +4740,7 @@ kbd {
   background: #f8fafc;
   border-radius: 8px;
   display: flex;
+  transition: background 0.15s, border-color 0.15s;
   flex-direction: column;
 }
 
@@ -4884,6 +4885,25 @@ kbd {
 .dashboard-kanban-label.more {
   background: #e2e8f0;
   color: var(--text-secondary);
+}
+
+.dashboard-kanban-column-over {
+  background: #eef2ff;
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+}
+
+.dashboard-kanban-card-dragging {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  transform: rotate(2deg);
+  opacity: 0.95;
+}
+
+.dashboard-kanban-empty {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-align: center;
+  padding: 1.5rem 0.5rem;
 }
 
 /* Dashboard - Boards Grid */

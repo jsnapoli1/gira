@@ -552,6 +552,93 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handleMoveCardByState(w http.ResponseWriter, r *http.Request) {
+	card := s.loadCard(w, r)
+	if card == nil {
+		return
+	}
+
+	var req struct {
+		State string `json:"state"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.State == "" {
+		http.Error(w, "Invalid request: state is required", http.StatusBadRequest)
+		return
+	}
+
+	// Find a column in this card's board that matches the target state
+	columns, err := s.DB.GetBoardColumns(card.BoardID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var targetColumn *models.Column
+	for _, col := range columns {
+		if col.State == req.State {
+			targetColumn = &col
+			break
+		}
+	}
+	if targetColumn == nil {
+		http.Error(w, "No column with state '"+req.State+"' exists on this board", http.StatusBadRequest)
+		return
+	}
+
+	// Check workflow rules
+	allowed, err := s.DB.IsTransitionAllowed(card.BoardID, card.ColumnID, targetColumn.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(w, "This column transition is not allowed by the board's workflow rules", http.StatusForbidden)
+		return
+	}
+
+	oldState := card.State
+	maxPos, _ := s.DB.GetMaxPosition(card.BoardID, targetColumn.ID)
+	position := maxPos + 1000
+
+	if err := s.DB.MoveCard(card.ID, targetColumn.ID, req.State, position); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update issue state in the appropriate provider
+	user := getUserFromContext(r.Context())
+
+	if err := s.DB.LogActivity(card.BoardID, &card.ID, user.ID, "moved", "card", "state", oldState, req.State); err != nil {
+		log.Printf("Failed to log activity: %v", err)
+	}
+	swimlanes, _ := s.DB.GetBoardSwimlanes(card.BoardID)
+	for _, sl := range swimlanes {
+		if sl.ID == card.SwimlaneID {
+			switch sl.RepoSource {
+			case "github":
+				if client, err := s.getGitHubClientForSwimlane(&sl, user.ID); err == nil {
+					client.UpdateIssueState(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, req.State)
+				}
+			default:
+				if client, err := s.getGiteaClientForSwimlane(&sl, user.ID); err == nil && client != nil {
+					client.UpdateIssueState(sl.RepoOwner, sl.RepoName, card.GiteaIssueID, req.State)
+				}
+			}
+			break
+		}
+	}
+
+	s.SSEHub.Broadcast(BoardEvent{
+		Type:      "card_moved",
+		BoardID:   card.BoardID,
+		Payload:   map[string]interface{}{"card_id": card.ID, "column_id": targetColumn.ID, "state": req.State, "position": position},
+		Timestamp: time.Now(),
+		UserID:    user.ID,
+	})
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleReorderCard(w http.ResponseWriter, r *http.Request) {
 	card := s.loadCard(w, r)
 	if card == nil {

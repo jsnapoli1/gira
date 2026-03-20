@@ -1,7 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import { Layout } from '../components/Layout';
-import { dashboard as dashboardApi } from '../api/client';
+import { dashboard as dashboardApi, cards as cardsApi } from '../api/client';
 import type { Board, DashboardCardWithBoard, DashboardSprintWithProgress } from '../types';
 import { Kanban, CheckSquare, Zap, AlertCircle, Tag, Calendar } from 'lucide-react';
 
@@ -20,13 +31,138 @@ const stateColumns = [
   { key: 'closed', label: 'Done' },
 ];
 
+function DashboardKanbanCard({
+  card,
+  formatDueDate,
+  onClick,
+  isDragOverlay,
+}: {
+  card: DashboardCardWithBoard;
+  formatDueDate: (d: string | null) => { text: string; className: string } | null;
+  onClick?: () => void;
+  isDragOverlay?: boolean;
+}) {
+  const due = formatDueDate(card.due_date);
+  return (
+    <div
+      className={`dashboard-kanban-card${isDragOverlay ? ' dashboard-kanban-card-dragging' : ''}`}
+      onClick={onClick}
+    >
+      <div className="dashboard-kanban-card-header">
+        <span
+          className="dashboard-priority-dot"
+          style={{ background: priorityColors[card.priority] || '#94a3b8' }}
+          title={card.priority}
+        />
+        <span className="dashboard-kanban-card-board">{card.board_name}</span>
+      </div>
+      <div className="dashboard-kanban-card-title">{card.title}</div>
+      <div className="dashboard-kanban-card-meta">
+        {card.story_points !== null && (
+          <span className="dashboard-kanban-card-points">
+            <Tag size={10} />
+            {card.story_points}
+          </span>
+        )}
+        {due && (
+          <span className={`dashboard-kanban-card-due ${due.className}`}>
+            <Calendar size={10} />
+            {due.text}
+          </span>
+        )}
+        {card.labels && card.labels.length > 0 && (
+          <div className="dashboard-kanban-card-labels">
+            {card.labels.slice(0, 2).map((label) => (
+              <span
+                key={label.id}
+                className="dashboard-kanban-label"
+                style={{ backgroundColor: label.color }}
+                title={label.name}
+              >
+                {label.name}
+              </span>
+            ))}
+            {card.labels.length > 2 && (
+              <span className="dashboard-kanban-label more">+{card.labels.length - 2}</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DraggableCard({
+  card,
+  formatDueDate,
+  onClick,
+}: {
+  card: DashboardCardWithBoard;
+  formatDueDate: (d: string | null) => { text: string; className: string } | null;
+  onClick: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `card-${card.id}`,
+    data: { card },
+  });
+
+  return (
+    <div ref={setNodeRef} {...listeners} {...attributes} style={{ opacity: isDragging ? 0.3 : 1 }}>
+      <DashboardKanbanCard card={card} formatDueDate={formatDueDate} onClick={!isDragging ? onClick : undefined} />
+    </div>
+  );
+}
+
+function DroppableStateColumn({
+  stateKey,
+  label,
+  cards,
+  formatDueDate,
+  onCardClick,
+}: {
+  stateKey: string;
+  label: string;
+  cards: DashboardCardWithBoard[];
+  formatDueDate: (d: string | null) => { text: string; className: string } | null;
+  onCardClick: (card: DashboardCardWithBoard) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `state-${stateKey}` });
+
+  return (
+    <div className={`dashboard-kanban-column${isOver ? ' dashboard-kanban-column-over' : ''}`}>
+      <div className="dashboard-kanban-column-header">
+        <span className="dashboard-kanban-column-title">{label}</span>
+        <span className="dashboard-kanban-column-count">{cards.length}</span>
+      </div>
+      <div ref={setNodeRef} className="dashboard-kanban-cards">
+        {cards.map((card) => (
+          <DraggableCard
+            key={card.id}
+            card={card}
+            formatDueDate={formatDueDate}
+            onClick={() => onCardClick(card)}
+          />
+        ))}
+        {cards.length === 0 && (
+          <div className="dashboard-kanban-empty">No cards</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Dashboard() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [myCards, setMyCards] = useState<DashboardCardWithBoard[]>([]);
   const [activeSprints, setActiveSprints] = useState<DashboardSprintWithProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [draggedCard, setDraggedCard] = useState<DashboardCardWithBoard | null>(null);
   const navigate = useNavigate();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
 
   useEffect(() => {
     loadDashboard();
@@ -56,17 +192,11 @@ export function Dashboard() {
       if (grouped[state]) {
         grouped[state].push(card);
       } else {
-        // Unknown state goes to open
         grouped['open'].push(card);
       }
     }
     return grouped;
   }, [myCards]);
-
-  // Only show columns that have cards
-  const activeColumns = useMemo(() => {
-    return stateColumns.filter(col => cardsByState[col.key]?.length > 0);
-  }, [cardsByState]);
 
   const formatDueDate = (dateStr: string | null) => {
     if (!dateStr) return null;
@@ -79,6 +209,37 @@ export function Dashboard() {
     if (diffDays <= 7) return { text: `${diffDays}d`, className: 'dashboard-due-soon' };
     const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     return { text: formatted, className: 'dashboard-due-normal' };
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const card = event.active.data.current?.card as DashboardCardWithBoard | undefined;
+    setDraggedCard(card || null);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setDraggedCard(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const card = active.data.current?.card as DashboardCardWithBoard | undefined;
+    if (!card) return;
+
+    const targetState = (over.id as string).replace('state-', '');
+    if (targetState === card.state) return;
+
+    // Optimistic update
+    setMyCards((prev) =>
+      prev.map((c) => (c.id === card.id ? { ...c, state: targetState } : c))
+    );
+
+    try {
+      await cardsApi.moveByState(card.id, targetState);
+    } catch {
+      // Revert on failure
+      setMyCards((prev) =>
+        prev.map((c) => (c.id === card.id ? { ...c, state: card.state } : c))
+      );
+    }
   };
 
   if (loading) {
@@ -113,69 +274,33 @@ export function Dashboard() {
           {myCards.length === 0 ? (
             <p className="dashboard-empty">No cards assigned to you.</p>
           ) : (
-            <div className="dashboard-kanban">
-              {activeColumns.map((col) => (
-                <div key={col.key} className="dashboard-kanban-column">
-                  <div className="dashboard-kanban-column-header">
-                    <span className="dashboard-kanban-column-title">{col.label}</span>
-                    <span className="dashboard-kanban-column-count">{cardsByState[col.key].length}</span>
-                  </div>
-                  <div className="dashboard-kanban-cards">
-                    {cardsByState[col.key].map((card) => {
-                      const due = formatDueDate(card.due_date);
-                      return (
-                        <div
-                          key={card.id}
-                          className="dashboard-kanban-card"
-                          onClick={() => navigate(`/boards/${card.board_id}?card=${card.id}`)}
-                        >
-                          <div className="dashboard-kanban-card-header">
-                            <span
-                              className="dashboard-priority-dot"
-                              style={{ background: priorityColors[card.priority] || '#94a3b8' }}
-                              title={card.priority}
-                            />
-                            <span className="dashboard-kanban-card-board">{card.board_name}</span>
-                          </div>
-                          <div className="dashboard-kanban-card-title">{card.title}</div>
-                          <div className="dashboard-kanban-card-meta">
-                            {card.story_points !== null && (
-                              <span className="dashboard-kanban-card-points">
-                                <Tag size={10} />
-                                {card.story_points}
-                              </span>
-                            )}
-                            {due && (
-                              <span className={`dashboard-kanban-card-due ${due.className}`}>
-                                <Calendar size={10} />
-                                {due.text}
-                              </span>
-                            )}
-                            {card.labels && card.labels.length > 0 && (
-                              <div className="dashboard-kanban-card-labels">
-                                {card.labels.slice(0, 2).map((label) => (
-                                  <span
-                                    key={label.id}
-                                    className="dashboard-kanban-label"
-                                    style={{ backgroundColor: label.color }}
-                                    title={label.name}
-                                  >
-                                    {label.name}
-                                  </span>
-                                ))}
-                                {card.labels.length > 2 && (
-                                  <span className="dashboard-kanban-label more">+{card.labels.length - 2}</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <DndContext
+              sensors={sensors}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <div className="dashboard-kanban">
+                {stateColumns.map((col) => (
+                  <DroppableStateColumn
+                    key={col.key}
+                    stateKey={col.key}
+                    label={col.label}
+                    cards={cardsByState[col.key]}
+                    formatDueDate={formatDueDate}
+                    onCardClick={(card) => navigate(`/boards/${card.board_id}?card=${card.id}`)}
+                  />
+                ))}
+              </div>
+              <DragOverlay>
+                {draggedCard && (
+                  <DashboardKanbanCard
+                    card={draggedCard}
+                    formatDueDate={formatDueDate}
+                    isDragOverlay
+                  />
+                )}
+              </DragOverlay>
+            </DndContext>
           )}
         </section>
 

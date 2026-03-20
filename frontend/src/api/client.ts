@@ -338,6 +338,11 @@ export const cards = {
       method: 'POST',
       body: JSON.stringify({ column_id: columnId, state, position }),
     }),
+  moveByState: (id: number, state: string) =>
+    request(`/cards/${id}/move-state`, {
+      method: 'POST',
+      body: JSON.stringify({ state }),
+    }),
   reorder: (id: number, position: number) =>
     request(`/cards/${id}/reorder`, {
       method: 'POST',
