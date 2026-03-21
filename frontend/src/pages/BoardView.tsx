@@ -503,11 +503,6 @@ export function BoardView() {
     return cards.filter((c) => c.due_date && new Date(c.due_date) < now).length;
   }, [cards]);
 
-  // Completed sprint IDs for filtering
-  const completedSprintIds = useMemo(() => {
-    return new Set(sprints.filter((s) => s.status === 'completed').map((s) => s.id));
-  }, [sprints]);
-
   // Closed column IDs (state === 'closed')
   const closedColumnIds = useMemo(() => {
     if (!board) return new Set<number>();
@@ -524,13 +519,8 @@ export function BoardView() {
         // Active sprint: only show cards assigned to this sprint
         filtered = filtered.filter((c) => c.sprint_id === activeSprint.id);
       } else {
-        // No active sprint: hide done cards from completed sprints
-        filtered = filtered.filter((c) => {
-          if (c.sprint_id && completedSprintIds.has(c.sprint_id) && closedColumnIds.has(c.column_id)) {
-            return false;
-          }
-          return true;
-        });
+        // No active sprint: hide all cards in done/closed columns
+        filtered = filtered.filter((c) => !closedColumnIds.has(c.column_id));
       }
     }
 
@@ -558,7 +548,7 @@ export function BoardView() {
       );
     }
     return filtered;
-  }, [cards, filterAssignee, filterLabel, filterSwimlane, filterPriority, filterOverdue, searchQuery, activeSprint, completedSprintIds, closedColumnIds, viewMode]);
+  }, [cards, filterAssignee, filterLabel, filterSwimlane, filterPriority, filterOverdue, searchQuery, activeSprint, closedColumnIds, viewMode]);
 
   // Group cards by swimlane and column
   const cardsBySwimlanAndColumn = useMemo(() => {
