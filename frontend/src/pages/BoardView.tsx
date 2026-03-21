@@ -514,13 +514,14 @@ export function BoardView() {
     let filtered = cards;
 
     // Sprint-based filtering for board view (not applied in "all" mode)
-    if (viewMode !== 'all') {
+    if (viewMode === 'board') {
       if (activeSprint) {
         // Active sprint: only show cards assigned to this sprint
         filtered = filtered.filter((c) => c.sprint_id === activeSprint.id);
       } else {
-        // No active sprint: hide all cards in done/closed columns
-        filtered = filtered.filter((c) => !closedColumnIds.has(c.column_id));
+        // No active sprint: board is empty — unsprinted cards live in backlog,
+        // done cards are archived. Nothing on the board until a sprint starts.
+        filtered = [];
       }
     }
 
@@ -808,7 +809,14 @@ export function BoardView() {
             onDragEnd={handleDragEnd}
           >
             <div className="board-content" role="main">
-              {(board.swimlanes || []).length === 0 ? (
+              {viewMode === 'board' && !activeSprint && (board.swimlanes || []).length > 0 ? (
+                <div className="empty-swimlanes">
+                  <p>No active sprint. Start a sprint from the <strong>Backlog</strong> view to see cards on the board.</p>
+                  <button className="btn btn-primary" onClick={() => setViewMode('backlog')}>
+                    Go to Backlog
+                  </button>
+                </div>
+              ) : (board.swimlanes || []).length === 0 ? (
                 <div className="empty-swimlanes">
                   <p>Add a swimlane to start tracking issues from a repository</p>
                   <button className="btn btn-primary" onClick={() => setShowAddSwimlane(true)}>
