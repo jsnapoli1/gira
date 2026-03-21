@@ -598,9 +598,12 @@ export function BoardView() {
               </Link>
               <h1>{board.name}</h1>
               {activeSprint && (
-                <span className="active-sprint-badge">
+                <span className={`active-sprint-badge ${activeSprint.status === 'active' ? 'sprint-active' : 'sprint-planning'}`}>
                   <Clock size={14} />
                   {activeSprint.name}
+                  <span className="sprint-status-label">
+                    {activeSprint.status === 'active' ? 'Active' : 'Planning'}
+                  </span>
                 </span>
               )}
               {overdueCount > 0 && (

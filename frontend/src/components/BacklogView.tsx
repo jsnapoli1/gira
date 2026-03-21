@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { cards as cardsApi, sprints as sprintsApi } from '../api/client';
 import { Card, Column, Swimlane, Sprint } from '../types';
 import { useToast } from '../components/Toast';
-import { Plus, Calendar } from 'lucide-react';
+import { Plus, Calendar, Play, CheckCircle, ArrowRight, ChevronDown, ChevronRight } from 'lucide-react';
 
 export interface BacklogViewProps {
   boardId: number;
@@ -30,10 +30,12 @@ export function BacklogView({
   const [newSprintEndDate, setNewSprintEndDate] = useState('');
   const [addingCardToSwimlane, setAddingCardToSwimlane] = useState<number | null>(null);
   const [newCardTitle, setNewCardTitle] = useState('');
+  const [collapsedSwimlanes, setCollapsedSwimlanes] = useState<Set<number>>(new Set());
   const { showToast } = useToast();
 
   const activeSprint = sprints.find((s) => s.status === 'active');
-  const planningSprints = sprints.filter((s) => s.status === 'planning');
+  const planningSprint = sprints.find((s) => s.status === 'planning');
+  const currentSprint = activeSprint || planningSprint;
 
   const handleCreateSprint = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +66,7 @@ export function BacklogView({
   };
 
   const handleCompleteSprint = async (sprintId: number) => {
+    if (!confirm('Complete this sprint? Done cards will be archived.')) return;
     try {
       await sprintsApi.complete(sprintId);
       onRefresh();
@@ -74,13 +77,24 @@ export function BacklogView({
     }
   };
 
-  const handleAssignToSprint = async (cardId: number, sprintId: number | null) => {
+  const handleMoveToSprint = async (cardId: number) => {
+    if (!currentSprint) return;
     try {
-      await cardsApi.assignToSprint(cardId, sprintId);
+      await cardsApi.assignToSprint(cardId, currentSprint.id);
       onRefresh();
     } catch (err) {
       console.error('Failed to assign card:', err);
-      showToast('Failed to assign card to sprint', 'error');
+      showToast('Failed to move card to sprint', 'error');
+    }
+  };
+
+  const handleRemoveFromSprint = async (cardId: number) => {
+    try {
+      await cardsApi.assignToSprint(cardId, null);
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to remove card from sprint:', err);
+      showToast('Failed to remove card from sprint', 'error');
     }
   };
 
@@ -113,159 +127,202 @@ export function BacklogView({
     return swimlanes.find((s) => s.id === swimlaneId)?.designator || '';
   };
 
-  // Get backlog cards grouped by swimlane
-  const getBacklogCardsForSwimlane = (swimlaneId: number) => {
-    return cards.filter((c) => c.sprint_id === null && c.swimlane_id === swimlaneId);
+  const toggleSwimlane = (id: number) => {
+    setCollapsedSwimlanes(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const backlogCards = cards.filter((c) => c.sprint_id === null);
+  const sprintCards = currentSprint ? cards.filter((c) => c.sprint_id === currentSprint.id) : [];
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'highest': return '#dc2626';
+      case 'high': return '#f97316';
+      case 'medium': return '#eab308';
+      case 'low': return '#22c55e';
+      case 'lowest': return '#06b6d4';
+      default: return '#94a3b8';
+    }
   };
 
   return (
     <div className="backlog-view">
-      <div className="backlog-header">
-        <h2>Backlog</h2>
-        <button className="btn btn-primary" onClick={() => setShowCreateSprint(true)}>
-          <Plus size={18} />
-          <span>Create Sprint</span>
-        </button>
-      </div>
-
-      {swimlanes.map((swimlane) => {
-        const swimlaneBacklogCards = getBacklogCardsForSwimlane(swimlane.id);
-        return (
-          <div key={swimlane.id} className="backlog-section swimlane-backlog">
-            <div className="backlog-section-header" style={{ borderLeftColor: swimlane.color }}>
-              <h2>
-                <span className="swimlane-designator" style={{ color: swimlane.color }}>{swimlane.designator}</span>
-                {swimlane.name} ({swimlaneBacklogCards.length})
-              </h2>
-              <button
-                className="btn btn-sm"
-                onClick={() => setAddingCardToSwimlane(swimlane.id)}
-              >
-                <Plus size={14} />
-                Add Card
-              </button>
+      {/* Sprint Section */}
+      <div className="backlog-sprint-panel">
+        {currentSprint ? (
+          <>
+            <div className="backlog-sprint-header">
+              <div className="backlog-sprint-info">
+                <h2>
+                  {currentSprint.name}
+                  <span className={`sprint-status-badge ${currentSprint.status}`}>
+                    {currentSprint.status === 'active' ? 'Active' : 'Planning'}
+                  </span>
+                </h2>
+                {(currentSprint.start_date || currentSprint.end_date) && (
+                  <span className="sprint-dates">
+                    <Calendar size={14} />
+                    {currentSprint.start_date && new Date(currentSprint.start_date).toLocaleDateString()}
+                    {currentSprint.start_date && currentSprint.end_date && ' – '}
+                    {currentSprint.end_date && new Date(currentSprint.end_date).toLocaleDateString()}
+                  </span>
+                )}
+                {currentSprint.goal && <p className="sprint-goal">{currentSprint.goal}</p>}
+              </div>
+              <div className="backlog-sprint-actions">
+                <span className="sprint-card-count">{sprintCards.length} cards</span>
+                {currentSprint.status === 'planning' && (
+                  <button className="btn btn-primary btn-sm" onClick={() => handleStartSprint(currentSprint.id)}>
+                    <Play size={14} />
+                    Start Sprint
+                  </button>
+                )}
+                {currentSprint.status === 'active' && (
+                  <button className="btn btn-sm" onClick={() => handleCompleteSprint(currentSprint.id)}>
+                    <CheckCircle size={14} />
+                    Complete Sprint
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="backlog-cards">
-              {addingCardToSwimlane === swimlane.id && (
-                <div className="backlog-add-card-form">
-                  <input
-                    type="text"
-                    value={newCardTitle}
-                    onChange={(e) => setNewCardTitle(e.target.value)}
-                    placeholder="Enter card title..."
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleCreateCard(swimlane.id);
-                      if (e.key === 'Escape') {
-                        setAddingCardToSwimlane(null);
-                        setNewCardTitle('');
-                      }
-                    }}
-                  />
-                  <div className="backlog-add-card-actions">
-                    <button className="btn btn-primary btn-sm" onClick={() => handleCreateCard(swimlane.id)}>
-                      Add
-                    </button>
+            <div className="backlog-sprint-cards">
+              {sprintCards.length === 0 ? (
+                <div className="backlog-empty">
+                  No cards in sprint. Move cards from the backlog below.
+                </div>
+              ) : (
+                sprintCards.map((card) => (
+                  <div key={card.id} className="backlog-card" onClick={() => onCardClick(card)}>
+                    <div className="backlog-card-priority" style={{ backgroundColor: getPriorityColor(card.priority) }} />
+                    <span className="card-designator">{getSwimlaneName(card.swimlane_id)}{card.gitea_issue_id}</span>
+                    <span className="card-title">{card.title}</span>
+                    <span className={`card-state ${card.state}`}>{card.state}</span>
+                    {card.story_points !== null && <span className="card-points">{card.story_points}</span>}
                     <button
-                      className="btn btn-sm"
-                      onClick={() => {
-                        setAddingCardToSwimlane(null);
-                        setNewCardTitle('');
-                      }}
+                      className="btn btn-ghost btn-xs backlog-remove-btn"
+                      onClick={(e) => { e.stopPropagation(); handleRemoveFromSprint(card.id); }}
+                      title="Remove from sprint"
                     >
-                      Cancel
+                      ✕
                     </button>
                   </div>
-                </div>
-              )}
-              {swimlaneBacklogCards.map((card) => (
-                <div key={card.id} className="backlog-card" onClick={() => onCardClick(card)}>
-                  <span className="card-designator">{getSwimlaneName(card.swimlane_id)}{card.gitea_issue_id}</span>
-                  <span className="card-title">{card.title}</span>
-                  {card.story_points !== null && <span className="card-points">{card.story_points}</span>}
-                  <select
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => handleAssignToSprint(card.id, e.target.value ? parseInt(e.target.value) : null)}
-                    value=""
-                  >
-                    <option value="">Move to sprint...</option>
-                    {planningSprints.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                    {activeSprint && <option value={activeSprint.id}>{activeSprint.name} (active)</option>}
-                  </select>
-                </div>
-              ))}
-              {swimlaneBacklogCards.length === 0 && addingCardToSwimlane !== swimlane.id && (
-                <div className="backlog-empty">No cards in backlog</div>
+                ))
               )}
             </div>
-          </div>
-        );
-      })}
-
-      {activeSprint && (
-        <div className="backlog-section sprint-section active">
-          <div className="backlog-section-header">
-            <div className="sprint-header-info">
-              <h2>{activeSprint.name} (Active)</h2>
-              {(activeSprint.start_date || activeSprint.end_date) && (
-                <span className="sprint-dates">
-                  <Calendar size={14} />
-                  {activeSprint.start_date && new Date(activeSprint.start_date).toLocaleDateString()}
-                  {activeSprint.start_date && activeSprint.end_date && ' - '}
-                  {activeSprint.end_date && new Date(activeSprint.end_date).toLocaleDateString()}
-                </span>
-              )}
-            </div>
-            <button className="btn btn-sm" onClick={() => handleCompleteSprint(activeSprint.id)}>
-              Complete Sprint
+          </>
+        ) : (
+          <div className="backlog-no-sprint">
+            <p>No sprint yet. Create one to start organizing your work.</p>
+            <button className="btn btn-primary" onClick={() => setShowCreateSprint(true)}>
+              <Plus size={18} />
+              Create Sprint
             </button>
           </div>
-          {activeSprint.goal && <p className="sprint-goal">{activeSprint.goal}</p>}
-          <div className="backlog-cards">
-            {cards.filter((c) => c.sprint_id === activeSprint.id).map((card) => (
-              <div key={card.id} className="backlog-card" onClick={() => onCardClick(card)}>
-                <span className="card-designator">{getSwimlaneName(card.swimlane_id)}{card.gitea_issue_id}</span>
-                <span className="card-title">{card.title}</span>
-                <span className={`card-state ${card.state}`}>{card.state}</span>
-                {card.story_points !== null && <span className="card-points">{card.story_points}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {planningSprints.map((sprint) => (
-        <div key={sprint.id} className="backlog-section sprint-section">
-          <div className="backlog-section-header">
-            <div className="sprint-header-info">
-              <h2>{sprint.name}</h2>
-              {(sprint.start_date || sprint.end_date) && (
-                <span className="sprint-dates">
-                  <Calendar size={14} />
-                  {sprint.start_date && new Date(sprint.start_date).toLocaleDateString()}
-                  {sprint.start_date && sprint.end_date && ' - '}
-                  {sprint.end_date && new Date(sprint.end_date).toLocaleDateString()}
-                </span>
+      {/* Backlog Section */}
+      <div className="backlog-items-panel">
+        <div className="backlog-header">
+          <h2>Backlog <span className="backlog-count">{backlogCards.length}</span></h2>
+          {!currentSprint && (
+            <button className="btn btn-primary btn-sm" onClick={() => setShowCreateSprint(true)}>
+              <Plus size={14} />
+              Create Sprint
+            </button>
+          )}
+        </div>
+
+        {swimlanes.map((swimlane) => {
+          const swimlaneBacklogCards = backlogCards.filter((c) => c.swimlane_id === swimlane.id);
+          const isCollapsed = collapsedSwimlanes.has(swimlane.id);
+          return (
+            <div key={swimlane.id} className="backlog-section swimlane-backlog">
+              <div
+                className="backlog-section-header"
+                style={{ borderLeftColor: swimlane.color }}
+                onClick={() => toggleSwimlane(swimlane.id)}
+              >
+                <div className="backlog-section-header-left">
+                  {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                  <h3>
+                    <span className="swimlane-designator" style={{ color: swimlane.color }}>{swimlane.designator}</span>
+                    {swimlane.name}
+                    <span className="backlog-section-count">{swimlaneBacklogCards.length}</span>
+                  </h3>
+                </div>
+                <button
+                  className="btn btn-sm"
+                  onClick={(e) => { e.stopPropagation(); setAddingCardToSwimlane(swimlane.id); }}
+                >
+                  <Plus size={14} />
+                  Add
+                </button>
+              </div>
+              {!isCollapsed && (
+                <div className="backlog-cards">
+                  {addingCardToSwimlane === swimlane.id && (
+                    <div className="backlog-add-card-form">
+                      <input
+                        type="text"
+                        value={newCardTitle}
+                        onChange={(e) => setNewCardTitle(e.target.value)}
+                        placeholder="Enter card title..."
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleCreateCard(swimlane.id);
+                          if (e.key === 'Escape') {
+                            setAddingCardToSwimlane(null);
+                            setNewCardTitle('');
+                          }
+                        }}
+                      />
+                      <div className="backlog-add-card-actions">
+                        <button className="btn btn-primary btn-sm" onClick={() => handleCreateCard(swimlane.id)}>
+                          Add
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => {
+                            setAddingCardToSwimlane(null);
+                            setNewCardTitle('');
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {swimlaneBacklogCards.map((card) => (
+                    <div key={card.id} className="backlog-card" onClick={() => onCardClick(card)}>
+                      <div className="backlog-card-priority" style={{ backgroundColor: getPriorityColor(card.priority) }} />
+                      <span className="card-designator">{getSwimlaneName(card.swimlane_id)}{card.gitea_issue_id}</span>
+                      <span className="card-title">{card.title}</span>
+                      {card.story_points !== null && <span className="card-points">{card.story_points}</span>}
+                      {currentSprint && (
+                        <button
+                          className="btn btn-ghost btn-xs backlog-move-btn"
+                          onClick={(e) => { e.stopPropagation(); handleMoveToSprint(card.id); }}
+                          title={`Move to ${currentSprint.name}`}
+                        >
+                          <ArrowRight size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {swimlaneBacklogCards.length === 0 && addingCardToSwimlane !== swimlane.id && (
+                    <div className="backlog-empty">No cards in backlog</div>
+                  )}
+                </div>
               )}
             </div>
-            <button className="btn btn-primary btn-sm" onClick={() => handleStartSprint(sprint.id)}>
-              Start Sprint
-            </button>
-          </div>
-          {sprint.goal && <p className="sprint-goal">{sprint.goal}</p>}
-          <div className="backlog-cards">
-            {cards.filter((c) => c.sprint_id === sprint.id).map((card) => (
-              <div key={card.id} className="backlog-card" onClick={() => onCardClick(card)}>
-                <span className="card-designator">{getSwimlaneName(card.swimlane_id)}{card.gitea_issue_id}</span>
-                <span className="card-title">{card.title}</span>
-                {card.story_points !== null && <span className="card-points">{card.story_points}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
+          );
+        })}
+      </div>
 
       {showCreateSprint && (
         <div className="modal-overlay" onClick={() => setShowCreateSprint(false)}>
