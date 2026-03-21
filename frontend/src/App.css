@@ -903,6 +903,24 @@ body {
   margin-bottom: 1rem;
   padding-left: 0.75rem;
   border-left: 3px solid var(--primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.swimlane-header:hover {
+  opacity: 0.85;
+}
+
+.swimlane-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .swimlane-header h2 {
@@ -914,6 +932,23 @@ body {
 .swimlane-repo {
   font-size: 0.8rem;
   color: var(--text-secondary);
+}
+
+.swimlane-card-count {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--bg);
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.swimlane-collapsed {
+  margin-bottom: 0.5rem;
+}
+
+.swimlane-collapsed .swimlane-header {
+  margin-bottom: 0;
 }
 
 .swimlane-columns {

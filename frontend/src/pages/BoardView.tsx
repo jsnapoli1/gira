@@ -21,7 +21,7 @@ import {
   DragStartEvent,
   DragEndEvent,
 } from '@dnd-kit/core';
-import { Plus, Settings, ChevronLeft, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
 
 export function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
@@ -56,6 +56,16 @@ export function BoardView() {
   const [saveFilterName, setSaveFilterName] = useState('');
   const [saveFilterShared, setSaveFilterShared] = useState(false);
   const savedFiltersRef = useRef<HTMLDivElement>(null);
+
+  // Collapsed swimlanes
+  const [collapsedSwimlanes, setCollapsedSwimlanes] = useState<Set<number>>(new Set());
+  const toggleSwimlane = (id: number) => {
+    setCollapsedSwimlanes(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // Jira import state
   const [showImportModal, setShowImportModal] = useState(false);
@@ -783,14 +793,22 @@ export function BoardView() {
                   </button>
                 </div>
               ) : (
-                (board.swimlanes || []).map((swimlane) => (
-                  <div key={swimlane.id} className="swimlane">
-                    <div className="swimlane-header" style={{ borderLeftColor: swimlane.color }}>
+                (board.swimlanes || []).map((swimlane) => {
+                  const isCollapsed = collapsedSwimlanes.has(swimlane.id);
+                  const swimlaneCardCount = Object.values(cardsBySwimlanAndColumn[swimlane.id] || {}).reduce((sum, arr) => sum + arr.length, 0);
+                  return (
+                  <div key={swimlane.id} className={`swimlane ${isCollapsed ? 'swimlane-collapsed' : ''}`}>
+                    <div className="swimlane-header" style={{ borderLeftColor: swimlane.color }} onClick={() => toggleSwimlane(swimlane.id)}>
+                      <button className="swimlane-toggle" type="button">
+                        {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                      </button>
                       <h2>{swimlane.name}</h2>
                       <span className="swimlane-repo">
                         {swimlane.repo_owner}/{swimlane.repo_name}
                       </span>
+                      {isCollapsed && <span className="swimlane-card-count">{swimlaneCardCount} cards</span>}
                     </div>
+                    {!isCollapsed && (
                     <div className="swimlane-columns">
                       {(board.columns || []).map((column) => (
                         <DroppableColumn
@@ -817,8 +835,10 @@ export function BoardView() {
                         />
                       ))}
                     </div>
+                    )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 
