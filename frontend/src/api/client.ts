@@ -155,9 +155,14 @@ export const boards = {
       body: JSON.stringify({ position: newPosition }),
     }),
 
-  // Swimlane delete
+  // Swimlane delete & reorder
   deleteSwimlane: (boardId: number, swimlaneId: number) =>
     request(`/boards/${boardId}/swimlanes/${swimlaneId}`, { method: 'DELETE' }),
+  reorderSwimlane: (boardId: number, swimlaneId: number, newPosition: number) =>
+    request(`/boards/${boardId}/swimlanes/${swimlaneId}/reorder`, {
+      method: 'POST',
+      body: JSON.stringify({ position: newPosition }),
+    }),
 
   // Cards
   getCards: (boardId: number) => request<Card[]>(`/boards/${boardId}/cards`),

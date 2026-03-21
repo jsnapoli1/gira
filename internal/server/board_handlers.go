@@ -348,6 +348,35 @@ func (s *Server) handleDeleteBoardSwimlane(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleReorderBoardSwimlane(w http.ResponseWriter, r *http.Request) {
+	_, r = s.loadBoardAndRole(w, r)
+	boardRole := getBoardRoleFromContext(r.Context())
+	if boardRole == "" {
+		return
+	}
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+	swimlaneID, err := strconv.ParseInt(r.PathValue("swimlaneId"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid swimlane ID", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Position int `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.ReorderSwimlane(swimlaneID, req.Position); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // Column handlers
 
 func (s *Server) handleGetBoardColumns(w http.ResponseWriter, r *http.Request) {

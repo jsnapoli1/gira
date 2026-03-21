@@ -184,6 +184,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/boards/{id}/swimlanes", s.requireAuth(s.handleGetBoardSwimlanes))
 	mux.HandleFunc("POST /api/boards/{id}/swimlanes", s.requireAuth(s.handleCreateBoardSwimlane))
 	mux.HandleFunc("DELETE /api/boards/{id}/swimlanes/{swimlaneId}", s.requireAuth(s.handleDeleteBoardSwimlane))
+	mux.HandleFunc("POST /api/boards/{id}/swimlanes/{swimlaneId}/reorder", s.requireAuth(s.handleReorderBoardSwimlane))
 
 	mux.HandleFunc("GET /api/boards/{id}/columns", s.requireAuth(s.handleGetBoardColumns))
 	mux.HandleFunc("POST /api/boards/{id}/columns", s.requireAuth(s.handleCreateBoardColumn))

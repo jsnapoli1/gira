@@ -269,6 +269,45 @@ func (d *DB) CreateSwimlaneWithSourceAndLabel(boardID int64, name, repoSource, r
 	}, nil
 }
 
+func (d *DB) ReorderSwimlane(swimlaneID int64, newPosition int) error {
+	var boardID int64
+	var currentPos int
+	err := d.QueryRow(`SELECT board_id, position FROM swimlanes WHERE id = ?`, swimlaneID).Scan(&boardID, &currentPos)
+	if err != nil {
+		return err
+	}
+
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if newPosition < currentPos {
+		_, err = tx.Exec(
+			`UPDATE swimlanes SET position = position + 1
+			 WHERE board_id = ? AND position >= ? AND position < ?`,
+			boardID, newPosition, currentPos,
+		)
+	} else {
+		_, err = tx.Exec(
+			`UPDATE swimlanes SET position = position - 1
+			 WHERE board_id = ? AND position > ? AND position <= ?`,
+			boardID, currentPos, newPosition,
+		)
+	}
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`UPDATE swimlanes SET position = ? WHERE id = ?`, newPosition, swimlaneID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func (d *DB) DeleteSwimlane(id int64) error {
 	_, err := d.Exec(`DELETE FROM swimlanes WHERE id = ?`, id)
 	if err != nil {

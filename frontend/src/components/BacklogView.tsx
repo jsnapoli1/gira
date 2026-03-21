@@ -2,7 +2,76 @@ import { useState } from 'react';
 import { cards as cardsApi, sprints as sprintsApi } from '../api/client';
 import { Card, Column, Swimlane, Sprint } from '../types';
 import { useToast } from '../components/Toast';
-import { Plus, Calendar, Play, CheckCircle, ArrowRight, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Calendar, Play, CheckCircle, ArrowRight, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+  useDroppable,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+// Sortable backlog card
+function SortableBacklogCard({
+  card,
+  designator,
+  priorityColor,
+  onClick,
+  actionButton,
+}: {
+  card: Card;
+  designator: string;
+  priorityColor: string;
+  onClick: () => void;
+  actionButton?: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `backlog-${card.id}`,
+    data: { card },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="backlog-card" onClick={onClick} {...attributes}>
+      <div className="backlog-card-drag" {...listeners}>
+        <GripVertical size={14} />
+      </div>
+      <div className="backlog-card-priority" style={{ backgroundColor: priorityColor }} />
+      <span className="card-designator">{designator}{card.gitea_issue_id}</span>
+      <span className="card-title">{card.title}</span>
+      {card.state && card.state !== 'open' && (
+        <span className={`card-state ${card.state}`}>{card.state}</span>
+      )}
+      {card.story_points !== null && <span className="card-points">{card.story_points}</span>}
+      {actionButton}
+    </div>
+  );
+}
+
+// Droppable zone for sprint
+function SprintDropZone({ children, id }: { children: React.ReactNode; id: string }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={`backlog-sprint-cards ${isOver ? 'drop-target-active' : ''}`}>
+      {children}
+    </div>
+  );
+}
 
 export interface BacklogViewProps {
   boardId: number;
@@ -135,8 +204,62 @@ export function BacklogView({
     });
   };
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+  const [draggedCard, setDraggedCard] = useState<Card | null>(null);
+
   const backlogCards = cards.filter((c) => c.sprint_id === null);
   const sprintCards = currentSprint ? cards.filter((c) => c.sprint_id === currentSprint.id) : [];
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const card = (event.active.data.current as any)?.card as Card | undefined;
+    if (card) setDraggedCard(card);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setDraggedCard(null);
+    const { active, over } = event;
+    if (!over || !currentSprint) return;
+
+    const cardId = parseInt(String(active.id).replace('backlog-', ''));
+    const card = cards.find(c => c.id === cardId);
+    if (!card) return;
+
+    // Dropped on sprint drop zone
+    if (String(over.id) === 'sprint-drop-zone') {
+      if (card.sprint_id !== currentSprint.id) {
+        await handleMoveToSprint(cardId);
+      }
+      return;
+    }
+
+    // Dropped on a backlog card — check if target is in sprint or backlog
+    const targetCardId = parseInt(String(over.id).replace('backlog-', ''));
+    const targetCard = cards.find(c => c.id === targetCardId);
+
+    if (targetCard) {
+      // If dragging from backlog to sprint area (target is in sprint)
+      if (card.sprint_id === null && targetCard.sprint_id === currentSprint.id) {
+        await handleMoveToSprint(cardId);
+        return;
+      }
+      // If dragging from sprint to backlog area (target is in backlog)
+      if (card.sprint_id === currentSprint.id && targetCard.sprint_id === null) {
+        await handleRemoveFromSprint(cardId);
+        return;
+      }
+      // Reorder within same list
+      if (card.sprint_id === targetCard.sprint_id) {
+        try {
+          await cardsApi.reorder(cardId, targetCard.position);
+          onRefresh();
+        } catch {
+          showToast('Failed to reorder card', 'error');
+        }
+      }
+    }
+  };
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -150,6 +273,12 @@ export function BacklogView({
   };
 
   return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
     <div className="backlog-view">
       {/* Sprint Section */}
       <div className="backlog-sprint-panel">
@@ -189,30 +318,34 @@ export function BacklogView({
                 )}
               </div>
             </div>
-            <div className="backlog-sprint-cards">
-              {sprintCards.length === 0 ? (
-                <div className="backlog-empty">
-                  No cards in sprint. Move cards from the backlog below.
-                </div>
-              ) : (
-                sprintCards.map((card) => (
-                  <div key={card.id} className="backlog-card" onClick={() => onCardClick(card)}>
-                    <div className="backlog-card-priority" style={{ backgroundColor: getPriorityColor(card.priority) }} />
-                    <span className="card-designator">{getSwimlaneName(card.swimlane_id)}{card.gitea_issue_id}</span>
-                    <span className="card-title">{card.title}</span>
-                    <span className={`card-state ${card.state}`}>{card.state}</span>
-                    {card.story_points !== null && <span className="card-points">{card.story_points}</span>}
-                    <button
-                      className="btn btn-ghost btn-xs backlog-remove-btn"
-                      onClick={(e) => { e.stopPropagation(); handleRemoveFromSprint(card.id); }}
-                      title="Remove from sprint"
-                    >
-                      ✕
-                    </button>
+            <SprintDropZone id="sprint-drop-zone">
+              <SortableContext items={sprintCards.map(c => `backlog-${c.id}`)} strategy={verticalListSortingStrategy}>
+                {sprintCards.length === 0 ? (
+                  <div className="backlog-empty">
+                    No cards in sprint. Drag cards here or use the arrow buttons below.
                   </div>
-                ))
-              )}
-            </div>
+                ) : (
+                  sprintCards.map((card) => (
+                    <SortableBacklogCard
+                      key={card.id}
+                      card={card}
+                      designator={getSwimlaneName(card.swimlane_id)}
+                      priorityColor={getPriorityColor(card.priority)}
+                      onClick={() => onCardClick(card)}
+                      actionButton={
+                        <button
+                          className="btn btn-ghost btn-xs backlog-remove-btn"
+                          onClick={(e) => { e.stopPropagation(); handleRemoveFromSprint(card.id); }}
+                          title="Remove from sprint"
+                        >
+                          ✕
+                        </button>
+                      }
+                    />
+                  ))
+                )}
+              </SortableContext>
+            </SprintDropZone>
           </>
         ) : (
           <div className="backlog-no-sprint">
@@ -297,23 +430,26 @@ export function BacklogView({
                       </div>
                     </div>
                   )}
-                  {swimlaneBacklogCards.map((card) => (
-                    <div key={card.id} className="backlog-card" onClick={() => onCardClick(card)}>
-                      <div className="backlog-card-priority" style={{ backgroundColor: getPriorityColor(card.priority) }} />
-                      <span className="card-designator">{getSwimlaneName(card.swimlane_id)}{card.gitea_issue_id}</span>
-                      <span className="card-title">{card.title}</span>
-                      {card.story_points !== null && <span className="card-points">{card.story_points}</span>}
-                      {currentSprint && (
-                        <button
-                          className="btn btn-ghost btn-xs backlog-move-btn"
-                          onClick={(e) => { e.stopPropagation(); handleMoveToSprint(card.id); }}
-                          title={`Move to ${currentSprint.name}`}
-                        >
-                          <ArrowRight size={14} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  <SortableContext items={swimlaneBacklogCards.map(c => `backlog-${c.id}`)} strategy={verticalListSortingStrategy}>
+                    {swimlaneBacklogCards.map((card) => (
+                      <SortableBacklogCard
+                        key={card.id}
+                        card={card}
+                        designator={getSwimlaneName(card.swimlane_id)}
+                        priorityColor={getPriorityColor(card.priority)}
+                        onClick={() => onCardClick(card)}
+                        actionButton={currentSprint ? (
+                          <button
+                            className="btn btn-ghost btn-xs backlog-move-btn"
+                            onClick={(e) => { e.stopPropagation(); handleMoveToSprint(card.id); }}
+                            title={`Move to ${currentSprint.name}`}
+                          >
+                            <ArrowRight size={14} />
+                          </button>
+                        ) : undefined}
+                      />
+                    ))}
+                  </SortableContext>
                   {swimlaneBacklogCards.length === 0 && addingCardToSwimlane !== swimlane.id && (
                     <div className="backlog-empty">No cards in backlog</div>
                   )}
@@ -376,6 +512,17 @@ export function BacklogView({
           </div>
         </div>
       )}
+
+      <DragOverlay>
+        {draggedCard && (
+          <div className="backlog-card backlog-card-dragging">
+            <div className="backlog-card-priority" style={{ backgroundColor: getPriorityColor(draggedCard.priority) }} />
+            <span className="card-designator">{getSwimlaneName(draggedCard.swimlane_id)}{draggedCard.gitea_issue_id}</span>
+            <span className="card-title">{draggedCard.title}</span>
+          </div>
+        )}
+      </DragOverlay>
     </div>
+    </DndContext>
   );
 }

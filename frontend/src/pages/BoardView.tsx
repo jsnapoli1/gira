@@ -21,7 +21,7 @@ import {
   DragStartEvent,
   DragEndEvent,
 } from '@dnd-kit/core';
-import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
 
 export function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
@@ -74,6 +74,16 @@ export function BoardView() {
   const [importSelectedProject, setImportSelectedProject] = useState('');
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+
+  const handleReorderSwimlane = async (swimlaneId: number, newPosition: number) => {
+    if (!board) return;
+    try {
+      await boardsApi.reorderSwimlane(board.id, swimlaneId, newPosition);
+      loadBoard();
+    } catch {
+      showToast('Failed to reorder swimlane', 'error');
+    }
+  };
 
   // Initialize filter state from URL search params
   const initializedRef = useRef(false);
@@ -829,7 +839,7 @@ export function BoardView() {
                   </button>
                 </div>
               ) : (
-                (board.swimlanes || []).map((swimlane) => {
+                (board.swimlanes || []).map((swimlane, swimlaneIndex) => {
                   const isCollapsed = collapsedSwimlanes.has(swimlane.id);
                   const swimlaneCardCount = Object.values(cardsBySwimlanAndColumn[swimlane.id] || {}).reduce((sum, arr) => sum + arr.length, 0);
                   return (
@@ -843,6 +853,26 @@ export function BoardView() {
                         {swimlane.repo_owner}/{swimlane.repo_name}
                       </span>
                       {isCollapsed && <span className="swimlane-card-count">{swimlaneCardCount} cards</span>}
+                      {(board.swimlanes || []).length > 1 && (
+                        <div className="swimlane-reorder-btns" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="swimlane-reorder-btn"
+                            disabled={swimlaneIndex === 0}
+                            onClick={() => handleReorderSwimlane(swimlane.id, swimlane.position - 1)}
+                            title="Move up"
+                          >
+                            <ChevronUp size={14} />
+                          </button>
+                          <button
+                            className="swimlane-reorder-btn"
+                            disabled={swimlaneIndex === (board.swimlanes || []).length - 1}
+                            onClick={() => handleReorderSwimlane(swimlane.id, swimlane.position + 1)}
+                            title="Move down"
+                          >
+                            <ChevronDown size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     {!isCollapsed && (
                     <div className="swimlane-columns">

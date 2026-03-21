@@ -943,6 +943,43 @@ body {
   font-weight: 500;
 }
 
+.swimlane-reorder-btns {
+  display: flex;
+  gap: 0.125rem;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.swimlane-header:hover .swimlane-reorder-btns {
+  opacity: 1;
+}
+
+.swimlane-reorder-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.swimlane-reorder-btn:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+.swimlane-reorder-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 .swimlane-collapsed {
   margin-bottom: 0.5rem;
 }
@@ -1450,6 +1487,34 @@ body {
   font-weight: 600;
   color: var(--text-secondary);
   flex-shrink: 0;
+}
+
+.backlog-card-drag {
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  padding: 0 0.125rem;
+}
+
+.backlog-card-drag:active {
+  cursor: grabbing;
+}
+
+.backlog-card-dragging {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  background: var(--surface);
+  border-color: var(--primary);
+  opacity: 0.95;
+}
+
+.drop-target-active {
+  background: #eef2ff;
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+  border-radius: 6px;
+  min-height: 60px;
 }
 
 .backlog-move-btn,
