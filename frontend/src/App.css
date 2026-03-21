@@ -901,14 +901,30 @@ body {
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 1rem;
-  padding-left: 0.75rem;
-  border-left: 3px solid var(--primary);
   cursor: pointer;
   user-select: none;
 }
 
 .swimlane-header:hover {
   opacity: 0.85;
+}
+
+.swimlane-drag-handle {
+  width: 5px;
+  align-self: stretch;
+  min-height: 28px;
+  border-radius: 3px;
+  cursor: grab;
+  flex-shrink: 0;
+  transition: width 0.15s;
+}
+
+.swimlane-drag-handle:hover {
+  width: 7px;
+}
+
+.swimlane-drag-handle:active {
+  cursor: grabbing;
 }
 
 .swimlane-toggle {
@@ -941,43 +957,6 @@ body {
   padding: 0.125rem 0.5rem;
   border-radius: 10px;
   font-weight: 500;
-}
-
-.swimlane-reorder-btns {
-  display: flex;
-  gap: 0.125rem;
-  margin-left: auto;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.swimlane-header:hover .swimlane-reorder-btns {
-  opacity: 1;
-}
-
-.swimlane-reorder-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 0;
-}
-
-.swimlane-reorder-btn:hover:not(:disabled) {
-  background: var(--bg);
-  color: var(--text);
-  border-color: var(--primary);
-}
-
-.swimlane-reorder-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
 }
 
 .swimlane-collapsed {

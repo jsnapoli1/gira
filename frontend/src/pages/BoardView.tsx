@@ -21,7 +21,33 @@ import {
   DragStartEvent,
   DragEndEvent,
 } from '@dnd-kit/core';
-import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
+
+function SortableSwimlaneWrapper({ id, children }: { id: string; children: (dragHandleProps: Record<string, any>) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    data: { type: 'swimlane' },
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform ? { ...transform, scaleY: 1, scaleX: 1 } : null),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative' as const,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      {children(listeners || {})}
+    </div>
+  );
+}
 
 export function BoardView() {
   const { boardId } = useParams<{ boardId: string }>();
@@ -74,24 +100,6 @@ export function BoardView() {
   const [importSelectedProject, setImportSelectedProject] = useState('');
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
-
-  const handleReorderSwimlane = async (swimlaneId: number, newPosition: number) => {
-    if (!board) return;
-    // Optimistic update
-    const swimlanes = [...(board.swimlanes || [])];
-    const idx = swimlanes.findIndex(s => s.id === swimlaneId);
-    if (idx === -1) return;
-    const [moved] = swimlanes.splice(idx, 1);
-    swimlanes.splice(newPosition, 0, moved);
-    const reordered = swimlanes.map((s, i) => ({ ...s, position: i }));
-    setBoard({ ...board, swimlanes: reordered });
-    try {
-      await boardsApi.reorderSwimlane(board.id, swimlaneId, newPosition);
-    } catch {
-      showToast('Failed to reorder swimlane', 'error');
-      refreshBoard();
-    }
-  };
 
   // Initialize filter state from URL search params
   const initializedRef = useRef(false);
@@ -296,6 +304,7 @@ export function BoardView() {
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
+    if (String(active.id).startsWith('swimlane-')) return; // swimlane drag, no overlay needed
     const card = cards.find((c) => `card-${c.id}` === active.id);
     if (card) {
       setActiveCard(card);
@@ -306,22 +315,44 @@ export function BoardView() {
     const { active, over } = event;
     setActiveCard(null);
 
-    if (!over) return;
+    if (!over || !board) return;
 
+    // Handle swimlane reorder
+    if (String(active.id).startsWith('swimlane-') && String(over.id).startsWith('swimlane-')) {
+      const activeId = parseInt(String(active.id).replace('swimlane-', ''));
+      const overId = parseInt(String(over.id).replace('swimlane-', ''));
+      if (activeId === overId) return;
+
+      const swimlanes = board.swimlanes || [];
+      const oldIndex = swimlanes.findIndex(s => s.id === activeId);
+      const newIndex = swimlanes.findIndex(s => s.id === overId);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const reordered = arrayMove(swimlanes, oldIndex, newIndex).map((s, i) => ({ ...s, position: i }));
+      setBoard({ ...board, swimlanes: reordered });
+
+      try {
+        await boardsApi.reorderSwimlane(board.id, activeId, newIndex);
+      } catch {
+        showToast('Failed to reorder swimlane', 'error');
+        refreshBoard();
+      }
+      return;
+    }
+
+    // Handle card drag
     const cardId = parseInt(String(active.id).replace('card-', ''));
     const card = cards.find((c) => c.id === cardId);
     if (!card) return;
 
-    // Find target column from the over element
     let targetColumnId: number | null = null;
     let targetState: string | null = null;
 
-    // Check if dropped on another card
     if (String(over.id).startsWith('card-')) {
       const overCard = cards.find((c) => `card-${c.id}` === over.id);
       if (overCard) {
         targetColumnId = overCard.column_id;
-        const targetColumn = board?.columns.find((c) => c.id === targetColumnId);
+        const targetColumn = board.columns.find((c) => c.id === targetColumnId);
         targetState = targetColumn?.state || null;
       }
     }
@@ -860,12 +891,22 @@ export function BoardView() {
                   </button>
                 </div>
               ) : (
-                (board.swimlanes || []).map((swimlane, swimlaneIndex) => {
+                <SortableContext items={(board.swimlanes || []).map(s => `swimlane-${s.id}`)} strategy={verticalListSortingStrategy}>
+                {(board.swimlanes || []).map((swimlane) => {
                   const isCollapsed = collapsedSwimlanes.has(swimlane.id);
                   const swimlaneCardCount = Object.values(cardsBySwimlanAndColumn[swimlane.id] || {}).reduce((sum, arr) => sum + arr.length, 0);
                   return (
-                  <div key={swimlane.id} className={`swimlane ${isCollapsed ? 'swimlane-collapsed' : ''}`}>
-                    <div className="swimlane-header" style={{ borderLeftColor: swimlane.color }} onClick={() => toggleSwimlane(swimlane.id)}>
+                  <SortableSwimlaneWrapper key={swimlane.id} id={`swimlane-${swimlane.id}`}>
+                    {(dragHandleProps) => (
+                  <div className={`swimlane ${isCollapsed ? 'swimlane-collapsed' : ''}`}>
+                    <div className="swimlane-header" onClick={() => toggleSwimlane(swimlane.id)}>
+                      <div
+                        className="swimlane-drag-handle"
+                        style={{ backgroundColor: swimlane.color }}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Drag to reorder"
+                        {...dragHandleProps}
+                      />
                       <button className="swimlane-toggle" type="button">
                         {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
                       </button>
@@ -874,26 +915,6 @@ export function BoardView() {
                         {swimlane.repo_owner}/{swimlane.repo_name}
                       </span>
                       {isCollapsed && <span className="swimlane-card-count">{swimlaneCardCount} cards</span>}
-                      {(board.swimlanes || []).length > 1 && (
-                        <div className="swimlane-reorder-btns" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            className="swimlane-reorder-btn"
-                            disabled={swimlaneIndex === 0}
-                            onClick={() => handleReorderSwimlane(swimlane.id, swimlane.position - 1)}
-                            title="Move up"
-                          >
-                            <ChevronUp size={14} />
-                          </button>
-                          <button
-                            className="swimlane-reorder-btn"
-                            disabled={swimlaneIndex === (board.swimlanes || []).length - 1}
-                            onClick={() => handleReorderSwimlane(swimlane.id, swimlane.position + 1)}
-                            title="Move down"
-                          >
-                            <ChevronDown size={14} />
-                          </button>
-                        </div>
-                      )}
                     </div>
                     {!isCollapsed && (
                     <div className="swimlane-columns">
@@ -924,8 +945,11 @@ export function BoardView() {
                     </div>
                     )}
                   </div>
+                    )}
+                  </SortableSwimlaneWrapper>
                   );
-                })
+                })}
+                </SortableContext>
               )}
             </div>
 

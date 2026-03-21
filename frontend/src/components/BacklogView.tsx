@@ -230,25 +230,27 @@ export function BacklogView({
   const handleDragEnd = async (event: DragEndEvent) => {
     setDraggedCard(null);
     const { active, over } = event;
-    if (!over || !currentSprint) return;
+    if (!over) return;
 
     const cardId = parseInt(String(active.id).replace('backlog-', ''));
     const card = cards.find(c => c.id === cardId);
     if (!card) return;
 
     // Dropped on sprint drop zone
-    if (String(over.id) === 'sprint-drop-zone') {
+    if (String(over.id) === 'sprint-drop-zone' && currentSprint) {
       if (card.sprint_id !== currentSprint.id) {
         handleMoveToSprint(cardId);
       }
       return;
     }
 
-    // Dropped on a backlog card — check if target is in sprint or backlog
+    // Dropped on a backlog card
     const targetCardId = parseInt(String(over.id).replace('backlog-', ''));
     const targetCard = cards.find(c => c.id === targetCardId);
+    if (!targetCard || targetCard.id === card.id) return;
 
-    if (targetCard) {
+    if (currentSprint) {
+      // Cross-list moves
       if (card.sprint_id === null && targetCard.sprint_id === currentSprint.id) {
         handleMoveToSprint(cardId);
         return;
@@ -257,12 +259,36 @@ export function BacklogView({
         handleRemoveFromSprint(cardId);
         return;
       }
-      if (card.sprint_id === targetCard.sprint_id) {
-        // Optimistic reorder
-        cardsApi.reorder(cardId, targetCard.position).catch(() => {
-          showToast('Failed to reorder card', 'error');
-          onRefresh();
-        });
+    }
+
+    // Same-list reorder: optimistic local update
+    if (card.sprint_id === targetCard.sprint_id && card.swimlane_id === targetCard.swimlane_id) {
+      const listCards = cards.filter(c =>
+        c.sprint_id === card.sprint_id && c.swimlane_id === card.swimlane_id
+      );
+      const oldIndex = listCards.findIndex(c => c.id === card.id);
+      const newIndex = listCards.findIndex(c => c.id === targetCard.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      // Compute new position value between neighbors
+      const sorted = [...listCards];
+      const [moved] = sorted.splice(oldIndex, 1);
+      sorted.splice(newIndex, 0, moved);
+
+      // Assign sequential positions
+      const updatedIds = new Set(sorted.map(c => c.id));
+      const newCards = cards.map(c => {
+        if (!updatedIds.has(c.id)) return c;
+        const idx = sorted.findIndex(s => s.id === c.id);
+        return { ...c, position: idx * 1000 };
+      });
+      onCardsChange(newCards);
+
+      try {
+        await cardsApi.reorder(cardId, targetCard.position);
+      } catch {
+        showToast('Failed to reorder card', 'error');
+        onRefresh();
       }
     }
   };
