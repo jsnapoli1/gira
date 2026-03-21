@@ -5340,7 +5340,7 @@ kbd {
 
 /* Global Jira Import Wizard */
 .jira-import-wizard-modal {
-  width: 800px;
+  width: 1100px;
   max-width: 95vw;
   max-height: 90vh;
   overflow-y: auto;
@@ -5388,6 +5388,7 @@ kbd {
 
 .jira-import-mapping-table select {
   width: 100%;
+  min-width: 160px;
   padding: 0.375rem 0.5rem;
   font-size: 0.8rem;
   border: 1px solid var(--border);
@@ -5398,6 +5399,7 @@ kbd {
 
 .jira-import-inline-input {
   width: 100%;
+  min-width: 120px;
   padding: 0.375rem 0.5rem;
   font-size: 0.8rem;
   border: 1px solid var(--border);
