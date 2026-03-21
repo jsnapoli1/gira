@@ -81,6 +81,8 @@ export interface BacklogViewProps {
   columns: Column[];
   onCardClick: (card: Card) => void;
   onRefresh: () => void;
+  onCardsChange: (cards: Card[]) => void;
+  onSprintsChange: (sprints: Sprint[]) => void;
 }
 
 export function BacklogView({
@@ -91,6 +93,8 @@ export function BacklogView({
   columns,
   onCardClick,
   onRefresh,
+  onCardsChange,
+  onSprintsChange,
 }: BacklogViewProps) {
   const [showCreateSprint, setShowCreateSprint] = useState(false);
   const [newSprintName, setNewSprintName] = useState('');
@@ -124,13 +128,15 @@ export function BacklogView({
   };
 
   const handleStartSprint = async (sprintId: number) => {
+    // Optimistic update
+    onSprintsChange(sprints.map(s => s.id === sprintId ? { ...s, status: 'active' as const } : s));
     try {
       await sprintsApi.start(sprintId);
-      onRefresh();
       showToast('Sprint started', 'success');
     } catch (err) {
       console.error('Failed to start sprint:', err);
       showToast('Failed to start sprint', 'error');
+      onRefresh();
     }
   };
 
@@ -148,22 +154,26 @@ export function BacklogView({
 
   const handleMoveToSprint = async (cardId: number) => {
     if (!currentSprint) return;
+    // Optimistic update
+    onCardsChange(cards.map(c => c.id === cardId ? { ...c, sprint_id: currentSprint.id } : c));
     try {
       await cardsApi.assignToSprint(cardId, currentSprint.id);
-      onRefresh();
     } catch (err) {
       console.error('Failed to assign card:', err);
       showToast('Failed to move card to sprint', 'error');
+      onRefresh();
     }
   };
 
   const handleRemoveFromSprint = async (cardId: number) => {
+    // Optimistic update
+    onCardsChange(cards.map(c => c.id === cardId ? { ...c, sprint_id: null } : c));
     try {
       await cardsApi.assignToSprint(cardId, null);
-      onRefresh();
     } catch (err) {
       console.error('Failed to remove card from sprint:', err);
       showToast('Failed to remove card from sprint', 'error');
+      onRefresh();
     }
   };
 
@@ -173,7 +183,7 @@ export function BacklogView({
     if (!firstColumn) return;
 
     try {
-      await cardsApi.create({
+      const card = await cardsApi.create({
         board_id: boardId,
         swimlane_id: swimlaneId,
         column_id: firstColumn.id,
@@ -184,7 +194,7 @@ export function BacklogView({
       });
       setNewCardTitle('');
       setAddingCardToSwimlane(null);
-      onRefresh();
+      onCardsChange([...cards, card]);
       showToast('Card created', 'success');
     } catch (err) {
       console.error('Failed to create card:', err);
@@ -229,7 +239,7 @@ export function BacklogView({
     // Dropped on sprint drop zone
     if (String(over.id) === 'sprint-drop-zone') {
       if (card.sprint_id !== currentSprint.id) {
-        await handleMoveToSprint(cardId);
+        handleMoveToSprint(cardId);
       }
       return;
     }
@@ -239,24 +249,20 @@ export function BacklogView({
     const targetCard = cards.find(c => c.id === targetCardId);
 
     if (targetCard) {
-      // If dragging from backlog to sprint area (target is in sprint)
       if (card.sprint_id === null && targetCard.sprint_id === currentSprint.id) {
-        await handleMoveToSprint(cardId);
+        handleMoveToSprint(cardId);
         return;
       }
-      // If dragging from sprint to backlog area (target is in backlog)
       if (card.sprint_id === currentSprint.id && targetCard.sprint_id === null) {
-        await handleRemoveFromSprint(cardId);
+        handleRemoveFromSprint(cardId);
         return;
       }
-      // Reorder within same list
       if (card.sprint_id === targetCard.sprint_id) {
-        try {
-          await cardsApi.reorder(cardId, targetCard.position);
-          onRefresh();
-        } catch {
+        // Optimistic reorder
+        cardsApi.reorder(cardId, targetCard.position).catch(() => {
           showToast('Failed to reorder card', 'error');
-        }
+          onRefresh();
+        });
       }
     }
   };

@@ -77,11 +77,19 @@ export function BoardView() {
 
   const handleReorderSwimlane = async (swimlaneId: number, newPosition: number) => {
     if (!board) return;
+    // Optimistic update
+    const swimlanes = [...(board.swimlanes || [])];
+    const idx = swimlanes.findIndex(s => s.id === swimlaneId);
+    if (idx === -1) return;
+    const [moved] = swimlanes.splice(idx, 1);
+    swimlanes.splice(newPosition, 0, moved);
+    const reordered = swimlanes.map((s, i) => ({ ...s, position: i }));
+    setBoard({ ...board, swimlanes: reordered });
     try {
       await boardsApi.reorderSwimlane(board.id, swimlaneId, newPosition);
-      loadBoard();
     } catch {
       showToast('Failed to reorder swimlane', 'error');
+      refreshBoard();
     }
   };
 
@@ -238,38 +246,51 @@ export function BoardView() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [board, selectedCard, selectionMode, showShortcutsHelp]);
 
+  const fetchBoardData = async () => {
+    if (!boardId) return;
+    const [boardData, cardsData, sprintsData, reposData, usersData, labelsData, customFieldsData] = await Promise.all([
+      boardsApi.get(parseInt(boardId)),
+      boardsApi.getCards(parseInt(boardId)),
+      sprintsApi.list(parseInt(boardId)),
+      gitea.getRepos().catch(() => []),
+      usersApi.list().catch(() => []),
+      boardsApi.getLabels(parseInt(boardId)).catch(() => []),
+      boardsApi.getCustomFields(parseInt(boardId)).catch(() => []),
+    ]);
+    setBoard(boardData);
+    setCards(cardsData || []);
+    setSprints(sprintsData || []);
+    setRepos(reposData || []);
+    setUsers(usersData || []);
+    setBoardLabels(labelsData || []);
+    setCustomFields(customFieldsData || []);
+
+    boardsApi.getSavedFilters(parseInt(boardId)).then(setSavedFilters).catch(() => setSavedFilters([]));
+
+    const active = sprintsData?.find((s: Sprint) => s.status === 'active');
+    const planning = sprintsData?.find((s: Sprint) => s.status === 'planning');
+    setActiveSprint(active || planning || null);
+  };
+
+  // Initial load with loading spinner
   const loadBoard = async () => {
     if (!boardId) return;
     setLoading(true);
     try {
-      const [boardData, cardsData, sprintsData, reposData, usersData, labelsData, customFieldsData] = await Promise.all([
-        boardsApi.get(parseInt(boardId)),
-        boardsApi.getCards(parseInt(boardId)),
-        sprintsApi.list(parseInt(boardId)),
-        gitea.getRepos().catch(() => []),
-        usersApi.list().catch(() => []),
-        boardsApi.getLabels(parseInt(boardId)).catch(() => []),
-        boardsApi.getCustomFields(parseInt(boardId)).catch(() => []),
-      ]);
-      setBoard(boardData);
-      setCards(cardsData || []);
-      setSprints(sprintsData || []);
-      setRepos(reposData || []);
-      setUsers(usersData || []);
-      setBoardLabels(labelsData || []);
-      setCustomFields(customFieldsData || []);
-
-      // Load saved filters
-      boardsApi.getSavedFilters(parseInt(boardId)).then(setSavedFilters).catch(() => setSavedFilters([]));
-
-      // Find current sprint (active takes priority, then most recent planning)
-      const active = sprintsData?.find((s: Sprint) => s.status === 'active');
-      const planning = sprintsData?.find((s: Sprint) => s.status === 'planning');
-      setActiveSprint(active || planning || null);
+      await fetchBoardData();
     } catch (err) {
       console.error('Failed to load board:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Background refresh without loading spinner
+  const refreshBoard = async () => {
+    try {
+      await fetchBoardData();
+    } catch (err) {
+      console.error('Failed to refresh board:', err);
     }
   };
 
@@ -360,7 +381,7 @@ export function BoardView() {
         designator: data.designator,
         color: data.color,
       });
-      loadBoard();
+      refreshBoard();
       setShowAddSwimlane(false);
       showToast('Swimlane added', 'success');
     } catch (err) {
@@ -926,7 +947,14 @@ export function BoardView() {
             swimlanes={board.swimlanes}
             columns={board.columns}
             onCardClick={(card) => setSelectedCard(card)}
-            onRefresh={loadBoard}
+            onRefresh={refreshBoard}
+            onCardsChange={setCards}
+            onSprintsChange={(newSprints) => {
+              setSprints(newSprints);
+              const active = newSprints.find((s: Sprint) => s.status === 'active');
+              const planning = newSprints.find((s: Sprint) => s.status === 'planning');
+              setActiveSprint(active || planning || null);
+            }}
           />
         )}
 
@@ -1108,7 +1136,7 @@ export function BoardView() {
                       const result = await boardsApi.importJira(parseInt(boardId!), importFile, importSelectedProject);
                       setImportResult(result);
                       if (result.imported > 0) {
-                        loadBoard();
+                        refreshBoard();
                       }
                     } catch (err: any) {
                       showToast(err.message || 'Import failed', 'error');
