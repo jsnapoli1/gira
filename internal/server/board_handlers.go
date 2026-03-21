@@ -1494,10 +1494,20 @@ func (s *Server) importJiraCardsForProject(
 			issueType = mapped
 		}
 
+		// Use Status Category first (reliable: "To Do", "In Progress", "Done"),
+		// then fall back to Status name matching
+		statusCategory := strings.ToLower(csvData.getFieldByName(row, "Status Category"))
 		jiraStatus := strings.ToLower(csvData.getFieldByName(row, "Status"))
 		state := "open"
-		if mapped, ok := jiraStatusToState[jiraStatus]; ok {
-			state = mapped
+		switch statusCategory {
+		case "done":
+			state = "closed"
+		case "in progress":
+			state = "in_progress"
+		default:
+			if mapped, ok := jiraStatusToState[jiraStatus]; ok {
+				state = mapped
+			}
 		}
 
 		columnID := defaultColumnID
