@@ -252,9 +252,10 @@ export function BoardView() {
       // Load saved filters
       boardsApi.getSavedFilters(parseInt(boardId)).then(setSavedFilters).catch(() => setSavedFilters([]));
 
-      // Find active sprint
+      // Find current sprint (active takes priority, then most recent planning)
       const active = sprintsData?.find((s: Sprint) => s.status === 'active');
-      setActiveSprint(active || null);
+      const planning = sprintsData?.find((s: Sprint) => s.status === 'planning');
+      setActiveSprint(active || planning || null);
     } catch (err) {
       console.error('Failed to load board:', err);
     } finally {
@@ -811,7 +812,7 @@ export function BoardView() {
             <div className="board-content" role="main">
               {viewMode === 'board' && !activeSprint && (board.swimlanes || []).length > 0 ? (
                 <div className="empty-swimlanes">
-                  <p>No active sprint. Start a sprint from the <strong>Backlog</strong> view to see cards on the board.</p>
+                  <p>No sprint found. Create a sprint in the <strong>Backlog</strong> view and assign cards to it.</p>
                   <button className="btn btn-primary" onClick={() => setViewMode('backlog')}>
                     Go to Backlog
                   </button>
