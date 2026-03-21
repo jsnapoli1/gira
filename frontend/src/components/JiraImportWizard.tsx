@@ -169,6 +169,7 @@ export function JiraImportWizard({ boards, onClose, onComplete }: JiraImportWiza
                     <th>Board</th>
                     <th>Swimlane</th>
                     <th>Repository</th>
+                    <th>Label</th>
                     <th>Color</th>
                   </tr>
                 </thead>
@@ -248,6 +249,15 @@ export function JiraImportWizard({ boards, onClose, onComplete }: JiraImportWiza
                             />
                           )
                         )}
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          value={m.label}
+                          onChange={e => updateMapping(i, { label: e.target.value })}
+                          placeholder="e.g. ZRP"
+                          className="jira-import-inline-input"
+                        />
                       </td>
                       <td>
                         <div className="color-picker">

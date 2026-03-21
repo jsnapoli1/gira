@@ -1408,12 +1408,14 @@ type importedCard struct {
 
 // importJiraCardsForProject imports cards from CSV rows matching a project key into a specific board/swimlane.
 // issueKeyToCardID is shared across projects for cross-project parent resolution.
+// extraLabels are applied to every imported card (e.g., project key label for Gitea filtering).
 func (s *Server) importJiraCardsForProject(
 	csvData *jiraCSVData,
 	projectKey string,
 	boardID int64,
 	swimlaneID int64,
 	issueKeyToCardID map[string]int64,
+	extraLabels []string,
 ) *jiraImportResult {
 	result := &jiraImportResult{}
 
@@ -1591,7 +1593,7 @@ func (s *Server) importJiraCardsForProject(
 			issueKeyToCardID[issueKey] = card.ID
 		}
 
-		// Handle labels
+		// Handle CSV labels
 		for _, li := range csvData.labelIndices {
 			labelName := csvData.getField(row, li)
 			if labelName == "" {
@@ -1603,6 +1605,26 @@ func (s *Server) importJiraCardsForProject(
 				label, err := s.DB.CreateLabel(boardID, labelName, "#6366f1")
 				if err != nil {
 					result.Errors = append(result.Errors, fmt.Sprintf("Row %d: failed to create label %q: %v", rowNum+2, labelName, err))
+					continue
+				}
+				labelID = label.ID
+				labelMap[labelKey] = labelID
+				result.LabelsCreated++
+			}
+			_ = s.DB.AddLabelToCard(card.ID, labelID)
+		}
+
+		// Apply extra labels (e.g., project key for Gitea filtering)
+		for _, el := range extraLabels {
+			if el == "" {
+				continue
+			}
+			labelKey := strings.ToLower(el)
+			labelID, ok := labelMap[labelKey]
+			if !ok {
+				label, err := s.DB.CreateLabel(boardID, el, "#6366f1")
+				if err != nil {
+					result.Errors = append(result.Errors, fmt.Sprintf("Row %d: failed to create extra label %q: %v", rowNum+2, el, err))
 					continue
 				}
 				labelID = label.ID
@@ -1697,7 +1719,7 @@ func (s *Server) handleImportJira(w http.ResponseWriter, r *http.Request) {
 	}
 
 	issueKeyToCardID := map[string]int64{}
-	result := s.importJiraCardsForProject(csvData, projectKey, boardID, defaultSwimlaneID, issueKeyToCardID)
+	result := s.importJiraCardsForProject(csvData, projectKey, boardID, defaultSwimlaneID, issueKeyToCardID, nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
@@ -1850,7 +1872,11 @@ func (s *Server) handleImportJiraGlobal(w http.ResponseWriter, r *http.Request) 
 			swimlaneID = swimlanes[0].ID
 		}
 
-		importResult := s.importJiraCardsForProject(csvData, m.ProjectKey, boardID, swimlaneID, issueKeyToCardID)
+		var extraLabels []string
+		if m.Label != "" {
+			extraLabels = append(extraLabels, m.Label)
+		}
+		importResult := s.importJiraCardsForProject(csvData, m.ProjectKey, boardID, swimlaneID, issueKeyToCardID, extraLabels)
 		pr.Imported = importResult.Imported
 		pr.SprintsCreated = importResult.SprintsCreated
 		pr.LabelsCreated = importResult.LabelsCreated
