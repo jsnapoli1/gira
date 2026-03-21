@@ -41,7 +41,7 @@ export function BoardView() {
   const [showAddSwimlane, setShowAddSwimlane] = useState(false);
   const [showAddCard, setShowAddCard] = useState<{ swimlaneId: number; columnId: number } | null>(null);
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
-  const [viewMode, setViewMode] = useState<'board' | 'backlog'>('board');
+  const [viewMode, setViewMode] = useState<'board' | 'backlog' | 'all'>('board');
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   // Bulk selection state
@@ -205,7 +205,7 @@ export function BoardView() {
           }
           break;
         case 'b':
-          setViewMode(prev => prev === 'board' ? 'backlog' : 'board');
+          setViewMode(prev => prev === 'board' ? 'backlog' : prev === 'backlog' ? 'all' : 'board');
           break;
         case '/':
           e.preventDefault();
@@ -503,9 +503,37 @@ export function BoardView() {
     return cards.filter((c) => c.due_date && new Date(c.due_date) < now).length;
   }, [cards]);
 
+  // Completed sprint IDs for filtering
+  const completedSprintIds = useMemo(() => {
+    return new Set(sprints.filter((s) => s.status === 'completed').map((s) => s.id));
+  }, [sprints]);
+
+  // Closed column IDs (state === 'closed')
+  const closedColumnIds = useMemo(() => {
+    if (!board) return new Set<number>();
+    return new Set((board.columns || []).filter((c) => c.state === 'closed').map((c) => c.id));
+  }, [board]);
+
   // Filter cards by assignee, label, swimlane, priority, overdue, and search query
   const filteredCards = useMemo(() => {
     let filtered = cards;
+
+    // Sprint-based filtering for board view (not applied in "all" mode)
+    if (viewMode !== 'all') {
+      if (activeSprint) {
+        // Active sprint: only show cards assigned to this sprint
+        filtered = filtered.filter((c) => c.sprint_id === activeSprint.id);
+      } else {
+        // No active sprint: hide done cards from completed sprints
+        filtered = filtered.filter((c) => {
+          if (c.sprint_id && completedSprintIds.has(c.sprint_id) && closedColumnIds.has(c.column_id)) {
+            return false;
+          }
+          return true;
+        });
+      }
+    }
+
     if (filterAssignee) {
       filtered = filtered.filter((c) => c.assignees?.some((a) => a.id === filterAssignee));
     }
@@ -530,7 +558,7 @@ export function BoardView() {
       );
     }
     return filtered;
-  }, [cards, filterAssignee, filterLabel, filterSwimlane, filterPriority, filterOverdue, searchQuery]);
+  }, [cards, filterAssignee, filterLabel, filterSwimlane, filterPriority, filterOverdue, searchQuery, activeSprint, completedSprintIds, closedColumnIds, viewMode]);
 
   // Group cards by swimlane and column
   const cardsBySwimlanAndColumn = useMemo(() => {
@@ -611,6 +639,12 @@ export function BoardView() {
                   onClick={() => setViewMode('backlog')}
                 >
                   Backlog
+                </button>
+                <button
+                  className={`view-btn ${viewMode === 'all' ? 'active' : ''}`}
+                  onClick={() => setViewMode('all')}
+                >
+                  All Cards
                 </button>
               </div>
               <button className="btn btn-sm btn-ghost" onClick={() => boardsApi.exportCards(parseInt(boardId!))} title="Export to CSV">
@@ -776,7 +810,7 @@ export function BoardView() {
           </div>
         )}
 
-        {viewMode === 'board' ? (
+        {(viewMode === 'board' || viewMode === 'all') ? (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCorners}
