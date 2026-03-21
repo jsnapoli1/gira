@@ -158,7 +158,7 @@ func (d *DB) GetBoardColumns(boardID int64) ([]models.Column, error) {
 
 func (d *DB) GetBoardSwimlanes(boardID int64) ([]models.Swimlane, error) {
 	rows, err := d.Query(
-		`SELECT id, board_id, name, COALESCE(repo_source, 'default_gitea'), COALESCE(repo_url, ''), repo_owner, repo_name, designator, position, color
+		`SELECT id, board_id, name, COALESCE(repo_source, 'default_gitea'), COALESCE(repo_url, ''), repo_owner, repo_name, designator, position, color, COALESCE(label, '')
 		 FROM swimlanes WHERE board_id = ? ORDER BY position`,
 		boardID,
 	)
@@ -170,7 +170,7 @@ func (d *DB) GetBoardSwimlanes(boardID int64) ([]models.Swimlane, error) {
 	swimlanes := []models.Swimlane{}
 	for rows.Next() {
 		var sl models.Swimlane
-		if err := rows.Scan(&sl.ID, &sl.BoardID, &sl.Name, &sl.RepoSource, &sl.RepoURL, &sl.RepoOwner, &sl.RepoName, &sl.Designator, &sl.Position, &sl.Color); err != nil {
+		if err := rows.Scan(&sl.ID, &sl.BoardID, &sl.Name, &sl.RepoSource, &sl.RepoURL, &sl.RepoOwner, &sl.RepoName, &sl.Designator, &sl.Position, &sl.Color, &sl.Label); err != nil {
 			return nil, fmt.Errorf("failed to scan swimlane: %w", err)
 		}
 		swimlanes = append(swimlanes, sl)
@@ -229,6 +229,10 @@ func (d *DB) CreateSwimlane(boardID int64, name, repoOwner, repoName, designator
 }
 
 func (d *DB) CreateSwimlaneWithSource(boardID int64, name, repoSource, repoURL, repoOwner, repoName, designator, color string) (*models.Swimlane, error) {
+	return d.CreateSwimlaneWithSourceAndLabel(boardID, name, repoSource, repoURL, repoOwner, repoName, designator, color, "")
+}
+
+func (d *DB) CreateSwimlaneWithSourceAndLabel(boardID int64, name, repoSource, repoURL, repoOwner, repoName, designator, color, label string) (*models.Swimlane, error) {
 	// Get next position
 	var maxPos sql.NullInt64
 	d.QueryRow(`SELECT MAX(position) FROM swimlanes WHERE board_id = ?`, boardID).Scan(&maxPos)
@@ -238,9 +242,9 @@ func (d *DB) CreateSwimlaneWithSource(boardID int64, name, repoSource, repoURL, 
 	}
 
 	result, err := d.Exec(
-		`INSERT INTO swimlanes (board_id, name, repo_source, repo_url, repo_owner, repo_name, designator, position, color)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		boardID, name, repoSource, repoURL, repoOwner, repoName, designator, position, color,
+		`INSERT INTO swimlanes (board_id, name, repo_source, repo_url, repo_owner, repo_name, designator, position, color, label)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		boardID, name, repoSource, repoURL, repoOwner, repoName, designator, position, color, label,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create swimlane: %w", err)
@@ -261,6 +265,7 @@ func (d *DB) CreateSwimlaneWithSource(boardID int64, name, repoSource, repoURL, 
 		Designator: designator,
 		Position:   position,
 		Color:      color,
+		Label:      label,
 	}, nil
 }
 
@@ -435,10 +440,10 @@ func (d *DB) GetSwimlaneCredential(swimlaneID int64) (string, error) {
 func (d *DB) GetSwimlaneByID(id int64) (*models.Swimlane, error) {
 	var sl models.Swimlane
 	err := d.QueryRow(
-		`SELECT id, board_id, name, COALESCE(repo_source, 'default_gitea'), COALESCE(repo_url, ''), repo_owner, repo_name, designator, position, color
+		`SELECT id, board_id, name, COALESCE(repo_source, 'default_gitea'), COALESCE(repo_url, ''), repo_owner, repo_name, designator, position, color, COALESCE(label, '')
 		 FROM swimlanes WHERE id = ?`,
 		id,
-	).Scan(&sl.ID, &sl.BoardID, &sl.Name, &sl.RepoSource, &sl.RepoURL, &sl.RepoOwner, &sl.RepoName, &sl.Designator, &sl.Position, &sl.Color)
+	).Scan(&sl.ID, &sl.BoardID, &sl.Name, &sl.RepoSource, &sl.RepoURL, &sl.RepoOwner, &sl.RepoName, &sl.Designator, &sl.Position, &sl.Color, &sl.Label)
 
 	if err == sql.ErrNoRows {
 		return nil, nil

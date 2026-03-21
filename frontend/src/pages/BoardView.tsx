@@ -6,7 +6,7 @@ import { DroppableColumn } from '../components/DroppableColumn';
 import { BacklogView } from '../components/BacklogView';
 import { AddSwimlaneModal } from '../components/AddSwimlaneModal';
 import { AddCardModal } from '../components/AddCardModal';
-import { boards as boardsApi, cards as cardsApi, sprints as sprintsApi, gitea, users as usersApi } from '../api/client';
+import { boards as boardsApi, cards as cardsApi, sprints as sprintsApi, gitea, users as usersApi, imports } from '../api/client';
 import { Board, Card, Sprint, Repository, User, Label, SavedFilter } from '../types';
 import { useBoardSSE } from '../hooks/useBoardSSE';
 import { useToast } from '../components/Toast';
@@ -963,33 +963,13 @@ export function BoardView() {
                     setImportFile(f);
                     setImportResult(null);
                     if (f) {
-                      const reader = new FileReader();
-                      reader.onload = (ev) => {
-                        const text = ev.target?.result as string;
-                        const lines = text.split('\n');
-                        if (lines.length < 2) return;
-                        const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
-                        const pkIdx = headers.indexOf('Project key');
-                        if (pkIdx === -1) return;
-                        const keys = new Set<string>();
-                        for (let i = 1; i < lines.length; i++) {
-                          // Simple CSV field extraction
-                          const fields: string[] = [];
-                          let field = '';
-                          let inQuotes = false;
-                          for (let j = 0; j < lines[i].length; j++) {
-                            const ch = lines[i][j];
-                            if (ch === '"') { inQuotes = !inQuotes; }
-                            else if (ch === ',' && !inQuotes) { fields.push(field.trim()); field = ''; }
-                            else { field += ch; }
-                          }
-                          fields.push(field.trim());
-                          const pk = fields[pkIdx];
-                          if (pk) keys.add(pk);
-                        }
-                        setImportProjectKeys(Array.from(keys).sort());
-                      };
-                      reader.readAsText(f);
+                      // Use server-side preview to correctly parse CSV (handles quoted multi-line fields)
+                      imports.previewJira(f).then((data) => {
+                        const keys = (data.projects || []).map((p: { key: string }) => p.key).sort();
+                        setImportProjectKeys(keys);
+                      }).catch(() => {
+                        setImportProjectKeys([]);
+                      });
                     } else {
                       setImportProjectKeys([]);
                     }

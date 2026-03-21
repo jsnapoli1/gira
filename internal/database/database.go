@@ -418,6 +418,9 @@ func (d *DB) migrate() error {
 	)`)
 	d.Exec(`CREATE INDEX IF NOT EXISTS idx_workflow_rules_board ON workflow_rules(board_id)`)
 
+	// Swimlane label column for grouping metadata
+	d.Exec(`ALTER TABLE swimlanes ADD COLUMN label TEXT DEFAULT ''`)
+
 	// Issue type definitions
 	d.Exec(`CREATE TABLE IF NOT EXISTS issue_type_definitions (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { boards as boardsApi } from '../api/client';
 import { Board } from '../types';
-import { Plus, Kanban, Trash2 } from 'lucide-react';
+import { Plus, Kanban, Trash2, Upload } from 'lucide-react';
 import { useToast } from '../components/Toast';
+import { JiraImportWizard } from '../components/JiraImportWizard';
 
 export function BoardsList() {
   const [boards, setBoards] = useState<Board[]>([]);
@@ -14,6 +15,7 @@ export function BoardsList() {
   const [newBoardDesc, setNewBoardDesc] = useState('');
   const [newBoardTemplate, setNewBoardTemplate] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showImportWizard, setShowImportWizard] = useState(false);
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -65,10 +67,16 @@ export function BoardsList() {
     <Layout>
       <div className="page-header">
         <h1>Boards</h1>
-        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-          <Plus size={18} />
-          <span>Create Board</span>
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn" onClick={() => setShowImportWizard(true)}>
+            <Upload size={18} />
+            <span>Import from Jira</span>
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+            <Plus size={18} />
+            <span>Create Board</span>
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -104,6 +112,14 @@ export function BoardsList() {
             </div>
           ))}
         </div>
+      )}
+
+      {showImportWizard && (
+        <JiraImportWizard
+          boards={boards}
+          onClose={() => setShowImportWizard(false)}
+          onComplete={loadBoards}
+        />
       )}
 
       {showCreateModal && (

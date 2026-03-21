@@ -67,6 +67,7 @@ type Swimlane struct {
 	Designator string `json:"designator"` // Prefix for cards in this lane (e.g., "PROJ-")
 	Position   int    `json:"position"`
 	Color      string `json:"color"`
+	Label      string `json:"label"` // Optional label for grouping (e.g., Jira project key)
 }
 
 type Sprint struct {

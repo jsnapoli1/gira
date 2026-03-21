@@ -28,6 +28,9 @@ import type {
   DashboardResponse,
   WorkflowRule,
   IssueTypeDefinition,
+  JiraProjectPreview,
+  JiraProjectMapping,
+  GlobalImportResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -130,6 +133,7 @@ export const boards = {
     designator: string;
     color?: string;
     api_token?: string;
+    label?: string;
   }) =>
     request<Swimlane>(`/boards/${boardId}/swimlanes`, {
       method: 'POST',
@@ -503,6 +507,35 @@ export const repos = {
 
 // Backwards compatibility alias
 export const gitea = repos;
+
+// Jira Import (global, not board-scoped)
+export const imports = {
+  previewJira: async (file: File): Promise<{ projects: JiraProjectPreview[] }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = localStorage.getItem('token');
+    const res = await fetch(`/api/import/jira/preview`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+  executeJira: async (file: File, mappings: JiraProjectMapping[]): Promise<GlobalImportResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mappings', JSON.stringify(mappings));
+    const token = localStorage.getItem('token');
+    const res = await fetch(`/api/import/jira`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+};
 
 // Users
 export const users = {

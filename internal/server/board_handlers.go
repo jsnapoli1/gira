@@ -297,6 +297,7 @@ func (s *Server) handleCreateBoardSwimlane(w http.ResponseWriter, r *http.Reques
 		Designator string `json:"designator"`
 		Color      string `json:"color"`
 		APIToken   string `json:"api_token"`
+		Label      string `json:"label"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -308,7 +309,7 @@ func (s *Server) handleCreateBoardSwimlane(w http.ResponseWriter, r *http.Reques
 	if req.RepoSource == "" {
 		req.RepoSource = "default_gitea"
 	}
-	swimlane, err := s.DB.CreateSwimlaneWithSource(board.ID, req.Name, req.RepoSource, req.RepoURL, req.RepoOwner, req.RepoName, req.Designator, req.Color)
+	swimlane, err := s.DB.CreateSwimlaneWithSourceAndLabel(board.ID, req.Name, req.RepoSource, req.RepoURL, req.RepoOwner, req.RepoName, req.Designator, req.Color, req.Label)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1272,7 +1273,361 @@ func (s *Server) handleDeleteIssueType(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleImportJira imports cards from a Jira CSV export into a board.
+// jiraCSVData holds parsed CSV data for reuse across import functions.
+type jiraCSVData struct {
+	headers       []string
+	dataRows      [][]string
+	colIdx        map[string]int
+	labelIndices  []int
+	sprintIndices []int
+}
+
+// parseJiraCSV reads a CSV file and returns parsed data with column indices.
+func parseJiraCSV(file io.Reader) (*jiraCSVData, error) {
+	csvReader := csv.NewReader(file)
+	csvReader.LazyQuotes = true
+	csvReader.FieldsPerRecord = -1
+
+	allRows, err := csvReader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CSV: %w", err)
+	}
+	if len(allRows) < 2 {
+		return nil, fmt.Errorf("CSV has no data rows")
+	}
+
+	data := &jiraCSVData{
+		headers:  allRows[0],
+		dataRows: allRows[1:],
+		colIdx:   map[string]int{},
+	}
+
+	for i, h := range data.headers {
+		h = strings.TrimSpace(h)
+		switch h {
+		case "Summary":
+			data.colIdx["Summary"] = i
+		case "Issue key":
+			data.colIdx["Issue key"] = i
+		case "Issue Type":
+			data.colIdx["Issue Type"] = i
+		case "Status":
+			data.colIdx["Status"] = i
+		case "Project key":
+			data.colIdx["Project key"] = i
+		case "Priority":
+			data.colIdx["Priority"] = i
+		case "Description":
+			data.colIdx["Description"] = i
+		case "Assignee":
+			data.colIdx["Assignee"] = i
+		case "Due date":
+			data.colIdx["Due date"] = i
+		case "Status Category":
+			data.colIdx["Status Category"] = i
+		case "Labels":
+			data.labelIndices = append(data.labelIndices, i)
+		case "Sprint":
+			data.sprintIndices = append(data.sprintIndices, i)
+		}
+	}
+
+	for _, required := range []string{"Summary", "Issue key"} {
+		if _, ok := data.colIdx[required]; !ok {
+			return nil, fmt.Errorf("missing required CSV column: %s", required)
+		}
+	}
+
+	return data, nil
+}
+
+func (d *jiraCSVData) getField(row []string, idx int) string {
+	if idx >= 0 && idx < len(row) {
+		return strings.TrimSpace(row[idx])
+	}
+	return ""
+}
+
+func (d *jiraCSVData) getFieldByName(row []string, name string) string {
+	if idx, ok := d.colIdx[name]; ok {
+		return d.getField(row, idx)
+	}
+	return ""
+}
+
+// extractProjectKeys returns unique project keys and their row counts from parsed CSV data.
+func (d *jiraCSVData) extractProjectKeys() map[string]int {
+	projects := map[string]int{}
+	for _, row := range d.dataRows {
+		pk := d.getFieldByName(row, "Project key")
+		if pk != "" {
+			projects[pk]++
+		}
+	}
+	return projects
+}
+
+// jiraImportResult holds the result of importing cards for a single project.
+type jiraImportResult struct {
+	Imported       int      `json:"imported"`
+	SprintsCreated int      `json:"sprints_created"`
+	LabelsCreated  int      `json:"labels_created"`
+	Errors         []string `json:"errors"`
+}
+
+// Shared Jira status -> state mapping
+var jiraStatusToState = map[string]string{
+	"to do":                      "open",
+	"backlog / not yet assigned": "open",
+	"sales requests":             "open",
+	"on hold":                    "open",
+	"in progress":                "in_progress",
+	"blocked":                    "in_progress",
+	"review":                     "review",
+	"done":                       "closed",
+}
+
+// Shared Jira issue type mapping
+var jiraTypeMap = map[string]string{
+	"epic":     "epic",
+	"story":    "story",
+	"task":     "task",
+	"sub-task": "subtask",
+	"bug":      "task",
+}
+
+// Hardcoded indices per Jira CSV spec
+const storyPointsIdx = 139
+const storyPointEstimateIdx = 140
+const parentKeyIdx = 193
+
+type importedCard struct {
+	cardID   int64
+	issueKey string
+}
+
+// importJiraCardsForProject imports cards from CSV rows matching a project key into a specific board/swimlane.
+// issueKeyToCardID is shared across projects for cross-project parent resolution.
+func (s *Server) importJiraCardsForProject(
+	csvData *jiraCSVData,
+	projectKey string,
+	boardID int64,
+	swimlaneID int64,
+	issueKeyToCardID map[string]int64,
+) *jiraImportResult {
+	result := &jiraImportResult{}
+
+	columns, err := s.DB.GetBoardColumns(boardID)
+	if err != nil || len(columns) == 0 {
+		result.Errors = append(result.Errors, "Board has no columns")
+		return result
+	}
+
+	// Build state->column mapping
+	stateColumnMap := map[string]int64{}
+	for _, col := range columns {
+		if _, exists := stateColumnMap[col.State]; !exists {
+			stateColumnMap[col.State] = col.ID
+		}
+	}
+	defaultColumnID := columns[0].ID
+
+	// Get existing cards for duplicate detection
+	existingCards, err := s.DB.ListCardsForBoard(boardID)
+	if err != nil {
+		result.Errors = append(result.Errors, "Failed to list existing cards: "+err.Error())
+		return result
+	}
+	existingTitles := map[string]bool{}
+	for _, c := range existingCards {
+		existingTitles[c.Title] = true
+	}
+
+	// Get existing labels
+	existingLabels, err := s.DB.GetBoardLabels(boardID)
+	if err != nil {
+		result.Errors = append(result.Errors, "Failed to get existing labels: "+err.Error())
+		return result
+	}
+	labelMap := map[string]int64{}
+	for _, l := range existingLabels {
+		labelMap[strings.ToLower(l.Name)] = l.ID
+	}
+
+	// Get existing sprints
+	existingSprints, err := s.DB.ListSprintsForBoard(boardID)
+	if err != nil {
+		result.Errors = append(result.Errors, "Failed to get existing sprints: "+err.Error())
+		return result
+	}
+	sprintMap := map[string]int64{}
+	for _, sp := range existingSprints {
+		sprintMap[sp.Name] = sp.ID
+	}
+
+	var importedCards []importedCard
+
+	for rowNum, row := range csvData.dataRows {
+		if projectKey != "" {
+			pk := csvData.getFieldByName(row, "Project key")
+			if pk != projectKey {
+				continue
+			}
+		}
+
+		title := csvData.getFieldByName(row, "Summary")
+		if title == "" {
+			continue
+		}
+
+		if existingTitles[title] {
+			continue
+		}
+
+		issueKey := csvData.getFieldByName(row, "Issue key")
+		description := csvData.getFieldByName(row, "Description")
+		priority := strings.ToLower(csvData.getFieldByName(row, "Priority"))
+
+		jiraType := strings.ToLower(csvData.getFieldByName(row, "Issue Type"))
+		issueType := "task"
+		if mapped, ok := jiraTypeMap[jiraType]; ok {
+			issueType = mapped
+		}
+
+		jiraStatus := strings.ToLower(csvData.getFieldByName(row, "Status"))
+		state := "open"
+		if mapped, ok := jiraStatusToState[jiraStatus]; ok {
+			state = mapped
+		}
+
+		columnID := defaultColumnID
+		if cid, ok := stateColumnMap[state]; ok {
+			columnID = cid
+		}
+
+		var storyPoints *int
+		spStr := csvData.getField(row, storyPointsIdx)
+		if spStr == "" {
+			spStr = csvData.getField(row, storyPointEstimateIdx)
+		}
+		if spStr != "" {
+			if sp, err := strconv.Atoi(spStr); err == nil {
+				storyPoints = &sp
+			} else if f, err := strconv.ParseFloat(spStr, 64); err == nil {
+				sp := int(f)
+				storyPoints = &sp
+			}
+		}
+
+		var dueDate *time.Time
+		dueDateStr := csvData.getFieldByName(row, "Due date")
+		if dueDateStr != "" {
+			if t, err := time.Parse("02/Jan/06 3:04 PM", dueDateStr); err == nil {
+				dueDate = &t
+			}
+		}
+
+		var sprintID *int64
+		for _, si := range csvData.sprintIndices {
+			sprintName := csvData.getField(row, si)
+			if sprintName == "" {
+				continue
+			}
+			if sid, ok := sprintMap[sprintName]; ok {
+				sprintID = &sid
+			} else {
+				sprintStatus := "planning"
+				if state == "closed" {
+					sprintStatus = "completed"
+				}
+				sp, err := s.DB.CreateSprint(boardID, sprintName, "", nil, nil)
+				if err != nil {
+					result.Errors = append(result.Errors, fmt.Sprintf("Row %d: failed to create sprint %q: %v", rowNum+2, sprintName, err))
+					break
+				}
+				if sprintStatus == "completed" {
+					sp.Status = sprintStatus
+					_ = s.DB.UpdateSprint(sp)
+				}
+				sprintMap[sprintName] = sp.ID
+				sprintID = &sp.ID
+				result.SprintsCreated++
+			}
+			break
+		}
+
+		card, err := s.DB.CreateCard(database.CreateCardInput{
+			BoardID:     boardID,
+			SwimlaneID:  swimlaneID,
+			ColumnID:    columnID,
+			SprintID:    sprintID,
+			IssueType:   issueType,
+			Title:       title,
+			Description: description,
+			State:       state,
+			StoryPoints: storyPoints,
+			Priority:    priority,
+			DueDate:     dueDate,
+		})
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Row %d: failed to create card %q: %v", rowNum+2, title, err))
+			continue
+		}
+
+		existingTitles[title] = true
+		result.Imported++
+		importedCards = append(importedCards, importedCard{cardID: card.ID, issueKey: issueKey})
+		if issueKey != "" {
+			issueKeyToCardID[issueKey] = card.ID
+		}
+
+		// Handle labels
+		for _, li := range csvData.labelIndices {
+			labelName := csvData.getField(row, li)
+			if labelName == "" {
+				continue
+			}
+			labelKey := strings.ToLower(labelName)
+			labelID, ok := labelMap[labelKey]
+			if !ok {
+				label, err := s.DB.CreateLabel(boardID, labelName, "#6366f1")
+				if err != nil {
+					result.Errors = append(result.Errors, fmt.Sprintf("Row %d: failed to create label %q: %v", rowNum+2, labelName, err))
+					continue
+				}
+				labelID = label.ID
+				labelMap[labelKey] = labelID
+				result.LabelsCreated++
+			}
+			_ = s.DB.AddLabelToCard(card.ID, labelID)
+		}
+	}
+
+	// Resolve parent keys (uses the shared issueKeyToCardID map)
+	for _, ic := range importedCards {
+		for _, row := range csvData.dataRows {
+			ik := csvData.getFieldByName(row, "Issue key")
+			if ik != ic.issueKey {
+				continue
+			}
+			parentKey := csvData.getField(row, parentKeyIdx)
+			if parentKey == "" {
+				break
+			}
+			if parentCardID, ok := issueKeyToCardID[parentKey]; ok {
+				_, err := s.DB.Exec(`UPDATE cards SET parent_id = ? WHERE id = ?`, parentCardID, ic.cardID)
+				if err != nil {
+					result.Errors = append(result.Errors, fmt.Sprintf("Failed to set parent for %s: %v", ic.issueKey, err))
+				}
+			}
+			break
+		}
+	}
+
+	return result
+}
+
+// handleImportJira imports cards from a Jira CSV export into a board (board-scoped).
 func (s *Server) handleImportJira(w http.ResponseWriter, r *http.Request) {
 	boardID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -1286,7 +1641,6 @@ func (s *Server) handleImportJira(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form (max 50MB)
 	if err := r.ParseMultipartForm(50 << 20); err != nil {
 		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
 		return
@@ -1301,89 +1655,19 @@ func (s *Server) handleImportJira(w http.ResponseWriter, r *http.Request) {
 
 	projectKey := r.FormValue("project_key")
 
-	// Read CSV
-	csvReader := csv.NewReader(file)
-	csvReader.LazyQuotes = true
-	csvReader.FieldsPerRecord = -1 // variable field count
-
-	allRows, err := csvReader.ReadAll()
+	csvData, err := parseJiraCSV(file)
 	if err != nil {
-		http.Error(w, "Failed to parse CSV: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if len(allRows) < 2 {
-		http.Error(w, "CSV has no data rows", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	headers := allRows[0]
-	dataRows := allRows[1:]
-
-	// Build column index map
-	colIdx := map[string]int{}
-	labelIndices := []int{}
-	sprintIndices := []int{}
-	for i, h := range headers {
-		h = strings.TrimSpace(h)
-		switch h {
-		case "Summary":
-			colIdx["Summary"] = i
-		case "Issue key":
-			colIdx["Issue key"] = i
-		case "Issue Type":
-			colIdx["Issue Type"] = i
-		case "Status":
-			colIdx["Status"] = i
-		case "Project key":
-			colIdx["Project key"] = i
-		case "Priority":
-			colIdx["Priority"] = i
-		case "Description":
-			colIdx["Description"] = i
-		case "Assignee":
-			colIdx["Assignee"] = i
-		case "Due date":
-			colIdx["Due date"] = i
-		case "Status Category":
-			colIdx["Status Category"] = i
-		case "Labels":
-			labelIndices = append(labelIndices, i)
-		case "Sprint":
-			sprintIndices = append(sprintIndices, i)
-		}
-	}
-
-	// Hardcoded indices per spec
-	const storyPointsIdx = 139
-	const storyPointEstimateIdx = 140
-	const parentKeyIdx = 193
-
-	// Validate required columns
-	for _, required := range []string{"Summary", "Issue key"} {
-		if _, ok := colIdx[required]; !ok {
-			http.Error(w, "Missing required CSV column: "+required, http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Get board columns and swimlanes
-	columns, err := s.DB.GetBoardColumns(boardID)
-	if err != nil {
-		http.Error(w, "Failed to get board columns: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if len(columns) == 0 {
-		http.Error(w, "Board has no columns", http.StatusBadRequest)
-		return
-	}
-
+	// Get or create swimlane
 	swimlanes, err := s.DB.GetBoardSwimlanes(boardID)
 	if err != nil {
 		http.Error(w, "Failed to get board swimlanes: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Create default swimlane if none exist
 	defaultSwimlaneID := int64(0)
 	if len(swimlanes) == 0 {
 		slName := projectKey
@@ -1402,278 +1686,175 @@ func (s *Server) handleImportJira(w http.ResponseWriter, r *http.Request) {
 		defaultSwimlaneID = swimlanes[0].ID
 	}
 
-	// Build state->column mapping
-	stateColumnMap := map[string]int64{}
-	for _, col := range columns {
-		if _, exists := stateColumnMap[col.State]; !exists {
-			stateColumnMap[col.State] = col.ID
-		}
-	}
-	defaultColumnID := columns[0].ID
-
-	// Jira status -> state mapping
-	jiraStatusToState := map[string]string{
-		"to do":                      "open",
-		"backlog / not yet assigned": "open",
-		"sales requests":             "open",
-		"on hold":                    "open",
-		"in progress":                "in_progress",
-		"blocked":                    "in_progress",
-		"review":                     "review",
-		"done":                       "closed",
-	}
-
-	// Issue type mapping
-	jiraTypeMap := map[string]string{
-		"epic":     "epic",
-		"story":    "story",
-		"task":     "task",
-		"sub-task": "subtask",
-		"bug":      "task",
-	}
-
-	// Get existing cards for duplicate detection
-	existingCards, err := s.DB.ListCardsForBoard(boardID)
-	if err != nil {
-		http.Error(w, "Failed to list existing cards: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	existingTitles := map[string]bool{}
-	for _, c := range existingCards {
-		existingTitles[c.Title] = true
-	}
-
-	// Get existing labels
-	existingLabels, err := s.DB.GetBoardLabels(boardID)
-	if err != nil {
-		http.Error(w, "Failed to get existing labels: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	labelMap := map[string]int64{}
-	for _, l := range existingLabels {
-		labelMap[strings.ToLower(l.Name)] = l.ID
-	}
-
-	// Get existing sprints
-	existingSprints, err := s.DB.ListSprintsForBoard(boardID)
-	if err != nil {
-		http.Error(w, "Failed to get existing sprints: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	sprintMap := map[string]int64{}
-	for _, sp := range existingSprints {
-		sprintMap[sp.Name] = sp.ID
-	}
-
-	getField := func(row []string, idx int) string {
-		if idx >= 0 && idx < len(row) {
-			return strings.TrimSpace(row[idx])
-		}
-		return ""
-	}
-
-	getFieldByName := func(row []string, name string) string {
-		if idx, ok := colIdx[name]; ok {
-			return getField(row, idx)
-		}
-		return ""
-	}
-
-	type importedCard struct {
-		cardID   int64
-		issueKey string
-	}
-
-	imported := 0
-	sprintsCreated := 0
-	labelsCreated := 0
-	var errors []string
-	var importedCards []importedCard
 	issueKeyToCardID := map[string]int64{}
-
-	for rowNum, row := range dataRows {
-		// Filter by project key
-		if projectKey != "" {
-			pk := getFieldByName(row, "Project key")
-			if pk != projectKey {
-				continue
-			}
-		}
-
-		title := getFieldByName(row, "Summary")
-		if title == "" {
-			continue
-		}
-
-		// Skip duplicates
-		if existingTitles[title] {
-			continue
-		}
-
-		issueKey := getFieldByName(row, "Issue key")
-		description := getFieldByName(row, "Description")
-		priority := strings.ToLower(getFieldByName(row, "Priority"))
-
-		// Map issue type
-		jiraType := strings.ToLower(getFieldByName(row, "Issue Type"))
-		issueType := "task"
-		if mapped, ok := jiraTypeMap[jiraType]; ok {
-			issueType = mapped
-		}
-
-		// Map status to state
-		jiraStatus := strings.ToLower(getFieldByName(row, "Status"))
-		state := "open"
-		if mapped, ok := jiraStatusToState[jiraStatus]; ok {
-			state = mapped
-		}
-
-		// Find column for state
-		columnID := defaultColumnID
-		if cid, ok := stateColumnMap[state]; ok {
-			columnID = cid
-		}
-
-		// Parse story points
-		var storyPoints *int
-		spStr := getField(row, storyPointsIdx)
-		if spStr == "" {
-			spStr = getField(row, storyPointEstimateIdx)
-		}
-		if spStr != "" {
-			if sp, err := strconv.Atoi(spStr); err == nil {
-				storyPoints = &sp
-			} else {
-				// Try parsing as float
-				if f, err := strconv.ParseFloat(spStr, 64); err == nil {
-					sp := int(f)
-					storyPoints = &sp
-				}
-			}
-		}
-
-		// Parse due date
-		var dueDate *time.Time
-		dueDateStr := getFieldByName(row, "Due date")
-		if dueDateStr != "" {
-			if t, err := time.Parse("02/Jan/06 3:04 PM", dueDateStr); err == nil {
-				dueDate = &t
-			}
-		}
-
-		// Handle sprint - take first non-empty
-		var sprintID *int64
-		for _, si := range sprintIndices {
-			sprintName := getField(row, si)
-			if sprintName == "" {
-				continue
-			}
-			// Check if sprint already exists
-			if sid, ok := sprintMap[sprintName]; ok {
-				sprintID = &sid
-			} else {
-				// Determine sprint status
-				sprintStatus := "planning"
-				if state == "closed" {
-					sprintStatus = "completed"
-				}
-				sp, err := s.DB.CreateSprint(boardID, sprintName, "", nil, nil)
-				if err != nil {
-					errors = append(errors, fmt.Sprintf("Row %d: failed to create sprint %q: %v", rowNum+2, sprintName, err))
-					break
-				}
-				if sprintStatus == "completed" {
-					sp.Status = sprintStatus
-					_ = s.DB.UpdateSprint(sp)
-				}
-				sprintMap[sprintName] = sp.ID
-				sprintID = &sp.ID
-				sprintsCreated++
-			}
-			break
-		}
-
-		// Create the card
-		card, err := s.DB.CreateCard(database.CreateCardInput{
-			BoardID:     boardID,
-			SwimlaneID:  defaultSwimlaneID,
-			ColumnID:    columnID,
-			SprintID:    sprintID,
-			IssueType:   issueType,
-			Title:       title,
-			Description: description,
-			State:       state,
-			StoryPoints: storyPoints,
-			Priority:    priority,
-			DueDate:     dueDate,
-		})
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("Row %d: failed to create card %q: %v", rowNum+2, title, err))
-			continue
-		}
-
-		existingTitles[title] = true
-		imported++
-		importedCards = append(importedCards, importedCard{cardID: card.ID, issueKey: issueKey})
-		if issueKey != "" {
-			issueKeyToCardID[issueKey] = card.ID
-		}
-
-		// Handle labels
-		for _, li := range labelIndices {
-			labelName := getField(row, li)
-			if labelName == "" {
-				continue
-			}
-			labelKey := strings.ToLower(labelName)
-			labelID, ok := labelMap[labelKey]
-			if !ok {
-				// Create label with default color
-				label, err := s.DB.CreateLabel(boardID, labelName, "#6366f1")
-				if err != nil {
-					errors = append(errors, fmt.Sprintf("Row %d: failed to create label %q: %v", rowNum+2, labelName, err))
-					continue
-				}
-				labelID = label.ID
-				labelMap[labelKey] = labelID
-				labelsCreated++
-			}
-			_ = s.DB.AddLabelToCard(card.ID, labelID)
-		}
-	}
-
-	// Resolve parent keys
-	for _, ic := range importedCards {
-		// Find the row with this issue key to get parent key
-		for _, row := range dataRows {
-			ik := getFieldByName(row, "Issue key")
-			if ik != ic.issueKey {
-				continue
-			}
-			parentKey := getField(row, parentKeyIdx)
-			if parentKey == "" {
-				break
-			}
-			if parentCardID, ok := issueKeyToCardID[parentKey]; ok {
-				// Update parent_id
-				_, err := s.DB.Exec(`UPDATE cards SET parent_id = ? WHERE id = ?`, parentCardID, ic.cardID)
-				if err != nil {
-					errors = append(errors, fmt.Sprintf("Failed to set parent for %s: %v", ic.issueKey, err))
-				}
-			}
-			break
-		}
-	}
-
-	result := map[string]interface{}{
-		"imported":        imported,
-		"sprints_created": sprintsCreated,
-		"labels_created":  labelsCreated,
-		"errors":          errors,
-	}
+	result := s.importJiraCardsForProject(csvData, projectKey, boardID, defaultSwimlaneID, issueKeyToCardID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// handleImportJiraPreview accepts a CSV and returns the project keys found.
+func (s *Server) handleImportJiraPreview(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Missing file upload", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	csvData, err := parseJiraCSV(file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	projectCounts := csvData.extractProjectKeys()
+
+	type projectPreview struct {
+		Key   string `json:"key"`
+		Count int    `json:"count"`
+	}
+	var projects []projectPreview
+	for key, count := range projectCounts {
+		projects = append(projects, projectPreview{Key: key, Count: count})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"projects": projects})
+}
+
+// handleImportJiraGlobal accepts a CSV + mappings JSON and imports cards per mapping.
+func (s *Server) handleImportJiraGlobal(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+
+	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Missing file upload", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	mappingsJSON := r.FormValue("mappings")
+	if mappingsJSON == "" {
+		http.Error(w, "Missing mappings", http.StatusBadRequest)
+		return
+	}
+
+	var mappings []struct {
+		ProjectKey      string `json:"project_key"`
+		BoardID         int64  `json:"board_id"`
+		SwimlaneID      int64  `json:"swimlane_id"`
+		CreateBoard     bool   `json:"create_board"`
+		NewBoardName    string `json:"new_board_name"`
+		BoardTemplate   string `json:"board_template"`
+		CreateSwimlane  bool   `json:"create_swimlane"`
+		NewSwimlaneName string `json:"new_swimlane_name"`
+		RepoOwner       string `json:"repo_owner"`
+		RepoName        string `json:"repo_name"`
+		Designator      string `json:"designator"`
+		Label           string `json:"label"`
+		Color           string `json:"color"`
+	}
+	if err := json.Unmarshal([]byte(mappingsJSON), &mappings); err != nil {
+		http.Error(w, "Invalid mappings JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	csvData, err := parseJiraCSV(file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	type projectResult struct {
+		Key            string   `json:"key"`
+		Imported       int      `json:"imported"`
+		SprintsCreated int      `json:"sprints_created"`
+		LabelsCreated  int      `json:"labels_created"`
+		Errors         []string `json:"errors"`
+	}
+
+	var results []projectResult
+	totalImported := 0
+	issueKeyToCardID := map[string]int64{} // shared across all projects
+
+	for _, m := range mappings {
+		pr := projectResult{Key: m.ProjectKey}
+
+		boardID := m.BoardID
+		if m.CreateBoard {
+			boardName := m.NewBoardName
+			if boardName == "" {
+				boardName = m.ProjectKey + " Board"
+			}
+			board, err := s.DB.CreateBoardWithTemplate(boardName, "", user.ID, m.BoardTemplate)
+			if err != nil {
+				pr.Errors = append(pr.Errors, "Failed to create board: "+err.Error())
+				results = append(results, pr)
+				continue
+			}
+			boardID = board.ID
+		}
+
+		swimlaneID := m.SwimlaneID
+		if m.CreateSwimlane {
+			slName := m.NewSwimlaneName
+			if slName == "" {
+				slName = m.ProjectKey
+			}
+			designator := m.Designator
+			if designator == "" {
+				designator = m.ProjectKey + "-"
+			}
+			color := m.Color
+			if color == "" {
+				color = "#6366f1"
+			}
+			sl, err := s.DB.CreateSwimlaneWithSourceAndLabel(boardID, slName, "default_gitea", "", m.RepoOwner, m.RepoName, designator, color, m.Label)
+			if err != nil {
+				pr.Errors = append(pr.Errors, "Failed to create swimlane: "+err.Error())
+				results = append(results, pr)
+				continue
+			}
+			swimlaneID = sl.ID
+		}
+
+		if swimlaneID == 0 {
+			// Use first swimlane of the board
+			swimlanes, err := s.DB.GetBoardSwimlanes(boardID)
+			if err != nil || len(swimlanes) == 0 {
+				pr.Errors = append(pr.Errors, "Board has no swimlanes and create_swimlane is false")
+				results = append(results, pr)
+				continue
+			}
+			swimlaneID = swimlanes[0].ID
+		}
+
+		importResult := s.importJiraCardsForProject(csvData, m.ProjectKey, boardID, swimlaneID, issueKeyToCardID)
+		pr.Imported = importResult.Imported
+		pr.SprintsCreated = importResult.SprintsCreated
+		pr.LabelsCreated = importResult.LabelsCreated
+		pr.Errors = importResult.Errors
+		totalImported += importResult.Imported
+
+		results = append(results, pr)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"projects":       results,
+		"total_imported": totalImported,
+	})
 }
 
 // jiraCSVParseHelper is a no-op to prevent unused import errors.

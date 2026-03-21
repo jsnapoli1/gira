@@ -226,8 +226,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("PUT /api/boards/{id}/issue-types/{typeId}", s.requireAuth(s.handleUpdateIssueType))
 	mux.HandleFunc("DELETE /api/boards/{id}/issue-types/{typeId}", s.requireAuth(s.handleDeleteIssueType))
 
-	// Import
+	// Import (board-scoped)
 	mux.HandleFunc("POST /api/boards/{id}/import/jira", s.requireAuth(s.handleImportJira))
+
+	// Import (global)
+	mux.HandleFunc("POST /api/import/jira/preview", s.requireAuth(s.handleImportJiraPreview))
+	mux.HandleFunc("POST /api/import/jira", s.requireAuth(s.handleImportJiraGlobal))
 
 	// Board single resource routes (after sub-resources for correct matching)
 	mux.HandleFunc("GET /api/boards/{id}/export", s.handleExportBoardCards)

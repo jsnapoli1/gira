@@ -4,7 +4,7 @@ import { Repository } from '../types';
 export interface AddSwimlaneModalProps {
   repos: Repository[];
   onClose: () => void;
-  onAdd: (data: { name: string; repoOwner: string; repoName: string; designator: string; color: string }) => void;
+  onAdd: (data: { name: string; repoOwner: string; repoName: string; designator: string; color: string; label: string }) => void;
 }
 
 export function AddSwimlaneModal({
@@ -16,11 +16,12 @@ export function AddSwimlaneModal({
   const [selectedRepo, setSelectedRepo] = useState('');
   const [designator, setDesignator] = useState('');
   const [color, setColor] = useState('#6366f1');
+  const [label, setLabel] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const [repoOwner, repoName] = selectedRepo.split('/');
-    onAdd({ name, repoOwner, repoName, designator, color });
+    onAdd({ name, repoOwner, repoName, designator, color, label });
   };
 
   const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4'];
@@ -69,6 +70,15 @@ export function AddSwimlaneModal({
               onChange={(e) => setDesignator(e.target.value)}
               placeholder="FE-"
               required
+            />
+          </div>
+          <div className="form-group">
+            <label>Label (optional)</label>
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g., PROJ"
             />
           </div>
           <div className="form-group">

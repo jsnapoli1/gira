@@ -42,6 +42,39 @@ export interface Swimlane {
   designator: string;
   position: number;
   color: string;
+  label: string;
+}
+
+export interface JiraProjectPreview {
+  key: string;
+  count: number;
+}
+
+export interface JiraProjectMapping {
+  project_key: string;
+  board_id: number;
+  swimlane_id: number;
+  create_board: boolean;
+  new_board_name: string;
+  board_template: string;
+  create_swimlane: boolean;
+  new_swimlane_name: string;
+  repo_owner: string;
+  repo_name: string;
+  designator: string;
+  label: string;
+  color: string;
+}
+
+export interface GlobalImportResult {
+  projects: {
+    key: string;
+    imported: number;
+    sprints_created: number;
+    labels_created: number;
+    errors: string[];
+  }[];
+  total_imported: number;
 }
 
 export interface Sprint {
