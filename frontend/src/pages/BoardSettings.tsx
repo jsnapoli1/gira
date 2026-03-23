@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
-import { boards as boardsApi, users as usersApi } from '../api/client';
-import { Board, Label, User, WorkflowRule, IssueTypeDefinition } from '../types';
-import { ChevronLeft, Trash2, Plus, ChevronUp, ChevronDown, Edit2, User as UserIcon } from 'lucide-react';
+import { AddSwimlaneModal } from '../components/AddSwimlaneModal';
+import { boards as boardsApi, users as usersApi, gitea, imports } from '../api/client';
+import { Board, Label, User, WorkflowRule, IssueTypeDefinition, Repository } from '../types';
+import { ChevronLeft, Trash2, Plus, ChevronUp, ChevronDown, Edit2, User as UserIcon, Download, Upload, X } from 'lucide-react';
 import { useToast } from '../components/Toast';
 
 export function BoardSettings() {
@@ -48,6 +49,18 @@ export function BoardSettings() {
   const [newIssueTypeColor, setNewIssueTypeColor] = useState('#6366f1');
   const [editingIssueType, setEditingIssueType] = useState<IssueTypeDefinition | null>(null);
 
+  // Swimlane add
+  const [showAddSwimlane, setShowAddSwimlane] = useState(false);
+  const [repos, setRepos] = useState<Repository[]>([]);
+
+  // Import/Export
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importProjectKeys, setImportProjectKeys] = useState<string[]>([]);
+  const [importSelectedProject, setImportSelectedProject] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
+
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -57,6 +70,7 @@ export function BoardSettings() {
     loadAllUsers();
     loadWorkflowRules();
     loadIssueTypes();
+    gitea.getRepos().then((data) => setRepos(data || [])).catch(() => setRepos([]));
   }, [boardId]);
 
   const loadBoard = async (showLoading = true) => {
@@ -376,6 +390,26 @@ export function BoardSettings() {
     setNewIssueTypeColor(issueType.color);
   };
 
+  const handleAddSwimlane = async (data: { name: string; repoOwner: string; repoName: string; designator: string; color: string; label: string }) => {
+    if (!board) return;
+    try {
+      await boardsApi.addSwimlane(board.id, {
+        name: data.name,
+        repo_owner: data.repoOwner,
+        repo_name: data.repoName,
+        designator: data.designator,
+        color: data.color,
+        label: data.label || undefined,
+      });
+      showToast('Swimlane added', 'success');
+      setShowAddSwimlane(false);
+      loadBoard();
+    } catch (err) {
+      console.error('Failed to add swimlane:', err);
+      showToast('Failed to add swimlane', 'error');
+    }
+  };
+
   const availableUsers = allUsers.filter((u) => !members.some((m) => m.user_id === u.id));
 
   if (loading) {
@@ -661,10 +695,10 @@ export function BoardSettings() {
           <section className="settings-section">
             <div className="section-header">
               <h2>Swimlanes</h2>
-              <Link to={`/boards/${board.id}`} className="btn btn-sm">
+              <button className="btn btn-sm" onClick={() => setShowAddSwimlane(true)}>
                 <Plus size={16} />
                 Add Swimlane
-              </Link>
+              </button>
             </div>
             <p className="section-description">
               Swimlanes group cards by repository. Each swimlane has a unique designator prefix.
@@ -740,6 +774,24 @@ export function BoardSettings() {
               {members.length === 0 && (
                 <p className="empty-list">No members configured</p>
               )}
+            </div>
+          </section>
+
+          {/* Import / Export */}
+          <section className="settings-section">
+            <h2>Import / Export</h2>
+            <p className="section-description">
+              Export all cards to CSV or import cards from a Jira CSV export.
+            </p>
+            <div className="form-actions">
+              <button className="btn" onClick={() => boardsApi.exportCards(board.id)}>
+                <Download size={16} />
+                Export to CSV
+              </button>
+              <button className="btn" onClick={() => { setShowImportModal(true); setImportFile(null); setImportProjectKeys([]); setImportSelectedProject(''); setImportResult(null); }}>
+                <Upload size={16} />
+                Import from Jira CSV
+              </button>
             </div>
           </section>
 
@@ -882,6 +934,105 @@ export function BoardSettings() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Add Swimlane Modal */}
+        {showAddSwimlane && (
+          <AddSwimlaneModal
+            repos={repos}
+            onClose={() => setShowAddSwimlane(false)}
+            onAdd={handleAddSwimlane}
+          />
+        )}
+
+        {/* Import Modal */}
+        {showImportModal && (
+          <div className="import-modal-overlay" onClick={() => setShowImportModal(false)}>
+            <div className="import-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="import-modal-header">
+                <h3>Import from Jira CSV</h3>
+                <button onClick={() => setShowImportModal(false)}><X size={16} /></button>
+              </div>
+              <div className="import-modal-body">
+                <label className="import-file-label">
+                  CSV File
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setImportFile(f);
+                      setImportResult(null);
+                      if (f) {
+                        imports.previewJira(f).then((data) => {
+                          const keys = (data.projects || []).map((p: { key: string }) => p.key).sort();
+                          setImportProjectKeys(keys);
+                        }).catch(() => setImportProjectKeys([]));
+                      } else {
+                        setImportProjectKeys([]);
+                      }
+                    }}
+                  />
+                </label>
+                {importProjectKeys.length > 0 && (
+                  <label className="import-file-label">
+                    Project
+                    <select
+                      value={importSelectedProject}
+                      onChange={(e) => setImportSelectedProject(e.target.value)}
+                      className="import-select"
+                    >
+                      <option value="">All Projects</option>
+                      {importProjectKeys.map(k => (
+                        <option key={k} value={k}>{k}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {importResult && (
+                  <div className="import-result">
+                    <p><strong>{importResult.imported}</strong> cards imported</p>
+                    {importResult.sprints_created > 0 && <p>{importResult.sprints_created} sprints created</p>}
+                    {importResult.labels_created > 0 && <p>{importResult.labels_created} labels created</p>}
+                    {importResult.errors?.length > 0 && (
+                      <details>
+                        <summary>{importResult.errors.length} error(s)</summary>
+                        <ul className="import-errors">
+                          {importResult.errors.map((e: string, i: number) => <li key={i}>{e}</li>)}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="import-modal-actions">
+                <button className="btn btn-ghost" onClick={() => setShowImportModal(false)}>
+                  {importResult ? 'Close' : 'Cancel'}
+                </button>
+                {!importResult && (
+                  <button
+                    className="btn btn-primary"
+                    disabled={!importFile || importLoading}
+                    onClick={async () => {
+                      if (!importFile || !board) return;
+                      setImportLoading(true);
+                      try {
+                        const result = await boardsApi.importJira(board.id, importFile, importSelectedProject);
+                        setImportResult(result);
+                        if (result.imported > 0) loadBoard();
+                      } catch (err: any) {
+                        showToast(err.message || 'Import failed', 'error');
+                      } finally {
+                        setImportLoading(false);
+                      }
+                    }}
+                  >
+                    {importLoading ? 'Importing...' : 'Import'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

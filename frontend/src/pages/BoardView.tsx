@@ -4,10 +4,9 @@ import { Layout } from '../components/Layout';
 import { CardDetailModal } from '../components/CardDetailModal';
 import { DroppableColumn } from '../components/DroppableColumn';
 import { BacklogView } from '../components/BacklogView';
-import { AddSwimlaneModal } from '../components/AddSwimlaneModal';
 import { AddCardModal } from '../components/AddCardModal';
-import { boards as boardsApi, cards as cardsApi, sprints as sprintsApi, gitea, users as usersApi, imports } from '../api/client';
-import { Board, Card, Sprint, Repository, User, Label, SavedFilter } from '../types';
+import { boards as boardsApi, cards as cardsApi, sprints as sprintsApi, users as usersApi } from '../api/client';
+import { Board, Card, Sprint, User, Label, SavedFilter } from '../types';
 import { useBoardSSE } from '../hooks/useBoardSSE';
 import { useToast } from '../components/Toast';
 import { useAuth } from '../context/AuthContext';
@@ -30,7 +29,7 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, Download, HelpCircle, Upload } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2 } from 'lucide-react';
 
 function SortableSwimlaneWrapper({ id, children }: { id: string; children: (dragHandleProps: Record<string, any>) => React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -59,19 +58,15 @@ export function BoardView() {
   const [board, setBoard] = useState<Board | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
-  const [repos, setRepos] = useState<Repository[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [boardLabels, setBoardLabels] = useState<Label[]>([]);
   const [customFields, setCustomFields] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCard, setActiveCard] = useState<Card | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
-  const [showAddSwimlane, setShowAddSwimlane] = useState(false);
   const [showAddCard, setShowAddCard] = useState<{ swimlaneId: number; columnId: number } | null>(null);
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [viewMode, setViewMode] = useState<'board' | 'backlog' | 'all'>('board');
-  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
-
   // Bulk selection state
   const [selectedCards, setSelectedCards] = useState<Set<number>>(new Set());
   const [bulkActionDropdown, setBulkActionDropdown] = useState<string | null>(null);
@@ -132,14 +127,6 @@ export function BoardView() {
       return !prev;
     });
   };
-
-  // Jira import state
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importProjectKeys, setImportProjectKeys] = useState<string[]>([]);
-  const [importSelectedProject, setImportSelectedProject] = useState('');
-  const [importLoading, setImportLoading] = useState(false);
-  const [importResult, setImportResult] = useState<any>(null);
 
   // Initialize filter state from URL search params
   const initializedRef = useRef(false);
@@ -264,7 +251,7 @@ export function BoardView() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       switch (e.key) {
         case '?':
-          setShowShortcutsHelp(prev => !prev);
+          window.dispatchEvent(new CustomEvent('zira:toggle-shortcuts'));
           break;
         case 'n':
           if (board?.swimlanes?.[0] && board?.columns?.[0]) {
@@ -279,23 +266,21 @@ export function BoardView() {
           document.querySelector<HTMLInputElement>('.search-input input')?.focus();
           break;
         case 'Escape':
-          if (showShortcutsHelp) setShowShortcutsHelp(false);
-          else if (selectedCard) setSelectedCard(null);
+          if (selectedCard) setSelectedCard(null);
           else if (selectedCards.size > 0) setSelectedCards(new Set());
           break;
       }
     }
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [board, selectedCard, selectedCards, showShortcutsHelp]);
+  }, [board, selectedCard, selectedCards]);
 
   const fetchBoardData = async () => {
     if (!boardId) return;
-    const [boardData, cardsData, sprintsData, reposData, usersData, labelsData, customFieldsData] = await Promise.all([
+    const [boardData, cardsData, sprintsData, usersData, labelsData, customFieldsData] = await Promise.all([
       boardsApi.get(parseInt(boardId)),
       boardsApi.getCards(parseInt(boardId)),
       sprintsApi.list(parseInt(boardId)),
-      gitea.getRepos().catch(() => []),
       usersApi.list().catch(() => []),
       boardsApi.getLabels(parseInt(boardId)).catch(() => []),
       boardsApi.getCustomFields(parseInt(boardId)).catch(() => []),
@@ -303,7 +288,6 @@ export function BoardView() {
     setBoard(boardData);
     setCards(cardsData || []);
     setSprints(sprintsData || []);
-    setRepos(reposData || []);
     setUsers(usersData || []);
     setBoardLabels(labelsData || []);
     setCustomFields(customFieldsData || []);
@@ -428,31 +412,6 @@ export function BoardView() {
       console.error('Failed to create card:', err);
       showToast('Failed to create card', 'error');
       throw err;
-    }
-  };
-
-  const handleAddSwimlane = async (data: {
-    name: string;
-    repoOwner: string;
-    repoName: string;
-    designator: string;
-    color: string;
-  }) => {
-    if (!board) return;
-    try {
-      await boardsApi.addSwimlane(board.id, {
-        name: data.name,
-        repo_owner: data.repoOwner,
-        repo_name: data.repoName,
-        designator: data.designator,
-        color: data.color,
-      });
-      refreshBoard();
-      setShowAddSwimlane(false);
-      showToast('Swimlane added', 'success');
-    } catch (err) {
-      console.error('Failed to add swimlane:', err);
-      showToast('Failed to add swimlane', 'error');
     }
   };
 
@@ -721,19 +680,6 @@ export function BoardView() {
                   All Cards
                 </button>
               </div>
-              <button className="btn btn-sm btn-ghost" onClick={() => boardsApi.exportCards(parseInt(boardId!))} title="Export to CSV">
-                <Download size={14} />
-              </button>
-              <button className="btn btn-sm btn-ghost" onClick={() => { setShowImportModal(true); setImportFile(null); setImportProjectKeys([]); setImportSelectedProject(''); setImportResult(null); }} title="Import from Jira CSV">
-                <Upload size={14} />
-              </button>
-              <button className="btn btn-sm btn-ghost" onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts (?)">
-                <HelpCircle size={14} />
-              </button>
-              <button className="btn" onClick={() => setShowAddSwimlane(true)}>
-                <Plus size={18} />
-                <span>Add Swimlane</span>
-              </button>
               <Link to={`/boards/${board.id}/settings`} className="btn">
                 <Settings size={18} />
               </Link>
@@ -927,10 +873,10 @@ export function BoardView() {
               ) : (board.swimlanes || []).length === 0 ? (
                 <div className="empty-swimlanes">
                   <p>Add a swimlane to start tracking issues from a repository</p>
-                  <button className="btn btn-primary" onClick={() => setShowAddSwimlane(true)}>
+                  <Link to={`/boards/${board.id}/settings`} className="btn btn-primary">
                     <Plus size={18} />
                     <span>Add Swimlane</span>
-                  </button>
+                  </Link>
                 </div>
               ) : (() => {
                 const gridTemplate = `var(--gutter-width) repeat(${(board.columns || []).length}, minmax(250px, 320px))`;
@@ -1055,14 +1001,6 @@ export function BoardView() {
           />
         )}
 
-        {/* Add Swimlane Modal */}
-        {showAddSwimlane && (
-          <AddSwimlaneModal
-            repos={repos}
-            onClose={() => setShowAddSwimlane(false)}
-            onAdd={handleAddSwimlane}
-          />
-        )}
 
         {/* Add Card Modal */}
         {showAddCard && (
@@ -1156,120 +1094,6 @@ export function BoardView() {
           />
         )}
       </div>
-      {showImportModal && (
-        <div className="import-modal-overlay" onClick={() => setShowImportModal(false)}>
-          <div className="import-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="import-modal-header">
-              <h3>Import from Jira CSV</h3>
-              <button onClick={() => setShowImportModal(false)}><X size={16} /></button>
-            </div>
-            <div className="import-modal-body">
-              <label className="import-file-label">
-                CSV File
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0] || null;
-                    setImportFile(f);
-                    setImportResult(null);
-                    if (f) {
-                      // Use server-side preview to correctly parse CSV (handles quoted multi-line fields)
-                      imports.previewJira(f).then((data) => {
-                        const keys = (data.projects || []).map((p: { key: string }) => p.key).sort();
-                        setImportProjectKeys(keys);
-                      }).catch(() => {
-                        setImportProjectKeys([]);
-                      });
-                    } else {
-                      setImportProjectKeys([]);
-                    }
-                  }}
-                />
-              </label>
-              {importProjectKeys.length > 0 && (
-                <label className="import-file-label">
-                  Project
-                  <select
-                    value={importSelectedProject}
-                    onChange={(e) => setImportSelectedProject(e.target.value)}
-                    className="import-select"
-                  >
-                    <option value="">All Projects</option>
-                    {importProjectKeys.map(k => (
-                      <option key={k} value={k}>{k}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {importResult && (
-                <div className="import-result">
-                  <p><strong>{importResult.imported}</strong> cards imported</p>
-                  {importResult.sprints_created > 0 && <p>{importResult.sprints_created} sprints created</p>}
-                  {importResult.labels_created > 0 && <p>{importResult.labels_created} labels created</p>}
-                  {importResult.errors?.length > 0 && (
-                    <details>
-                      <summary>{importResult.errors.length} error(s)</summary>
-                      <ul className="import-errors">
-                        {importResult.errors.map((e: string, i: number) => <li key={i}>{e}</li>)}
-                      </ul>
-                    </details>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="import-modal-actions">
-              <button className="btn btn-ghost" onClick={() => setShowImportModal(false)}>
-                {importResult ? 'Close' : 'Cancel'}
-              </button>
-              {!importResult && (
-                <button
-                  className="btn btn-primary"
-                  disabled={!importFile || importLoading}
-                  onClick={async () => {
-                    if (!importFile) return;
-                    setImportLoading(true);
-                    try {
-                      const result = await boardsApi.importJira(parseInt(boardId!), importFile, importSelectedProject);
-                      setImportResult(result);
-                      if (result.imported > 0) {
-                        refreshBoard();
-                      }
-                    } catch (err: any) {
-                      showToast(err.message || 'Import failed', 'error');
-                    } finally {
-                      setImportLoading(false);
-                    }
-                  }}
-                >
-                  {importLoading ? 'Importing...' : 'Import'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showShortcutsHelp && (
-        <div className="shortcuts-modal-overlay" onClick={() => setShowShortcutsHelp(false)}>
-          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="shortcuts-modal-header">
-              <h3>Keyboard Shortcuts</h3>
-              <button onClick={() => setShowShortcutsHelp(false)}><X size={16} /></button>
-            </div>
-            <table className="shortcuts-table">
-              <tbody>
-                <tr><td><kbd>?</kbd></td><td>Show/hide shortcuts</td></tr>
-                <tr><td><kbd>n</kbd></td><td>New card</td></tr>
-                <tr><td><kbd>b</kbd></td><td>Toggle board/backlog</td></tr>
-                <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
-                <tr><td><kbd>s</kbd></td><td>Toggle selection mode</td></tr>
-                <tr><td><kbd>Esc</kbd></td><td>Close modal / deselect</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </Layout>
   );
 }

@@ -1,7 +1,7 @@
 import { ReactNode, useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LayoutDashboard, Kanban, BarChart3, Settings, LogOut, User, ChevronLeft, ChevronRight, Bell, Check, X, Menu } from 'lucide-react';
+import { LayoutDashboard, Kanban, BarChart3, Settings, LogOut, User, ChevronLeft, ChevronRight, Bell, Check, X, Menu, HelpCircle } from 'lucide-react';
 import { notifications as notificationsApi } from '../api/client';
 import type { Notification } from '../types';
 
@@ -23,6 +23,7 @@ export function Layout({ children }: LayoutProps) {
   const [notificationsList, setNotificationsList] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,6 +50,13 @@ export function Layout({ children }: LayoutProps) {
     };
     window.addEventListener('zira:notification', handleSSENotification);
     return () => window.removeEventListener('zira:notification', handleSSENotification);
+  }, []);
+
+  // Listen for keyboard shortcut toggle dispatched from BoardView
+  useEffect(() => {
+    const handleToggleShortcuts = () => setShowShortcuts(prev => !prev);
+    window.addEventListener('zira:toggle-shortcuts', handleToggleShortcuts);
+    return () => window.removeEventListener('zira:toggle-shortcuts', handleToggleShortcuts);
   }, []);
 
   // Close dropdown on outside click
@@ -182,6 +190,14 @@ export function Layout({ children }: LayoutProps) {
         </button>
 
         <div className="sidebar-footer">
+          <button
+            className="nav-item"
+            onClick={() => setShowShortcuts(prev => !prev)}
+            title="Keyboard shortcuts (?)"
+          >
+            <HelpCircle size={20} />
+            {!collapsed && <span>Shortcuts</span>}
+          </button>
           <div className="notification-container" ref={notificationRef}>
             <button
               className="notification-bell"
@@ -253,6 +269,27 @@ export function Layout({ children }: LayoutProps) {
           </button>
         </div>
       </aside>
+
+      {showShortcuts && (
+        <div className="shortcuts-modal-overlay" onClick={() => setShowShortcuts(false)}>
+          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="shortcuts-modal-header">
+              <h3>Keyboard Shortcuts</h3>
+              <button onClick={() => setShowShortcuts(false)}><X size={16} /></button>
+            </div>
+            <table className="shortcuts-table">
+              <tbody>
+                <tr><td><kbd>?</kbd></td><td>Show/hide shortcuts</td></tr>
+                <tr><td><kbd>n</kbd></td><td>New card</td></tr>
+                <tr><td><kbd>b</kbd></td><td>Toggle board/backlog</td></tr>
+                <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
+                <tr><td><kbd>s</kbd></td><td>Toggle selection mode</td></tr>
+                <tr><td><kbd>Esc</kbd></td><td>Close modal / deselect</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <main className="main-content">
         {children}
