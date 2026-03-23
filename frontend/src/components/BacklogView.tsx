@@ -315,9 +315,14 @@ export function BacklogView({
   const [draggedCard, setDraggedCard] = useState<Card | null>(null);
   const [draggedSwimlane, setDraggedSwimlane] = useState<Swimlane | null>(null);
 
+  const closedColumnIds = new Set(columns.filter(c => c.state === 'closed').map(c => c.id));
+
   // Cards not assigned to any visible sprint
   const visibleSprintIds = new Set(visibleSprints.map(s => s.id));
-  const backlogCards = cards.filter(c => c.sprint_id === null || !visibleSprintIds.has(c.sprint_id));
+  const backlogCards = cards.filter(c =>
+    !closedColumnIds.has(c.column_id) &&
+    (c.sprint_id === null || !visibleSprintIds.has(c.sprint_id))
+  );
 
   const handleDragStart = (event: DragStartEvent) => {
     const card = (event.active.data.current as { card?: Card })?.card;
@@ -447,7 +452,7 @@ export function BacklogView({
         </div>
       ) : (
         visibleSprints.map(sprint => {
-          const sprintCards = cards.filter(c => c.sprint_id === sprint.id);
+          const sprintCards = cards.filter(c => c.sprint_id === sprint.id && !closedColumnIds.has(c.column_id));
           const isCollapsed = collapsedSprints.has(sprint.id);
           return (
             <div key={sprint.id} className="backlog-sprint-panel">
