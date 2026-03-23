@@ -117,3 +117,7 @@ Set via environment variables or `~/.config/zira/config.json`:
 ### Refactoring Tracker
 
 See `TODO.md` for the prioritized refactoring backlog. Items are designed to be completed independently.
+
+## Workflow
+
+- **Always commit and push changes immediately** after completing work. Do not defer commits to the end of the session.
