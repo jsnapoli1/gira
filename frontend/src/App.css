@@ -782,21 +782,6 @@ body {
   flex-wrap: wrap;
 }
 
-.board-header-filters {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 1.5rem;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-}
-
-.filters-always-visible {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 .filter-toggle-btn {
   display: flex;
   align-items: center;
@@ -838,9 +823,9 @@ body {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
-  padding-top: 0.5rem;
+  padding: 0.5rem 1.5rem;
   border-top: 1px solid var(--border);
-  margin-top: 0.25rem;
+  background: var(--bg);
 }
 
 .filter-item {

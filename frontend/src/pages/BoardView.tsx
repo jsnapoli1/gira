@@ -544,11 +544,6 @@ export function BoardView() {
 
   const hasActiveFilters = !!(filterAssignee || filterLabel || filterSwimlane || filterPriority || filterOverdue || searchQuery);
 
-  // Count overdue cards
-  const overdueCount = useMemo(() => {
-    const now = new Date();
-    return cards.filter((c) => c.due_date && new Date(c.due_date) < now).length;
-  }, [cards]);
 
   // Closed column IDs (state === 'closed')
   const closedColumnIds = useMemo(() => {
@@ -652,14 +647,71 @@ export function BoardView() {
                   </span>
                 </span>
               )}
-              {overdueCount > 0 && (
-                <span className="overdue-badge" title={`${overdueCount} overdue card${overdueCount === 1 ? '' : 's'}`}>
-                  <AlertTriangle size={14} />
-                  {overdueCount} overdue
-                </span>
-              )}
             </div>
             <div className="board-header-actions">
+              <div className="search-input">
+                <Search size={14} />
+                <input
+                  type="text"
+                  placeholder="Search cards..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <button
+                className={`filter-toggle-btn ${filtersExpanded ? 'active' : ''} ${hasActiveFilters ? 'has-filters' : ''}`}
+                onClick={() => setFiltersExpanded(!filtersExpanded)}
+                title={filtersExpanded ? 'Hide filters' : 'Show filters'}
+              >
+                <Filter size={14} />
+                {hasActiveFilters && <span className="filter-active-dot" />}
+              </button>
+              {hasActiveFilters && (
+                <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setFilterOverdue(false); setSearchQuery(''); }} title="Clear all filters">
+                  <X size={14} />
+                </button>
+              )}
+              <div className="saved-filters-container" ref={savedFiltersRef}>
+                <button
+                  className={`saved-filters-btn ${showSavedFilters ? 'active' : ''}`}
+                  onClick={() => setShowSavedFilters(!showSavedFilters)}
+                  title="Saved filters"
+                >
+                  <BookmarkCheck size={14} />
+                  {savedFilters.length > 0 && (
+                    <span className="saved-filters-count">{savedFilters.length}</span>
+                  )}
+                </button>
+                {showSavedFilters && (
+                  <div className="saved-filters-dropdown">
+                    {savedFilters.length === 0 ? (
+                      <div className="saved-filters-empty">No saved filters</div>
+                    ) : (
+                      savedFilters.map((sf) => (
+                        <div key={sf.id} className="saved-filter-item">
+                          <button className="saved-filter-apply" onClick={() => applySavedFilter(sf)}>
+                            <span className="saved-filter-name">{sf.name}</span>
+                            {sf.is_shared && (
+                              <span className="saved-filter-shared" title="Shared filter">
+                                <Share2 size={11} />
+                              </span>
+                            )}
+                          </button>
+                          {currentUser && sf.owner_id === currentUser.id && (
+                            <button
+                              className="saved-filter-delete"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteFilter(sf.id); }}
+                              title="Delete filter"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="view-toggle">
                 <button
                   className={`view-btn ${viewMode === 'board' ? 'active' : ''}`}
@@ -685,145 +737,74 @@ export function BoardView() {
               </Link>
             </div>
           </div>
-          <div className={`board-header-filters ${filtersExpanded ? 'expanded' : ''}`} aria-label="Filter controls">
-            {/* Always visible: search + filter toggle */}
-            <div className="filters-always-visible">
-              {pinnedFilters.has('search') && (
-                <div className="search-input">
-                  <Search size={14} />
-                  <input
-                    type="text"
-                    placeholder="Search cards..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-              )}
+          {filtersExpanded && (
+            <div className="filters-expanded" aria-label="Filter controls">
+              <div className="filter-item" onDoubleClick={() => togglePinnedFilter('swimlane')}>
+                <select
+                  value={filterSwimlane || ''}
+                  onChange={(e) => setFilterSwimlane(e.target.value ? parseInt(e.target.value) : null)}
+                  className="filter-select"
+                >
+                  <option value="">All swimlanes</option>
+                  {(board?.swimlanes || []).map((sl) => (
+                    <option key={sl.id} value={sl.id}>{sl.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="filter-item" onDoubleClick={() => togglePinnedFilter('assignee')}>
+                <select
+                  value={filterAssignee || ''}
+                  onChange={(e) => setFilterAssignee(e.target.value ? parseInt(e.target.value) : null)}
+                  className="filter-select"
+                >
+                  <option value="">All assignees</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>{user.display_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="filter-item" onDoubleClick={() => togglePinnedFilter('label')}>
+                <select
+                  value={filterLabel || ''}
+                  onChange={(e) => setFilterLabel(e.target.value ? parseInt(e.target.value) : null)}
+                  className="filter-select"
+                >
+                  <option value="">All labels</option>
+                  {boardLabels.map((label) => (
+                    <option key={label.id} value={label.id}>{label.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="filter-item" onDoubleClick={() => togglePinnedFilter('priority')}>
+                <select
+                  value={filterPriority || ''}
+                  onChange={(e) => setFilterPriority(e.target.value || null)}
+                  className="filter-select"
+                >
+                  <option value="">All priorities</option>
+                  <option value="highest">Highest</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                  <option value="lowest">Lowest</option>
+                </select>
+              </div>
               <button
-                className={`filter-toggle-btn ${filtersExpanded ? 'active' : ''} ${hasActiveFilters ? 'has-filters' : ''}`}
-                onClick={() => setFiltersExpanded(!filtersExpanded)}
-                title={filtersExpanded ? 'Hide filters' : 'Show filters'}
+                className={`filter-overdue ${filterOverdue ? 'active' : ''}`}
+                onClick={() => setFilterOverdue(!filterOverdue)}
+                title="Show only overdue cards"
+                onDoubleClick={() => togglePinnedFilter('overdue')}
               >
-                <Filter size={14} />
-                {hasActiveFilters && <span className="filter-active-dot" />}
+                <AlertTriangle size={14} />
+                Overdue
               </button>
               {hasActiveFilters && (
-                <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setFilterOverdue(false); setSearchQuery(''); }} title="Clear all filters">
-                  <X size={14} />
+                <button className="save-filter-btn" onClick={() => setShowSaveFilterModal(true)} title="Save current filters">
+                  <Save size={14} />
                 </button>
               )}
-              <div className="saved-filters-container" ref={savedFiltersRef}>
-                <button
-                  className={`saved-filters-btn ${showSavedFilters ? 'active' : ''}`}
-                  onClick={() => setShowSavedFilters(!showSavedFilters)}
-                  title="Saved filters"
-                >
-                  <BookmarkCheck size={14} />
-                  {savedFilters.length > 0 && (
-                    <span className="saved-filters-count">{savedFilters.length}</span>
-                  )}
-                </button>
-              {showSavedFilters && (
-                <div className="saved-filters-dropdown">
-                  {savedFilters.length === 0 ? (
-                    <div className="saved-filters-empty">No saved filters</div>
-                  ) : (
-                    savedFilters.map((sf) => (
-                      <div key={sf.id} className="saved-filter-item">
-                        <button className="saved-filter-apply" onClick={() => applySavedFilter(sf)}>
-                          <span className="saved-filter-name">{sf.name}</span>
-                          {sf.is_shared && (
-                            <span className="saved-filter-shared" title="Shared filter">
-                              <Share2 size={11} />
-                            </span>
-                          )}
-                        </button>
-                        {currentUser && sf.owner_id === currentUser.id && (
-                          <button
-                            className="saved-filter-delete"
-                            onClick={(e) => { e.stopPropagation(); handleDeleteFilter(sf.id); }}
-                            title="Delete filter"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
             </div>
-            </div>
-            {/* Expandable filters */}
-            {filtersExpanded && (
-              <div className="filters-expanded">
-                <div className="filter-item" onDoubleClick={() => togglePinnedFilter('swimlane')}>
-                  <select
-                    value={filterSwimlane || ''}
-                    onChange={(e) => setFilterSwimlane(e.target.value ? parseInt(e.target.value) : null)}
-                    className="filter-select"
-                  >
-                    <option value="">All swimlanes</option>
-                    {(board?.swimlanes || []).map((sl) => (
-                      <option key={sl.id} value={sl.id}>{sl.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="filter-item" onDoubleClick={() => togglePinnedFilter('assignee')}>
-                  <select
-                    value={filterAssignee || ''}
-                    onChange={(e) => setFilterAssignee(e.target.value ? parseInt(e.target.value) : null)}
-                    className="filter-select"
-                  >
-                    <option value="">All assignees</option>
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>{user.display_name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="filter-item" onDoubleClick={() => togglePinnedFilter('label')}>
-                  <select
-                    value={filterLabel || ''}
-                    onChange={(e) => setFilterLabel(e.target.value ? parseInt(e.target.value) : null)}
-                    className="filter-select"
-                  >
-                    <option value="">All labels</option>
-                    {boardLabels.map((label) => (
-                      <option key={label.id} value={label.id}>{label.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="filter-item" onDoubleClick={() => togglePinnedFilter('priority')}>
-                  <select
-                    value={filterPriority || ''}
-                    onChange={(e) => setFilterPriority(e.target.value || null)}
-                    className="filter-select"
-                  >
-                    <option value="">All priorities</option>
-                    <option value="highest">Highest</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                    <option value="lowest">Lowest</option>
-                  </select>
-                </div>
-                <button
-                  className={`filter-overdue ${filterOverdue ? 'active' : ''}`}
-                  onClick={() => setFilterOverdue(!filterOverdue)}
-                  title="Show only overdue cards"
-                  onDoubleClick={() => togglePinnedFilter('overdue')}
-                >
-                  <AlertTriangle size={14} />
-                  Overdue
-                </button>
-                {hasActiveFilters && (
-                  <button className="save-filter-btn" onClick={() => setShowSaveFilterModal(true)} title="Save current filters">
-                    <Save size={14} />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          )}
         </div>
         {/* Save Filter Modal */}
         {showSaveFilterModal && (
