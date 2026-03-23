@@ -923,12 +923,6 @@ export function BoardView() {
                 </div>
               ) : (
                 <>
-                {/* Column background strips - creates depth behind swimlanes */}
-                <div className="board-column-backgrounds">
-                  {(board.columns || []).map((column, index) => (
-                    <div key={column.id} className={`board-column-bg ${index % 2 === 0 ? 'even' : 'odd'}`} />
-                  ))}
-                </div>
                 {/* Unified column headers - shown once above all swimlanes */}
                 <div className="board-column-headers">
                   {(board.columns || []).map((column) => {
@@ -969,6 +963,12 @@ export function BoardView() {
                     </div>
                     {!isCollapsed && (
                     <div className="swimlane-columns">
+                      {/* Column background strips aligned to actual columns */}
+                      <div className="swimlane-column-backgrounds" aria-hidden="true">
+                        {(board.columns || []).map((column, index) => (
+                          <div key={column.id} className={`swimlane-column-bg ${index % 2 === 0 ? 'even' : 'odd'}`} />
+                        ))}
+                      </div>
                       {(board.columns || []).map((column) => (
                         <DroppableColumn
                           key={column.id}

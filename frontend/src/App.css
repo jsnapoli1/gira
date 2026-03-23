@@ -1041,35 +1041,32 @@ body {
   display: flex;
   gap: 1rem;
   position: relative;
-  z-index: 1;
 }
 
-/* Column background strips - creates depth spanning all swimlanes */
-.board-column-backgrounds {
+/* Column background strips - sit inside swimlane-columns so they align perfectly */
+.swimlane-column-backgrounds {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: -6px -4px; /* extend slightly beyond padding */
   display: flex;
   gap: 1rem;
   pointer-events: none;
   z-index: 0;
 }
 
-.board-column-bg {
+.swimlane-column-bg {
   flex: 1;
   min-width: 250px;
   max-width: 320px;
-  border-radius: 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
 }
 
-.board-column-bg.odd {
-  background: rgba(0, 0, 0, 0.02);
+.swimlane-column-bg.even {
+  background: rgba(0, 0, 0, 0.03);
 }
 
-.board-column-bg.even {
-  background: rgba(0, 0, 0, 0.04);
+.swimlane-column-bg.odd {
+  background: transparent;
 }
 
 /* Unified Column Headers */
@@ -1110,6 +1107,8 @@ body {
   max-width: 320px;
   background: transparent;
   border-radius: 8px;
+  position: relative;
+  z-index: 1;
 }
 
 .column-header {
