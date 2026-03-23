@@ -1468,6 +1468,33 @@ body {
   gap: 0.75rem;
 }
 
+.backlog-sprint-collapse-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-secondary);
+  vertical-align: middle;
+  margin-right: 0.25rem;
+}
+
+.backlog-sprint-panel + .backlog-sprint-panel {
+  margin-top: 0.75rem;
+}
+
+.backlog-sprint-select {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  max-width: 110px;
+}
+
 .sprint-card-count {
   font-size: 0.8rem;
   font-weight: 500;

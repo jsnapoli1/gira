@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { cards as cardsApi, sprints as sprintsApi, boards as boardsApi } from '../api/client';
 import { Card, Column, Swimlane, Sprint } from '../types';
 import { useToast } from '../components/Toast';
-import { Plus, Calendar, Play, CheckCircle, ArrowRight, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
+import { Plus, Calendar, Play, CheckCircle, ArrowRight, ChevronDown, ChevronRight, GripVertical, Pencil } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -135,11 +135,28 @@ export function BacklogView({
   const [addingCardToSwimlane, setAddingCardToSwimlane] = useState<number | null>(null);
   const [newCardTitle, setNewCardTitle] = useState('');
   const [collapsedSwimlanes, setCollapsedSwimlanes] = useState<Set<number>>(new Set());
+  const [collapsedSprints, setCollapsedSprints] = useState<Set<number>>(new Set());
+
+  // Edit sprint state
+  const [editingSprint, setEditingSprint] = useState<Sprint | null>(null);
+  const [editSprintName, setEditSprintName] = useState('');
+  const [editSprintGoal, setEditSprintGoal] = useState('');
+  const [editSprintStartDate, setEditSprintStartDate] = useState('');
+  const [editSprintEndDate, setEditSprintEndDate] = useState('');
+  const [savingEditSprint, setSavingEditSprint] = useState(false);
+
   const { showToast } = useToast();
 
-  const activeSprint = sprints.find((s) => s.status === 'active');
-  const planningSprint = sprints.find((s) => s.status === 'planning');
-  const currentSprint = activeSprint || planningSprint;
+  // All non-completed sprints, active first then planning
+  const visibleSprints = sprints
+    .filter(s => s.status !== 'completed')
+    .sort((a, b) => {
+      if (a.status === 'active') return -1;
+      if (b.status === 'active') return 1;
+      return 0;
+    });
+
+  const activeSprint = sprints.find(s => s.status === 'active');
 
   const handleCreateSprint = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,7 +176,6 @@ export function BacklogView({
   };
 
   const handleStartSprint = async (sprintId: number) => {
-    // Optimistic update
     onSprintsChange(sprints.map(s => s.id === sprintId ? { ...s, status: 'active' as const } : s));
     try {
       await sprintsApi.start(sprintId);
@@ -183,12 +199,39 @@ export function BacklogView({
     }
   };
 
-  const handleMoveToSprint = async (cardId: number) => {
-    if (!currentSprint) return;
-    // Optimistic update
-    onCardsChange(cards.map(c => c.id === cardId ? { ...c, sprint_id: currentSprint.id } : c));
+  const openEditSprint = (sprint: Sprint) => {
+    setEditingSprint(sprint);
+    setEditSprintName(sprint.name);
+    setEditSprintGoal(sprint.goal || '');
+    setEditSprintStartDate(sprint.start_date ? sprint.start_date.slice(0, 10) : '');
+    setEditSprintEndDate(sprint.end_date ? sprint.end_date.slice(0, 10) : '');
+  };
+
+  const handleEditSprintSave = async () => {
+    if (!editingSprint) return;
+    setSavingEditSprint(true);
     try {
-      await cardsApi.assignToSprint(cardId, currentSprint.id);
+      const updated = await sprintsApi.update(editingSprint.id, {
+        name: editSprintName,
+        goal: editSprintGoal,
+        start_date: editSprintStartDate || undefined,
+        end_date: editSprintEndDate || undefined,
+      });
+      onSprintsChange(sprints.map(s => s.id === updated.id ? updated : s));
+      setEditingSprint(null);
+      showToast('Sprint updated', 'success');
+    } catch (err) {
+      console.error('Failed to update sprint:', err);
+      showToast('Failed to update sprint', 'error');
+    } finally {
+      setSavingEditSprint(false);
+    }
+  };
+
+  const handleMoveToSprint = async (cardId: number, sprintId: number) => {
+    onCardsChange(cards.map(c => c.id === cardId ? { ...c, sprint_id: sprintId } : c));
+    try {
+      await cardsApi.assignToSprint(cardId, sprintId);
     } catch (err) {
       console.error('Failed to assign card:', err);
       showToast('Failed to move card to sprint', 'error');
@@ -197,7 +240,6 @@ export function BacklogView({
   };
 
   const handleRemoveFromSprint = async (cardId: number) => {
-    // Optimistic update
     onCardsChange(cards.map(c => c.id === cardId ? { ...c, sprint_id: null } : c));
     try {
       await cardsApi.assignToSprint(cardId, null);
@@ -245,6 +287,14 @@ export function BacklogView({
     });
   };
 
+  const toggleSprint = (id: number) => {
+    setCollapsedSprints(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -252,8 +302,9 @@ export function BacklogView({
   const [draggedCard, setDraggedCard] = useState<Card | null>(null);
   const [draggedSwimlane, setDraggedSwimlane] = useState<Swimlane | null>(null);
 
-  const backlogCards = cards.filter((c) => c.sprint_id === null);
-  const sprintCards = currentSprint ? cards.filter((c) => c.sprint_id === currentSprint.id) : [];
+  // Cards not assigned to any visible sprint
+  const visibleSprintIds = new Set(visibleSprints.map(s => s.id));
+  const backlogCards = cards.filter(c => c.sprint_id === null || !visibleSprintIds.has(c.sprint_id));
 
   const handleDragStart = (event: DragStartEvent) => {
     const card = (event.active.data.current as { card?: Card })?.card;
@@ -278,7 +329,6 @@ export function BacklogView({
       const newIndex = swimlanes.findIndex(s => s.id === targetSwimlaneId);
       if (oldIndex === -1 || newIndex === -1) return;
 
-      // Optimistic update
       const reordered = arrayMove(swimlanes, oldIndex, newIndex);
       const updatedSwimlanes = reordered.map((s, idx) => ({ ...s, position: idx }));
       onSwimlanesChange(updatedSwimlanes);
@@ -296,10 +346,11 @@ export function BacklogView({
     const card = cards.find(c => c.id === cardId);
     if (!card) return;
 
-    // Dropped on sprint drop zone
-    if (String(over.id) === 'sprint-drop-zone' && currentSprint) {
-      if (card.sprint_id !== currentSprint.id) {
-        handleMoveToSprint(cardId);
+    // Dropped on a sprint drop zone
+    if (String(over.id).startsWith('sprint-drop-zone-')) {
+      const targetSprintId = parseInt(String(over.id).replace('sprint-drop-zone-', ''));
+      if (card.sprint_id !== targetSprintId) {
+        handleMoveToSprint(cardId, targetSprintId);
       }
       return;
     }
@@ -309,28 +360,29 @@ export function BacklogView({
     const targetCard = cards.find(c => c.id === targetCardId);
     if (!targetCard || targetCard.id === card.id) return;
 
-    if (currentSprint) {
-      // Cross-list moves
-      if (card.sprint_id === null && targetCard.sprint_id === currentSprint.id) {
-        handleMoveToSprint(cardId);
-        return;
-      }
-      if (card.sprint_id === currentSprint.id && targetCard.sprint_id === null) {
-        handleRemoveFromSprint(cardId);
-        return;
-      }
+    // Cross-list move: backlog -> sprint
+    if (card.sprint_id === null && targetCard.sprint_id !== null && visibleSprintIds.has(targetCard.sprint_id)) {
+      handleMoveToSprint(cardId, targetCard.sprint_id);
+      return;
+    }
+    // Cross-list move: sprint -> backlog
+    if (card.sprint_id !== null && targetCard.sprint_id === null) {
+      handleRemoveFromSprint(cardId);
+      return;
+    }
+    // Cross-sprint move
+    if (card.sprint_id !== null && targetCard.sprint_id !== null && card.sprint_id !== targetCard.sprint_id) {
+      handleMoveToSprint(cardId, targetCard.sprint_id);
+      return;
     }
 
-    // Same-list reorder: optimistic local update
+    // Same-list reorder
     if (card.sprint_id === targetCard.sprint_id && card.swimlane_id === targetCard.swimlane_id) {
       const oldIndex = cards.findIndex(c => c.id === card.id);
       const newIndex = cards.findIndex(c => c.id === targetCard.id);
       if (oldIndex === -1 || newIndex === -1) return;
 
-      // Reorder the cards array so the render order reflects the drag
       const reordered = arrayMove(cards, oldIndex, newIndex);
-
-      // Assign sequential positions based on new order within the same swimlane+sprint
       const listIds = reordered
         .filter(c => c.sprint_id === card.sprint_id && c.swimlane_id === card.swimlane_id)
         .map(c => c.id);
@@ -369,74 +421,9 @@ export function BacklogView({
       onDragEnd={handleDragEnd}
     >
     <div className="backlog-view">
-      {/* Sprint Section */}
-      <div className="backlog-sprint-panel">
-        {currentSprint ? (
-          <>
-            <div className="backlog-sprint-header">
-              <div className="backlog-sprint-info">
-                <h2>
-                  {currentSprint.name}
-                  <span className={`sprint-status-badge ${currentSprint.status}`}>
-                    {currentSprint.status === 'active' ? 'Active' : 'Planning'}
-                  </span>
-                </h2>
-                {(currentSprint.start_date || currentSprint.end_date) && (
-                  <span className="sprint-dates">
-                    <Calendar size={14} />
-                    {currentSprint.start_date && new Date(currentSprint.start_date).toLocaleDateString()}
-                    {currentSprint.start_date && currentSprint.end_date && ' – '}
-                    {currentSprint.end_date && new Date(currentSprint.end_date).toLocaleDateString()}
-                  </span>
-                )}
-                {currentSprint.goal && <p className="sprint-goal">{currentSprint.goal}</p>}
-              </div>
-              <div className="backlog-sprint-actions">
-                <span className="sprint-card-count">{sprintCards.length} cards</span>
-                {currentSprint.status === 'planning' && (
-                  <button className="btn btn-primary btn-sm" onClick={() => handleStartSprint(currentSprint.id)}>
-                    <Play size={14} />
-                    Start Sprint
-                  </button>
-                )}
-                {currentSprint.status === 'active' && (
-                  <button className="btn btn-sm" onClick={() => handleCompleteSprint(currentSprint.id)}>
-                    <CheckCircle size={14} />
-                    Complete Sprint
-                  </button>
-                )}
-              </div>
-            </div>
-            <SprintDropZone id="sprint-drop-zone">
-              <SortableContext items={sprintCards.map(c => `backlog-${c.id}`)} strategy={verticalListSortingStrategy}>
-                {sprintCards.length === 0 ? (
-                  <div className="backlog-empty">
-                    No cards in sprint. Drag cards here or use the arrow buttons below.
-                  </div>
-                ) : (
-                  sprintCards.map((card) => (
-                    <SortableBacklogCard
-                      key={card.id}
-                      card={card}
-                      designator={getSwimlaneName(card.swimlane_id)}
-                      priorityColor={getPriorityColor(card.priority)}
-                      onClick={() => onCardClick(card)}
-                      actionButton={
-                        <button
-                          className="btn btn-ghost btn-xs backlog-remove-btn"
-                          onClick={(e) => { e.stopPropagation(); handleRemoveFromSprint(card.id); }}
-                          title="Remove from sprint"
-                        >
-                          ✕
-                        </button>
-                      }
-                    />
-                  ))
-                )}
-              </SortableContext>
-            </SprintDropZone>
-          </>
-        ) : (
+      {/* Sprint Panels */}
+      {visibleSprints.length === 0 ? (
+        <div className="backlog-sprint-panel">
           <div className="backlog-no-sprint">
             <p>No sprint yet. Create one to start organizing your work.</p>
             <button className="btn btn-primary" onClick={() => setShowCreateSprint(true)}>
@@ -444,19 +431,100 @@ export function BacklogView({
               Create Sprint
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        visibleSprints.map(sprint => {
+          const sprintCards = cards.filter(c => c.sprint_id === sprint.id);
+          const isCollapsed = collapsedSprints.has(sprint.id);
+          return (
+            <div key={sprint.id} className="backlog-sprint-panel">
+              <div className="backlog-sprint-header">
+                <div className="backlog-sprint-info">
+                  <h2>
+                    <button className="backlog-sprint-collapse-btn" onClick={() => toggleSprint(sprint.id)}>
+                      {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                    {sprint.name}
+                    <span className={`sprint-status-badge ${sprint.status}`}>
+                      {sprint.status === 'active' ? 'Active' : 'Planning'}
+                    </span>
+                  </h2>
+                  {(sprint.start_date || sprint.end_date) && (
+                    <span className="sprint-dates">
+                      <Calendar size={14} />
+                      {sprint.start_date && new Date(sprint.start_date).toLocaleDateString()}
+                      {sprint.start_date && sprint.end_date && ' – '}
+                      {sprint.end_date && new Date(sprint.end_date).toLocaleDateString()}
+                    </span>
+                  )}
+                  {sprint.goal && <p className="sprint-goal">{sprint.goal}</p>}
+                </div>
+                <div className="backlog-sprint-actions">
+                  <span className="sprint-card-count">{sprintCards.length} cards</span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => openEditSprint(sprint)}
+                    title="Edit sprint"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  {sprint.status === 'planning' && (
+                    <button className="btn btn-primary btn-sm" onClick={() => handleStartSprint(sprint.id)} disabled={!!activeSprint}>
+                      <Play size={14} />
+                      Start Sprint
+                    </button>
+                  )}
+                  {sprint.status === 'active' && (
+                    <button className="btn btn-sm" onClick={() => handleCompleteSprint(sprint.id)}>
+                      <CheckCircle size={14} />
+                      Complete Sprint
+                    </button>
+                  )}
+                </div>
+              </div>
+              {!isCollapsed && (
+                <SprintDropZone id={`sprint-drop-zone-${sprint.id}`}>
+                  <SortableContext items={sprintCards.map(c => `backlog-${c.id}`)} strategy={verticalListSortingStrategy}>
+                    {sprintCards.length === 0 ? (
+                      <div className="backlog-empty">
+                        No cards in sprint. Drag cards here or use the arrow buttons below.
+                      </div>
+                    ) : (
+                      sprintCards.map((card) => (
+                        <SortableBacklogCard
+                          key={card.id}
+                          card={card}
+                          designator={getSwimlaneName(card.swimlane_id)}
+                          priorityColor={getPriorityColor(card.priority)}
+                          onClick={() => onCardClick(card)}
+                          actionButton={
+                            <button
+                              className="btn btn-ghost btn-xs backlog-remove-btn"
+                              onClick={(e) => { e.stopPropagation(); handleRemoveFromSprint(card.id); }}
+                              title="Remove from sprint"
+                            >
+                              ✕
+                            </button>
+                          }
+                        />
+                      ))
+                    )}
+                  </SortableContext>
+                </SprintDropZone>
+              )}
+            </div>
+          );
+        })
+      )}
 
       {/* Backlog Section */}
       <div className="backlog-items-panel">
         <div className="backlog-header">
           <h2>Backlog <span className="backlog-count">{backlogCards.length}</span></h2>
-          {!currentSprint && (
-            <button className="btn btn-primary btn-sm" onClick={() => setShowCreateSprint(true)}>
-              <Plus size={14} />
-              Create Sprint
-            </button>
-          )}
+          <button className="btn btn-primary btn-sm" onClick={() => setShowCreateSprint(true)}>
+            <Plus size={14} />
+            Create Sprint
+          </button>
         </div>
 
         <SortableContext items={swimlanes.map(s => `swimlane-${s.id}`)} strategy={verticalListSortingStrategy}>
@@ -537,14 +605,30 @@ export function BacklogView({
                               designator={getSwimlaneName(card.swimlane_id)}
                               priorityColor={getPriorityColor(card.priority)}
                               onClick={() => onCardClick(card)}
-                              actionButton={currentSprint ? (
+                              actionButton={visibleSprints.length === 1 ? (
                                 <button
                                   className="btn btn-ghost btn-xs backlog-move-btn"
-                                  onClick={(e) => { e.stopPropagation(); handleMoveToSprint(card.id); }}
-                                  title={`Move to ${currentSprint.name}`}
+                                  onClick={(e) => { e.stopPropagation(); handleMoveToSprint(card.id, visibleSprints[0].id); }}
+                                  title={`Move to ${visibleSprints[0].name}`}
                                 >
                                   <ArrowRight size={14} />
                                 </button>
+                              ) : visibleSprints.length > 1 ? (
+                                <select
+                                  className="backlog-sprint-select"
+                                  defaultValue=""
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    if (e.target.value) handleMoveToSprint(card.id, parseInt(e.target.value));
+                                    e.target.value = '';
+                                  }}
+                                  title="Move to sprint"
+                                >
+                                  <option value="" disabled>Move to…</option>
+                                  {visibleSprints.map(s => (
+                                    <option key={s.id} value={s.id}>{s.name}</option>
+                                  ))}
+                                </select>
                               ) : undefined}
                             />
                           ))}
@@ -562,6 +646,7 @@ export function BacklogView({
         </SortableContext>
       </div>
 
+      {/* Create Sprint Modal */}
       {showCreateSprint && (
         <div className="modal-overlay" onClick={() => setShowCreateSprint(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -575,6 +660,7 @@ export function BacklogView({
                   onChange={(e) => setNewSprintName(e.target.value)}
                   placeholder="Sprint 1"
                   required
+                  autoFocus
                 />
               </div>
               <div className="form-group">
@@ -611,6 +697,61 @@ export function BacklogView({
                 <button type="submit" className="btn btn-primary">Create</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Sprint Modal */}
+      {editingSprint && (
+        <div className="modal-overlay" onClick={() => setEditingSprint(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Edit Sprint</h2>
+            <div className="form-group">
+              <label>Sprint Name</label>
+              <input
+                type="text"
+                value={editSprintName}
+                onChange={(e) => setEditSprintName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label>Goal (optional)</label>
+              <textarea
+                value={editSprintGoal}
+                onChange={(e) => setEditSprintGoal(e.target.value)}
+                placeholder="What do you want to achieve?"
+                rows={3}
+              />
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Start Date</label>
+                <input
+                  type="date"
+                  value={editSprintStartDate}
+                  onChange={(e) => setEditSprintStartDate(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>End Date</label>
+                <input
+                  type="date"
+                  value={editSprintEndDate}
+                  onChange={(e) => setEditSprintEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="form-actions">
+              <button className="btn" onClick={() => setEditingSprint(null)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={handleEditSprintSave}
+                disabled={savingEditSprint || !editSprintName.trim()}
+              >
+                {savingEditSprint ? 'Saving...' : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
       )}
