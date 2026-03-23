@@ -11,7 +11,7 @@ export interface DroppableColumnProps {
   swimlane: Swimlane;
   onCardClick: (card: Card) => void;
   onQuickAdd: (title: string) => Promise<void>;
-  selectionMode?: boolean;
+  hasSelection?: boolean;
   selectedCards?: Set<number>;
   onSelectCard?: (cardId: number) => void;
 }
@@ -22,7 +22,7 @@ export const DroppableColumn = React.memo(function DroppableColumn({
   swimlane,
   onCardClick,
   onQuickAdd,
-  selectionMode,
+  hasSelection,
   selectedCards,
   onSelectCard,
 }: DroppableColumnProps) {
@@ -57,7 +57,7 @@ export const DroppableColumn = React.memo(function DroppableColumn({
               card={card}
               swimlane={swimlane}
               onClick={() => onCardClick(card)}
-              selectionMode={selectionMode}
+              hasSelection={hasSelection}
               selected={selectedCards?.has(card.id)}
               onSelect={onSelectCard}
             />

@@ -44,16 +44,16 @@ export interface CardItemProps {
   card: Card;
   swimlane: Swimlane;
   onClick: () => void;
-  selectionMode?: boolean;
+  hasSelection?: boolean; // true when any card is selected (shows all checkboxes)
   selected?: boolean;
   onSelect?: (cardId: number) => void;
 }
 
-export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, selectionMode, selected, onSelect }: CardItemProps) {
+export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, hasSelection, selected, onSelect }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `card-${card.id}`,
     data: { card, swimlane },
-    disabled: selectionMode,
+    disabled: hasSelection, // disable drag when selecting
   });
 
   const style = {
@@ -63,11 +63,16 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, 
   };
 
   const handleClick = () => {
-    if (selectionMode && onSelect) {
+    if (hasSelection && onSelect) {
       onSelect(card.id);
     } else {
       onClick();
     }
+  };
+
+  const handleCheckboxClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSelect?.(card.id);
   };
 
   const priorityColors: Record<string, string> = {
@@ -88,16 +93,20 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, 
       role="article"
       aria-label={card.title}
     >
-      {selectionMode ? (
-        <div className="card-select-checkbox">
-          <input
-            type="checkbox"
-            checked={!!selected}
-            onChange={() => onSelect?.(card.id)}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      ) : (
+      {/* Checkbox: visible on hover or when any card is selected */}
+      <div
+        className={`card-select-checkbox ${hasSelection ? 'always-visible' : ''}`}
+        onClick={handleCheckboxClick}
+      >
+        <input
+          type="checkbox"
+          checked={!!selected}
+          onChange={() => onSelect?.(card.id)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+      {/* Drag handle: hidden when selecting */}
+      {!hasSelection && (
         <div className="card-drag-handle" {...listeners}>
           <GripVertical size={14} />
         </div>

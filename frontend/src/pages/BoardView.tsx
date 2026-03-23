@@ -30,7 +30,7 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, Download, HelpCircle, Upload } from 'lucide-react';
 
 function SortableSwimlaneWrapper({ id, children }: { id: string; children: (dragHandleProps: Record<string, any>) => React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -73,7 +73,6 @@ export function BoardView() {
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   // Bulk selection state
-  const [selectionMode, setSelectionMode] = useState(false);
   const [selectedCards, setSelectedCards] = useState<Set<number>>(new Set());
   const [bulkActionDropdown, setBulkActionDropdown] = useState<string | null>(null);
 
@@ -271,19 +270,13 @@ export function BoardView() {
         case 'Escape':
           if (showShortcutsHelp) setShowShortcutsHelp(false);
           else if (selectedCard) setSelectedCard(null);
-          else if (selectionMode) { setSelectionMode(false); setSelectedCards(new Set()); }
-          break;
-        case 's':
-          if (!selectedCard) {
-            setSelectionMode(prev => !prev);
-            if (selectionMode) setSelectedCards(new Set());
-          }
+          else if (selectedCards.size > 0) setSelectedCards(new Set());
           break;
       }
     }
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [board, selectedCard, selectionMode, showShortcutsHelp]);
+  }, [board, selectedCard, selectedCards, showShortcutsHelp]);
 
   const fetchBoardData = async () => {
     if (!boardId) return;
@@ -523,17 +516,7 @@ export function BoardView() {
 
   const handleDeselectAll = useCallback(() => {
     setSelectedCards(new Set());
-  }, []);
-
-  const handleToggleSelectionMode = useCallback(() => {
-    setSelectionMode((prev) => {
-      if (prev) {
-        // Turning off - clear selection
-        setSelectedCards(new Set());
-        setBulkActionDropdown(null);
-      }
-      return !prev;
-    });
+    setBulkActionDropdown(null);
   }, []);
 
   const handleBulkMove = useCallback(async (columnId: number, state: string) => {
@@ -707,14 +690,16 @@ export function BoardView() {
               )}
             </div>
             <div className="board-header-actions">
-              <button
-                className={`selection-mode-toggle ${selectionMode ? 'active' : ''}`}
-                onClick={handleToggleSelectionMode}
-                title={selectionMode ? 'Exit selection mode' : 'Select cards'}
-              >
-                <CheckSquare size={16} />
-                <span>{selectionMode ? 'Cancel' : 'Select'}</span>
-              </button>
+              {selectedCards.size > 0 && (
+                <button
+                  className="selection-clear-btn"
+                  onClick={() => setSelectedCards(new Set())}
+                  title="Clear selection"
+                >
+                  <X size={14} />
+                  <span>{selectedCards.size} selected</span>
+                </button>
+              )}
               <div className="view-toggle">
                 <button
                   className={`view-btn ${viewMode === 'board' ? 'active' : ''}`}
@@ -1007,7 +992,7 @@ export function BoardView() {
                             });
                             setCards([...cards, card]);
                           }}
-                          selectionMode={selectionMode}
+                          hasSelection={selectedCards.size > 0}
                           selectedCards={selectedCards}
                           onSelectCard={handleSelectCard}
                         />
@@ -1074,7 +1059,7 @@ export function BoardView() {
         )}
 
         {/* Bulk Action Bar */}
-        {selectionMode && selectedCards.size > 0 && (
+        {selectedCards.size > 0 && (
           <div className="bulk-action-bar">
             <span className="bulk-action-count">{selectedCards.size} card{selectedCards.size === 1 ? '' : 's'} selected</span>
             <div className="bulk-action-buttons">

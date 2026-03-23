@@ -4923,6 +4923,22 @@ body {
   display: flex;
   align-items: center;
   padding: 0.5rem 0.25rem 0.5rem 0.5rem;
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  transition: opacity 0.15s, width 0.15s;
+}
+
+/* Show checkbox on card hover */
+.card-item:hover .card-select-checkbox {
+  opacity: 1;
+  width: auto;
+}
+
+/* Always show when in selection mode (any card selected) */
+.card-select-checkbox.always-visible {
+  opacity: 1;
+  width: auto;
 }
 
 .card-select-checkbox input[type="checkbox"] {
@@ -4930,6 +4946,26 @@ body {
   height: 16px;
   cursor: pointer;
   accent-color: var(--primary);
+}
+
+/* Selection clear button in header */
+.selection-clear-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: var(--primary);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.selection-clear-btn:hover {
+  background: var(--primary-dark, #4f46e5);
 }
 
 .card-item.selected {
