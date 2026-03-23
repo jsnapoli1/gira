@@ -690,16 +690,6 @@ export function BoardView() {
               )}
             </div>
             <div className="board-header-actions">
-              {selectedCards.size > 0 && (
-                <button
-                  className="selection-clear-btn"
-                  onClick={() => setSelectedCards(new Set())}
-                  title="Clear selection"
-                >
-                  <X size={14} />
-                  <span>{selectedCards.size} selected</span>
-                </button>
-              )}
               <div className="view-toggle">
                 <button
                   className={`view-btn ${viewMode === 'board' ? 'active' : ''}`}

@@ -3952,9 +3952,12 @@ body {
     width: 100%;
   }
 
-  /* Bulk action bar full width */
+  /* Bulk action bar full width on mobile */
   .bulk-action-bar {
-    left: 0;
+    left: 1rem;
+    right: 1rem;
+    transform: none;
+    border-radius: 8px;
   }
 
   /* Dashboard responsive */
@@ -4985,9 +4988,9 @@ body {
 
 .bulk-action-bar {
   position: fixed;
-  bottom: 0;
-  left: var(--sidebar-width);
-  right: 0;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -4995,7 +4998,8 @@ body {
   background: #1e293b;
   color: #fff;
   z-index: 100;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
 }
 
 .bulk-action-count {
