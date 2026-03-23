@@ -3,14 +3,14 @@ import { test, expect } from '@playwright/test';
 test.describe('User Credentials', () => {
   test.beforeEach(async ({ page }) => {
     // Create a unique user and login
-    const uniqueEmail = `test-creds-${Date.now()}@example.com`;
+    const uniqueEmail = `test-creds-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     await page.goto('/signup');
     await page.fill('#displayName', 'Credentials Test User');
     await page.fill('#email', uniqueEmail);
     await page.fill('#password', 'password123');
     await page.fill('#confirmPassword', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/);
+    await expect(page).toHaveURL(/\/dashboard/);
   });
 
   test('should navigate to settings and see credentials section', async ({ page }) => {
@@ -110,27 +110,49 @@ test.describe('User Credentials', () => {
     await expect(page.locator('button:has-text("Test Connection")')).toBeEnabled();
   });
 
-  test.skip('should show connection error for invalid credentials', async ({ page }) => {
-    // Skip: requires actual API call that will fail in different ways
+  test('should show connection error for invalid credentials', async ({ page }) => {
     await page.goto('/settings');
     await page.click('button:has-text("Add Credential")');
 
-    // Fill form
+    // Fill form with invalid credentials
     await page.fill('#providerUrl', 'https://gitea.invalid.example.com');
     await page.fill('#apiToken', 'invalid-token');
+
+    // Mock the test-connection API to return an error so the test does not
+    // depend on actual network reachability.
+    await page.route('**/api/credentials/*/test', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, message: 'Connection failed' }),
+      });
+    });
 
     // Test connection
     await page.click('button:has-text("Test Connection")');
 
-    // Should show error
-    await expect(page.locator('.status-badge.error')).toBeVisible();
+    // Should show error badge
+    await expect(page.locator('.status-badge.error, .status-badge:has-text("Failed")')).toBeVisible();
   });
 
   test('admin should see global Gitea config section', async ({ page }) => {
-    // Note: The first user is auto-promoted to admin
+    // Log in as the admin user created by the setup project (first user = auto-admin)
+    const fs = await import('fs');
+    const path = await import('path');
+    const authFile = path.join(process.cwd(), 'test-results', '.admin-auth.json');
+    const { email, password } = JSON.parse(fs.readFileSync(authFile, 'utf-8'));
+
+    // Log out current user, then log in as admin
+    await page.evaluate(() => localStorage.removeItem('token'));
+    await page.goto('/login');
+    await page.fill('#email', email);
+    await page.fill('#password', password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+
     await page.goto('/settings');
 
     // Admin should see global config section
-    await expect(page.locator('.settings-section h2:has-text("Global Gitea Connection")')).toBeVisible();
+    await expect(page.locator('.settings-section h2:has-text("Global Gitea Connection")')).toBeVisible({ timeout: 10000 });
   });
 });

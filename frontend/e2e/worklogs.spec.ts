@@ -3,21 +3,22 @@ import { test, expect } from '@playwright/test';
 test.describe('Work Logs (Time Tracking)', () => {
   test.beforeEach(async ({ page }) => {
     // Create a unique user and login
-    const uniqueEmail = `test-worklogs-${Date.now()}@example.com`;
+    const uniqueEmail = `test-worklogs-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     await page.goto('/signup');
     await page.fill('#displayName', 'Worklog Test User');
     await page.fill('#email', uniqueEmail);
     await page.fill('#password', 'password123');
     await page.fill('#confirmPassword', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+    await page.goto('/boards');
 
     // Create a board
     await page.click('text=Create Board');
     await page.fill('#boardName', 'Worklog Test Board');
     await page.click('button[type="submit"]:has-text("Create Board")');
-    await page.waitForSelector('.board-card-link', { timeout: 5000 });
-    await page.click('.board-card-link');
+    // After creation the app navigates directly to the board detail page
+    await page.waitForURL(/\/boards\/\d+/);
 
     // Add a swimlane (required for cards)
     await page.click('.empty-swimlanes button:has-text("Add Swimlane")');
@@ -26,6 +27,8 @@ test.describe('Work Logs (Time Tracking)', () => {
     await page.fill('.modal input[placeholder="owner/repo"]', 'test/repo');
     await page.fill('input[placeholder="FE-"]', 'TEST-');
     await page.click('.modal .form-actions button:has-text("Add Swimlane")');
+    // Switch to All Cards view so swimlane headers are visible without a sprint
+    await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.swimlane-header', { timeout: 5000 });
 
     // Add a card via quick-add

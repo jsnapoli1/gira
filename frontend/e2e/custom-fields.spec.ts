@@ -5,26 +5,25 @@ test.describe('Custom Fields', () => {
 
   test.beforeEach(async ({ page }) => {
     // Create a unique user and login
-    const uniqueEmail = `test-custom-fields-${Date.now()}@example.com`;
+    const uniqueEmail = `test-custom-fields-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     await page.goto('/signup');
     await page.fill('#displayName', 'Custom Fields Test User');
     await page.fill('#email', uniqueEmail);
     await page.fill('#password', 'password123');
     await page.fill('#confirmPassword', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+    await page.goto('/boards');
 
     // Create a board
     await page.click('text=Create Board');
     await page.fill('#boardName', 'Custom Fields Test Board');
     await page.click('button[type="submit"]:has-text("Create Board")');
-    await page.waitForSelector('.board-card-link', { timeout: 5000 });
+    // After creation the app navigates directly to the board detail page
+    await page.waitForURL(/\/boards\/\d+/);
 
-    // Get the board URL/id
-    const href = await page.locator('.board-card-link').getAttribute('href');
-    boardId = href?.split('/').pop() || '';
-
-    await page.click('.board-card-link');
+    // Extract board ID from the current URL
+    boardId = page.url().split('/').pop() || '';
 
     // Add a swimlane (required for cards)
     await page.click('.empty-swimlanes button:has-text("Add Swimlane")');
@@ -33,6 +32,8 @@ test.describe('Custom Fields', () => {
     await page.fill('.modal input[placeholder="owner/repo"]', 'test/repo');
     await page.fill('input[placeholder="FE-"]', 'CF-');
     await page.click('.modal .form-actions button:has-text("Add Swimlane")');
+    // Switch to All Cards view so swimlane headers are visible without a sprint
+    await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.swimlane-header', { timeout: 5000 });
 
     // Add a card via quick-add
@@ -42,13 +43,13 @@ test.describe('Custom Fields', () => {
     await page.waitForSelector('.card-item', { timeout: 5000 });
   });
 
-  test('should not show Custom Fields tab when no custom fields exist', async ({ page }) => {
+  test('should not show Custom Fields section when no custom fields exist', async ({ page }) => {
     // Click on the card to open detail modal
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Custom Fields tab should not be visible
-    await expect(page.locator('.tab-btn:has-text("Custom Fields")')).not.toBeVisible();
+    // The inline custom fields section should not be visible when no fields are defined
+    await expect(page.locator('.custom-fields-compact')).not.toBeVisible();
   });
 
   test('should create a text custom field via API and display it', async ({ page, request }) => {
@@ -72,21 +73,19 @@ test.describe('Custom Fields', () => {
 
     // Reload the page to fetch the new custom field
     await page.reload();
+    await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.card-item', { timeout: 5000 });
 
     // Click on the card to open detail modal
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Custom Fields tab should now be visible
-    await expect(page.locator('.tab-btn:has-text("Custom Fields")')).toBeVisible();
+    // The inline custom fields section should now be visible
+    await expect(page.locator('.custom-fields-compact')).toBeVisible();
 
-    // Click on Custom Fields tab
-    await page.click('.tab-btn:has-text("Custom Fields")');
-
-    // Should see the custom field
-    await expect(page.locator('.custom-field-label')).toContainText('Project Code');
-    await expect(page.locator('.custom-field-input')).toBeVisible();
+    // Should see the custom field label and an input for it
+    await expect(page.locator('.custom-field-inline label')).toContainText('Project Code');
+    await expect(page.locator('.custom-field-inline input[type="text"]')).toBeVisible();
   });
 
   test('should save custom field value', async ({ page, request }) => {
@@ -109,17 +108,18 @@ test.describe('Custom Fields', () => {
 
     // Reload the page to fetch the new custom field
     await page.reload();
+    await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.card-item', { timeout: 5000 });
 
     // Click on the card to open detail modal
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Click on Custom Fields tab
-    await page.click('.tab-btn:has-text("Custom Fields")');
+    // Wait for the custom fields section to appear
+    await expect(page.locator('.custom-fields-compact')).toBeVisible();
 
     // Enter a value and blur to trigger save
-    const input = page.locator('.custom-field-input');
+    const input = page.locator('.custom-field-inline input[type="text"]');
     await input.fill('Acme Corporation');
     await input.blur();
     // Wait for save to complete
@@ -133,13 +133,10 @@ test.describe('Custom Fields', () => {
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Click on Custom Fields tab
-    await page.click('.tab-btn:has-text("Custom Fields")');
-
     // Wait for loading to complete and field to appear with correct value
     // Use poll to wait for the value to be loaded
     await expect(async () => {
-      const fieldInput = page.locator('.custom-field-input');
+      const fieldInput = page.locator('.custom-field-inline input[type="text"]');
       await expect(fieldInput).toBeVisible();
       await expect(fieldInput).toHaveValue('Acme Corporation');
     }).toPass({ timeout: 15000 });
@@ -165,20 +162,22 @@ test.describe('Custom Fields', () => {
 
     // Reload the page to fetch the new custom field
     await page.reload();
+    await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.card-item', { timeout: 5000 });
 
     // Click on the card to open detail modal
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Click on Custom Fields tab
-    await page.click('.tab-btn:has-text("Custom Fields")');
+    // Wait for the custom fields section to appear
+    await expect(page.locator('.custom-fields-compact')).toBeVisible();
 
-    // Should see a select field
-    await expect(page.locator('.custom-field-select')).toBeVisible();
+    // Should see a select field inside .custom-field-inline
+    const selectField = page.locator('.custom-field-inline select');
+    await expect(selectField).toBeVisible();
 
     // Select an option
-    await page.selectOption('.custom-field-select', 'High');
+    await selectField.selectOption('High');
 
     // Close and reopen to verify persistence
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
@@ -188,11 +187,11 @@ test.describe('Custom Fields', () => {
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Click on Custom Fields tab
-    await page.click('.tab-btn:has-text("Custom Fields")');
+    // Wait for custom fields to load
+    await expect(page.locator('.custom-fields-compact')).toBeVisible();
 
     // Value should be persisted
-    await expect(page.locator('.custom-field-select')).toHaveValue('High');
+    await expect(page.locator('.custom-field-inline select')).toHaveValue('High');
   });
 
   test('should support checkbox field type', async ({ page, request }) => {
@@ -215,17 +214,18 @@ test.describe('Custom Fields', () => {
 
     // Reload the page to fetch the new custom field
     await page.reload();
+    await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.card-item', { timeout: 5000 });
 
     // Click on the card to open detail modal
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Click on Custom Fields tab
-    await page.click('.tab-btn:has-text("Custom Fields")');
+    // Wait for the custom fields section to appear
+    await expect(page.locator('.custom-fields-compact')).toBeVisible();
 
-    // Should see a checkbox
-    const checkbox = page.locator('.custom-field-checkbox input[type="checkbox"]');
+    // Should see a checkbox inside .custom-field-inline
+    const checkbox = page.locator('.custom-field-inline input[type="checkbox"]');
     await expect(checkbox).toBeVisible();
 
     // Initially unchecked
@@ -242,10 +242,10 @@ test.describe('Custom Fields', () => {
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Click on Custom Fields tab
-    await page.click('.tab-btn:has-text("Custom Fields")');
+    // Wait for custom fields to load
+    await expect(page.locator('.custom-fields-compact')).toBeVisible();
 
     // Value should be persisted
-    await expect(page.locator('.custom-field-checkbox input[type="checkbox"]')).toBeChecked();
+    await expect(page.locator('.custom-field-inline input[type="checkbox"]')).toBeChecked();
   });
 });

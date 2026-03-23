@@ -5,26 +5,25 @@ test.describe('Notifications', () => {
 
   test.beforeEach(async ({ page }) => {
     // Create a unique user and login
-    const uniqueEmail = `test-notifications-${Date.now()}@example.com`;
+    const uniqueEmail = `test-notifications-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     await page.goto('/signup');
     await page.fill('#displayName', 'Notifications Test User');
     await page.fill('#email', uniqueEmail);
     await page.fill('#password', 'password123');
     await page.fill('#confirmPassword', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+    await page.goto('/boards');
 
     // Create a board
     await page.click('text=Create Board');
     await page.fill('#boardName', 'Notifications Test Board');
     await page.click('button[type="submit"]:has-text("Create Board")');
-    await page.waitForSelector('.board-card-link', { timeout: 5000 });
+    // After creation the app navigates directly to the board detail page
+    await page.waitForURL(/\/boards\/\d+/);
 
-    // Get the board URL/id
-    const href = await page.locator('.board-card-link').getAttribute('href');
-    boardId = href?.split('/').pop() || '';
-
-    await page.click('.board-card-link');
+    // Extract board ID from the current URL
+    boardId = page.url().split('/').pop() || '';
 
     // Add a swimlane (required for cards)
     await page.click('.empty-swimlanes button:has-text("Add Swimlane")');
@@ -33,6 +32,8 @@ test.describe('Notifications', () => {
     await page.fill('.modal input[placeholder="owner/repo"]', 'test/repo');
     await page.fill('input[placeholder="FE-"]', 'NF-');
     await page.click('.modal .form-actions button:has-text("Add Swimlane")');
+    // Switch to All Cards view so swimlane headers are visible without a sprint
+    await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.swimlane-header', { timeout: 5000 });
 
     // Add a card via quick-add
@@ -78,7 +79,7 @@ test.describe('Notifications', () => {
     const cardId = cards[0]?.id;
 
     // Create a second user to assign the card
-    const secondUserEmail = `test-notifications-assigner-${Date.now()}@example.com`;
+    const secondUserEmail = `test-notifications-assigner-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     const signupResponse = await request.post('/api/auth/signup', {
       data: {
         email: secondUserEmail,
@@ -133,7 +134,7 @@ test.describe('Notifications', () => {
     const cardId = cards[0]?.id;
 
     // Create a second user
-    const secondUserEmail = `test-notifications-commenter-${Date.now()}@example.com`;
+    const secondUserEmail = `test-notifications-commenter-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     const signupResponse = await request.post('/api/auth/signup', {
       data: {
         email: secondUserEmail,
@@ -178,13 +179,17 @@ test.describe('Notifications', () => {
     await expect(unreadNotification).toBeVisible();
     await unreadNotification.click();
 
-    // After clicking, badge should update (or disappear if that was the only one)
-    // Re-open the dropdown to verify
+    // After clicking, the badge should disappear (this was the only notification)
+    // and the notification should no longer carry the unread class.
+    // Re-open the dropdown to verify the read state.
     await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
 
-    // The notification should now be marked as read (no longer have unread class)
-    // Wait a moment for the state to update
-    await page.waitForTimeout(500);
+    // The notification badge should be gone (no more unread notifications)
+    await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 5000 });
+
+    // The notification item should no longer have the unread class
+    await expect(page.locator('.notification-item.unread')).not.toBeVisible({ timeout: 5000 });
   });
 
   test('should mark all notifications as read', async ({ page, request }) => {
@@ -205,7 +210,7 @@ test.describe('Notifications', () => {
     const cardId = cards[0]?.id;
 
     // Create a second user
-    const secondUserEmail = `test-notifications-batch-${Date.now()}@example.com`;
+    const secondUserEmail = `test-notifications-batch-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     const signupResponse = await request.post('/api/auth/signup', {
       data: {
         email: secondUserEmail,
@@ -272,7 +277,7 @@ test.describe('Notifications', () => {
     const cardId = cards[0]?.id;
 
     // Create a second user
-    const secondUserEmail = `test-notifications-delete-${Date.now()}@example.com`;
+    const secondUserEmail = `test-notifications-delete-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     const signupResponse = await request.post('/api/auth/signup', {
       data: {
         email: secondUserEmail,

@@ -3,14 +3,15 @@ import { test, expect } from '@playwright/test';
 test.describe('Navigation', () => {
   test.beforeEach(async ({ page }) => {
     // Create a unique user and login
-    const uniqueEmail = `test-nav-${Date.now()}@example.com`;
+    const uniqueEmail = `test-nav-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     await page.goto('/signup');
     await page.fill('#displayName', 'Nav Test User');
     await page.fill('#email', uniqueEmail);
     await page.fill('#password', 'password123');
     await page.fill('#confirmPassword', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/);
+    await expect(page).toHaveURL(/\/dashboard/);
+    await page.goto('/boards');
   });
 
   test('should show sidebar with navigation items', async ({ page }) => {

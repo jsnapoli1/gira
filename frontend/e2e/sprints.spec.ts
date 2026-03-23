@@ -3,20 +3,22 @@ import { test, expect } from '@playwright/test';
 test.describe('Sprints', () => {
   test.beforeEach(async ({ page }) => {
     // Create a unique user, login, and create a board
-    const uniqueEmail = `test-sprints-${Date.now()}@example.com`;
+    const uniqueEmail = `test-sprints-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
     await page.goto('/signup');
     await page.fill('#displayName', 'Sprint Test User');
     await page.fill('#email', uniqueEmail);
     await page.fill('#password', 'password123');
     await page.fill('#confirmPassword', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/);
+    await expect(page).toHaveURL(/\/dashboard/);
+    await page.goto('/boards');
 
     // Create a board
     await page.click('text=Create Board');
     await page.fill('#boardName', 'Sprint Test Board');
     await page.click('button[type="submit"]:has-text("Create Board")');
-    await page.click('.board-card-link');
+    // After creation the app navigates directly to the board detail page
+    await page.waitForURL(/\/boards\/\d+/);
   });
 
   test('should create a sprint from backlog view', async ({ page }) => {
@@ -31,8 +33,8 @@ test.describe('Sprints', () => {
     await page.fill('textarea[placeholder="What do you want to achieve?"]', 'Complete initial features');
     await page.click('button[type="submit"]:has-text("Create")');
 
-    // Sprint should appear
-    await expect(page.locator('.backlog-section-header h2:has-text("Sprint 1")')).toBeVisible();
+    // Sprint should appear in the sprint panel header
+    await expect(page.locator('.backlog-sprint-header h2:has-text("Sprint 1")')).toBeVisible();
   });
 
   test('should start a sprint', async ({ page }) => {
@@ -48,7 +50,7 @@ test.describe('Sprints', () => {
     await page.click('button:has-text("Start Sprint")');
 
     // Should show as active
-    await expect(page.locator('.active-sprint-badge')).toBeVisible();
+    await expect(page.locator('.sprint-status-badge.active')).toBeVisible();
   });
 
   test('should complete a sprint', async ({ page }) => {
@@ -61,10 +63,13 @@ test.describe('Sprints', () => {
     await page.click('button[type="submit"]:has-text("Create")');
     await page.click('button:has-text("Start Sprint")');
 
+    // Accept the window.confirm() dialog that fires when completing a sprint
+    page.on('dialog', (dialog) => dialog.accept());
+
     // Complete the sprint
     await page.click('button:has-text("Complete Sprint")');
 
-    // Active sprint badge should be gone
-    await expect(page.locator('.active-sprint-badge')).not.toBeVisible();
+    // Active sprint badge should be gone after the sprint is completed and board refreshes
+    await expect(page.locator('.sprint-status-badge.active')).not.toBeVisible({ timeout: 8000 });
   });
 });
