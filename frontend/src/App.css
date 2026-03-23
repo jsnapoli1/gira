@@ -779,12 +779,81 @@ body {
 
 .board-header-filters {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0.5rem;
   padding: 0.5rem 1.5rem;
   border-top: 1px solid var(--border);
   background: var(--bg);
+}
+
+.filters-always-visible {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.filter-toggle-btn:hover,
+.filter-toggle-btn.active {
+  background: var(--surface);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.filter-toggle-btn.has-filters {
+  border-color: var(--primary);
+}
+
+.filter-active-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--primary);
+  border-radius: 50%;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.filters-expanded {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   flex-wrap: wrap;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+}
+
+.filter-item {
+  position: relative;
+}
+
+.filter-item::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  pointer-events: none;
+  transition: border-color 0.15s;
+}
+
+.filter-item:hover::after {
+  border-color: var(--border);
 }
 
 .board-header-left {
@@ -893,14 +962,14 @@ body {
 
 /* Swimlane */
 .swimlane {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .swimlane-header {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
   cursor: pointer;
   user-select: none;
 }
@@ -972,14 +1041,44 @@ body {
   gap: 1rem;
 }
 
+/* Unified Column Headers */
+.board-column-headers {
+  display: flex;
+  gap: 1rem;
+  padding: 0 0 0.75rem 0;
+  margin-left: 0.5rem; /* Align with swimlane content */
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+
+.board-column-header {
+  flex: 1;
+  min-width: 250px;
+  max-width: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+}
+
+.board-column-header h3 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* Board Column */
 .board-column {
   flex: 1;
   min-width: 250px;
   max-width: 320px;
-  background: var(--surface);
+  background: transparent;
   border-radius: 8px;
-  border: 1px solid var(--border);
 }
 
 .column-header {
@@ -1010,7 +1109,14 @@ body {
 
 .column-cards {
   padding: 0.5rem;
-  min-height: 100px;
+  min-height: 40px;
+}
+
+/* Empty column - reduce height further */
+.column-cards:empty,
+.column-cards:has(.add-card-btn:only-child) {
+  min-height: 24px;
+  padding: 0.25rem;
 }
 
 /* Card Item */
@@ -1150,28 +1256,36 @@ body {
   color: var(--text-secondary);
 }
 
-/* Add Card Button */
+/* Add Card Button - hidden by default, shown on column hover */
 .add-card-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.375rem;
   width: 100%;
-  padding: 0.5rem;
-  margin-top: 0.5rem;
+  padding: 0.375rem;
+  margin-top: 0.25rem;
   background: none;
-  border: 1px dashed var(--border);
+  border: 1px dashed transparent;
   border-radius: 6px;
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   cursor: pointer;
   transition: all 0.15s;
+  opacity: 0;
+}
+
+.column-cards:hover .add-card-btn,
+.add-card-btn:focus {
+  opacity: 1;
+  border-color: var(--border);
 }
 
 .add-card-btn:hover {
   background: var(--bg);
   border-color: var(--primary);
   color: var(--primary);
+  opacity: 1;
 }
 
 /* Quick Add Form */

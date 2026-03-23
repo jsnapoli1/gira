@@ -122,18 +122,26 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, 
           )}
         </div>
         <h4 className="card-title">{card.title}</h4>
-        {card.labels && card.labels.length > 0 && (
-          <div className="card-labels">
-            {card.labels.slice(0, 3).map((label) => (
-              <span key={label.id} className="card-label" style={{ backgroundColor: label.color }} title={label.name}>
-                {label.name}
-              </span>
-            ))}
-            {card.labels.length > 3 && (
-              <span className="card-label more">+{card.labels.length - 3}</span>
-            )}
-          </div>
-        )}
+        {card.labels && card.labels.length > 0 && (() => {
+          // Filter out labels that match the swimlane name (redundant info)
+          const swimlaneName = swimlane.name.toLowerCase();
+          const filteredLabels = card.labels.filter(
+            (label) => label.name.toLowerCase() !== swimlaneName
+          );
+          if (filteredLabels.length === 0) return null;
+          return (
+            <div className="card-labels">
+              {filteredLabels.slice(0, 3).map((label) => (
+                <span key={label.id} className="card-label" style={{ backgroundColor: label.color }} title={label.name}>
+                  {label.name}
+                </span>
+              ))}
+              {filteredLabels.length > 3 && (
+                <span className="card-label more">+{filteredLabels.length - 3}</span>
+              )}
+            </div>
+          );
+        })()}
         <div className="card-meta">
           {card.issue_type && card.issue_type !== 'task' && (
             <span className={`issue-type-badge issue-type-${card.issue_type}`}>

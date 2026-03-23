@@ -49,10 +49,6 @@ export const DroppableColumn = React.memo(function DroppableColumn({
 
   return (
     <div className="board-column" role="region" aria-label={column.name}>
-      <div className="column-header">
-        <h3>{column.name}</h3>
-        <span className="column-count">{cards.length}</span>
-      </div>
       <SortableContext items={cards.map((c) => `card-${c.id}`)} strategy={verticalListSortingStrategy}>
         <div className="column-cards" data-column-id={column.id} data-state={column.state} aria-dropeffect="move">
           {cards.map((card) => (

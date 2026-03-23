@@ -85,6 +85,34 @@ export function BoardView() {
   const [saveFilterShared, setSaveFilterShared] = useState(false);
   const savedFiltersRef = useRef<HTMLDivElement>(null);
 
+  // Collapsible filter bar state
+  const [filtersExpanded, setFiltersExpanded] = useState(() => {
+    const saved = localStorage.getItem('zira-filters-expanded');
+    return saved === 'true';
+  });
+  const [pinnedFilters, setPinnedFilters] = useState<Set<string>>(() => {
+    const saved = localStorage.getItem('zira-pinned-filters');
+    return saved ? new Set(JSON.parse(saved)) : new Set(['search']);
+  });
+
+  // Persist filter expansion state
+  useEffect(() => {
+    localStorage.setItem('zira-filters-expanded', String(filtersExpanded));
+  }, [filtersExpanded]);
+
+  // Persist pinned filters
+  useEffect(() => {
+    localStorage.setItem('zira-pinned-filters', JSON.stringify([...pinnedFilters]));
+  }, [pinnedFilters]);
+
+  const togglePinnedFilter = (filter: string) => {
+    setPinnedFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(filter)) next.delete(filter); else next.add(filter);
+      return next;
+    });
+  };
+
   // Collapsed swimlanes
   const [collapsedSwimlanes, setCollapsedSwimlanes] = useState<Set<number>>(new Set());
   const toggleSwimlane = (id: number) => {
@@ -725,89 +753,44 @@ export function BoardView() {
               </Link>
             </div>
           </div>
-          <div className="board-header-filters" aria-label="Filter controls">
-            <div className="search-input">
-              <Search size={14} />
-              <input
-                type="text"
-                placeholder="Search cards..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <Filter size={16} />
-            <select
-              value={filterSwimlane || ''}
-              onChange={(e) => setFilterSwimlane(e.target.value ? parseInt(e.target.value) : null)}
-              className="filter-select"
-            >
-              <option value="">All swimlanes</option>
-              {(board?.swimlanes || []).map((sl) => (
-                <option key={sl.id} value={sl.id}>{sl.name}</option>
-              ))}
-            </select>
-            <select
-              value={filterAssignee || ''}
-              onChange={(e) => setFilterAssignee(e.target.value ? parseInt(e.target.value) : null)}
-              className="filter-select"
-            >
-              <option value="">All assignees</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>{user.display_name}</option>
-              ))}
-            </select>
-            <select
-              value={filterLabel || ''}
-              onChange={(e) => setFilterLabel(e.target.value ? parseInt(e.target.value) : null)}
-              className="filter-select"
-            >
-              <option value="">All labels</option>
-              {boardLabels.map((label) => (
-                <option key={label.id} value={label.id}>{label.name}</option>
-              ))}
-            </select>
-            <select
-              value={filterPriority || ''}
-              onChange={(e) => setFilterPriority(e.target.value || null)}
-              className="filter-select"
-            >
-              <option value="">All priorities</option>
-              <option value="highest">Highest</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-              <option value="lowest">Lowest</option>
-            </select>
-            <button
-              className={`filter-overdue ${filterOverdue ? 'active' : ''}`}
-              onClick={() => setFilterOverdue(!filterOverdue)}
-              title="Show only overdue cards"
-            >
-              <AlertTriangle size={14} />
-              Overdue
-            </button>
-            {hasActiveFilters && (
-              <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setFilterOverdue(false); setSearchQuery(''); }} title="Clear filters">
-                <X size={14} />
-              </button>
-            )}
-            {hasActiveFilters && (
-              <button className="save-filter-btn" onClick={() => setShowSaveFilterModal(true)} title="Save current filters">
-                <Save size={14} />
-              </button>
-            )}
-            <div className="saved-filters-container" ref={savedFiltersRef}>
+          <div className={`board-header-filters ${filtersExpanded ? 'expanded' : ''}`} aria-label="Filter controls">
+            {/* Always visible: search + filter toggle */}
+            <div className="filters-always-visible">
+              {pinnedFilters.has('search') && (
+                <div className="search-input">
+                  <Search size={14} />
+                  <input
+                    type="text"
+                    placeholder="Search cards..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              )}
               <button
-                className={`saved-filters-btn ${showSavedFilters ? 'active' : ''}`}
-                onClick={() => setShowSavedFilters(!showSavedFilters)}
-                title="Saved filters"
+                className={`filter-toggle-btn ${filtersExpanded ? 'active' : ''} ${hasActiveFilters ? 'has-filters' : ''}`}
+                onClick={() => setFiltersExpanded(!filtersExpanded)}
+                title={filtersExpanded ? 'Hide filters' : 'Show filters'}
               >
-                <BookmarkCheck size={14} />
-                <span>Saved</span>
-                {savedFilters.length > 0 && (
-                  <span className="saved-filters-count">{savedFilters.length}</span>
-                )}
+                <Filter size={14} />
+                {hasActiveFilters && <span className="filter-active-dot" />}
               </button>
+              {hasActiveFilters && (
+                <button className="clear-filter" onClick={() => { setFilterAssignee(null); setFilterLabel(null); setFilterSwimlane(null); setFilterPriority(null); setFilterOverdue(false); setSearchQuery(''); }} title="Clear all filters">
+                  <X size={14} />
+                </button>
+              )}
+              <div className="saved-filters-container" ref={savedFiltersRef}>
+                <button
+                  className={`saved-filters-btn ${showSavedFilters ? 'active' : ''}`}
+                  onClick={() => setShowSavedFilters(!showSavedFilters)}
+                  title="Saved filters"
+                >
+                  <BookmarkCheck size={14} />
+                  {savedFilters.length > 0 && (
+                    <span className="saved-filters-count">{savedFilters.length}</span>
+                  )}
+                </button>
               {showSavedFilters && (
                 <div className="saved-filters-dropdown">
                   {savedFilters.length === 0 ? (
@@ -838,6 +821,76 @@ export function BoardView() {
                 </div>
               )}
             </div>
+            </div>
+            {/* Expandable filters */}
+            {filtersExpanded && (
+              <div className="filters-expanded">
+                <div className="filter-item" onDoubleClick={() => togglePinnedFilter('swimlane')}>
+                  <select
+                    value={filterSwimlane || ''}
+                    onChange={(e) => setFilterSwimlane(e.target.value ? parseInt(e.target.value) : null)}
+                    className="filter-select"
+                  >
+                    <option value="">All swimlanes</option>
+                    {(board?.swimlanes || []).map((sl) => (
+                      <option key={sl.id} value={sl.id}>{sl.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="filter-item" onDoubleClick={() => togglePinnedFilter('assignee')}>
+                  <select
+                    value={filterAssignee || ''}
+                    onChange={(e) => setFilterAssignee(e.target.value ? parseInt(e.target.value) : null)}
+                    className="filter-select"
+                  >
+                    <option value="">All assignees</option>
+                    {users.map((user) => (
+                      <option key={user.id} value={user.id}>{user.display_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="filter-item" onDoubleClick={() => togglePinnedFilter('label')}>
+                  <select
+                    value={filterLabel || ''}
+                    onChange={(e) => setFilterLabel(e.target.value ? parseInt(e.target.value) : null)}
+                    className="filter-select"
+                  >
+                    <option value="">All labels</option>
+                    {boardLabels.map((label) => (
+                      <option key={label.id} value={label.id}>{label.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="filter-item" onDoubleClick={() => togglePinnedFilter('priority')}>
+                  <select
+                    value={filterPriority || ''}
+                    onChange={(e) => setFilterPriority(e.target.value || null)}
+                    className="filter-select"
+                  >
+                    <option value="">All priorities</option>
+                    <option value="highest">Highest</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                    <option value="lowest">Lowest</option>
+                  </select>
+                </div>
+                <button
+                  className={`filter-overdue ${filterOverdue ? 'active' : ''}`}
+                  onClick={() => setFilterOverdue(!filterOverdue)}
+                  title="Show only overdue cards"
+                  onDoubleClick={() => togglePinnedFilter('overdue')}
+                >
+                  <AlertTriangle size={14} />
+                  Overdue
+                </button>
+                {hasActiveFilters && (
+                  <button className="save-filter-btn" onClick={() => setShowSaveFilterModal(true)} title="Save current filters">
+                    <Save size={14} />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
         {/* Save Filter Modal */}
@@ -894,6 +947,20 @@ export function BoardView() {
                   </button>
                 </div>
               ) : (
+                <>
+                {/* Unified column headers - shown once above all swimlanes */}
+                <div className="board-column-headers">
+                  {(board.columns || []).map((column) => {
+                    const totalCards = (board.swimlanes || []).reduce((sum, sl) =>
+                      sum + (cardsBySwimlanAndColumn[sl.id]?.[column.id]?.length || 0), 0);
+                    return (
+                      <div key={column.id} className="board-column-header">
+                        <h3>{column.name}</h3>
+                        {totalCards > 0 && <span className="column-count">{totalCards}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
                 <SortableContext items={(board.swimlanes || []).map(s => `swimlane-${s.id}`)} strategy={verticalListSortingStrategy}>
                 {(board.swimlanes || []).map((swimlane) => {
                   const isCollapsed = collapsedSwimlanes.has(swimlane.id);
@@ -953,6 +1020,7 @@ export function BoardView() {
                   );
                 })}
                 </SortableContext>
+                </>
               )}
             </div>
 
