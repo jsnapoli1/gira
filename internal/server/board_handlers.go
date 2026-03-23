@@ -1463,15 +1463,15 @@ func (s *Server) importJiraCardsForProject(
 	}
 	defaultColumnID := columns[0].ID
 
-	// Get existing cards for duplicate detection
+	// Get existing cards for duplicate detection and update-on-reimport
 	existingCards, err := s.DB.ListCardsForBoard(boardID)
 	if err != nil {
 		result.Errors = append(result.Errors, "Failed to list existing cards: "+err.Error())
 		return result
 	}
-	existingTitles := map[string]bool{}
-	for _, c := range existingCards {
-		existingTitles[c.Title] = true
+	existingCardsByTitle := map[string]*models.Card{}
+	for i := range existingCards {
+		existingCardsByTitle[existingCards[i].Title] = &existingCards[i]
 	}
 
 	// Get existing labels
@@ -1511,11 +1511,25 @@ func (s *Server) importJiraCardsForProject(
 			continue
 		}
 
-		if existingTitles[title] {
-			continue
+		issueKey := csvData.getFieldByName(row, "Issue key")
+		// Extract issue number from key (e.g., "PROJ-123" -> 123)
+		var issueNumber int64
+		if idx := strings.LastIndex(issueKey, "-"); idx >= 0 && idx < len(issueKey)-1 {
+			if n, err := strconv.ParseInt(issueKey[idx+1:], 10, 64); err == nil {
+				issueNumber = n
+			}
 		}
 
-		issueKey := csvData.getFieldByName(row, "Issue key")
+		// If card already exists, update its issue number and skip creation
+		if existingCard, exists := existingCardsByTitle[title]; exists {
+			if existingCard.GiteaIssueID == 0 && issueNumber > 0 {
+				_, _ = s.DB.Exec(`UPDATE cards SET gitea_issue_id = ? WHERE id = ?`, issueNumber, existingCard.ID)
+			}
+			if issueKey != "" {
+				issueKeyToCardID[issueKey] = existingCard.ID
+			}
+			continue
+		}
 		description := csvData.getFieldByName(row, "Description")
 		priority := strings.ToLower(csvData.getFieldByName(row, "Priority"))
 
@@ -1598,24 +1612,25 @@ func (s *Server) importJiraCardsForProject(
 		}
 
 		card, err := s.DB.CreateCard(database.CreateCardInput{
-			BoardID:     boardID,
-			SwimlaneID:  swimlaneID,
-			ColumnID:    columnID,
-			SprintID:    sprintID,
-			IssueType:   issueType,
-			Title:       title,
-			Description: description,
-			State:       state,
-			StoryPoints: storyPoints,
-			Priority:    priority,
-			DueDate:     dueDate,
+			BoardID:      boardID,
+			SwimlaneID:   swimlaneID,
+			ColumnID:     columnID,
+			SprintID:     sprintID,
+			IssueType:    issueType,
+			GiteaIssueID: issueNumber,
+			Title:        title,
+			Description:  description,
+			State:        state,
+			StoryPoints:  storyPoints,
+			Priority:     priority,
+			DueDate:      dueDate,
 		})
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("Row %d: failed to create card %q: %v", rowNum+2, title, err))
 			continue
 		}
 
-		existingTitles[title] = true
+		existingCardsByTitle[title] = card
 		result.Imported++
 		importedCards = append(importedCards, importedCard{cardID: card.ID, issueKey: issueKey})
 		if issueKey != "" {
