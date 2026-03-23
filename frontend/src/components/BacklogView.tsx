@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { cards as cardsApi, sprints as sprintsApi, boards as boardsApi } from '../api/client';
 import { Card, Column, Swimlane, Sprint } from '../types';
 import { useToast } from '../components/Toast';
-import { Plus, Calendar, Play, CheckCircle, ArrowRight, ChevronDown, ChevronRight, GripVertical, Pencil } from 'lucide-react';
+import { Plus, Calendar, Play, CheckCircle, ArrowRight, ChevronDown, ChevronRight, GripVertical, Pencil, Trash2 } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -172,6 +172,19 @@ export function BacklogView({
     } catch (err) {
       console.error('Failed to create sprint:', err);
       showToast('Failed to create sprint', 'error');
+    }
+  };
+
+  const handleDeleteSprint = async (sprintId: number) => {
+    if (!confirm('Delete this sprint? Cards will be moved back to the backlog.')) return;
+    try {
+      await sprintsApi.delete(sprintId);
+      onSprintsChange(sprints.filter(s => s.id !== sprintId));
+      onCardsChange(cards.map(c => c.sprint_id === sprintId ? { ...c, sprint_id: null } : c));
+      showToast('Sprint deleted', 'success');
+    } catch (err) {
+      console.error('Failed to delete sprint:', err);
+      showToast('Failed to delete sprint', 'error');
     }
   };
 
@@ -467,6 +480,13 @@ export function BacklogView({
                     title="Edit sprint"
                   >
                     <Pencil size={14} />
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => handleDeleteSprint(sprint.id)}
+                    title="Delete sprint"
+                  >
+                    <Trash2 size={14} />
                   </button>
                   {sprint.status === 'planning' && (
                     <button className="btn btn-primary btn-sm" onClick={() => handleStartSprint(sprint.id)} disabled={!!activeSprint}>
