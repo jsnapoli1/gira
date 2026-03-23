@@ -15,6 +15,7 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -26,6 +27,7 @@ import {
   verticalListSortingStrategy,
   useSortable,
   arrayMove,
+  sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, CheckSquare, Download, HelpCircle, Upload } from 'lucide-react';
@@ -160,7 +162,8 @@ export function BoardView() {
       activationConstraint: {
         distance: 8,
       },
-    })
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
   // SSE event handlers for real-time updates
@@ -978,6 +981,9 @@ export function BoardView() {
               const active = newSprints.find((s: Sprint) => s.status === 'active');
               const planning = newSprints.find((s: Sprint) => s.status === 'planning');
               setActiveSprint(active || planning || null);
+            }}
+            onSwimlanesChange={(newSwimlanes) => {
+              setBoard((prev) => prev ? { ...prev, swimlanes: newSwimlanes } : prev);
             }}
           />
         )}

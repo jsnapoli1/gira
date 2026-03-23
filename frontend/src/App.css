@@ -1496,6 +1496,33 @@ body {
   min-height: 60px;
 }
 
+.swimlane-drag-handle {
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  color: var(--text-secondary);
+  padding: 0.25rem;
+  margin-right: 0.25rem;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.swimlane-drag-handle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.swimlane-drag-handle:active {
+  cursor: grabbing;
+}
+
+.swimlane-dragging {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  background: var(--surface);
+  border-radius: 8px;
+  opacity: 0.95;
+}
+
 .backlog-move-btn,
 .backlog-remove-btn {
   opacity: 0;

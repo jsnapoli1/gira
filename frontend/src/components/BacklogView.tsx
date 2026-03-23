@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { cards as cardsApi, sprints as sprintsApi } from '../api/client';
+import React, { useState } from 'react';
+import { cards as cardsApi, sprints as sprintsApi, boards as boardsApi } from '../api/client';
 import { Card, Column, Swimlane, Sprint } from '../types';
 import { useToast } from '../components/Toast';
 import { Plus, Calendar, Play, CheckCircle, ArrowRight, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -18,6 +19,8 @@ import {
   SortableContext,
   verticalListSortingStrategy,
   useSortable,
+  sortableKeyboardCoordinates,
+  arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -47,8 +50,8 @@ function SortableBacklogCard({
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="backlog-card" onClick={onClick} {...attributes}>
-      <div className="backlog-card-drag" {...listeners}>
+    <div ref={setNodeRef} style={style} className="backlog-card" onClick={onClick}>
+      <div className="backlog-card-drag" {...attributes} {...listeners}>
         <GripVertical size={14} />
       </div>
       <div className="backlog-card-priority" style={{ backgroundColor: priorityColor }} />
@@ -83,6 +86,33 @@ export interface BacklogViewProps {
   onRefresh: () => void;
   onCardsChange: (cards: Card[]) => void;
   onSprintsChange: (sprints: Sprint[]) => void;
+  onSwimlanesChange: (swimlanes: Swimlane[]) => void;
+}
+
+// Sortable swimlane section
+function SortableSwimlaneSection({
+  swimlane,
+  children,
+}: {
+  swimlane: Swimlane;
+  children: (dragHandleProps: React.HTMLAttributes<HTMLDivElement>) => React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `swimlane-${swimlane.id}`,
+    data: { swimlane },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="backlog-section swimlane-backlog">
+      {children({ ...attributes, ...listeners })}
+    </div>
+  );
 }
 
 export function BacklogView({
@@ -95,6 +125,7 @@ export function BacklogView({
   onRefresh,
   onCardsChange,
   onSprintsChange,
+  onSwimlanesChange,
 }: BacklogViewProps) {
   const [showCreateSprint, setShowCreateSprint] = useState(false);
   const [newSprintName, setNewSprintName] = useState('');
@@ -215,22 +246,51 @@ export function BacklogView({
   };
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
   const [draggedCard, setDraggedCard] = useState<Card | null>(null);
+  const [draggedSwimlane, setDraggedSwimlane] = useState<Swimlane | null>(null);
 
   const backlogCards = cards.filter((c) => c.sprint_id === null);
   const sprintCards = currentSprint ? cards.filter((c) => c.sprint_id === currentSprint.id) : [];
 
   const handleDragStart = (event: DragStartEvent) => {
-    const card = (event.active.data.current as any)?.card as Card | undefined;
+    const card = (event.active.data.current as { card?: Card })?.card;
+    const swimlane = (event.active.data.current as { swimlane?: Swimlane })?.swimlane;
     if (card) setDraggedCard(card);
+    if (swimlane) setDraggedSwimlane(swimlane);
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setDraggedCard(null);
+    setDraggedSwimlane(null);
     const { active, over } = event;
     if (!over) return;
+
+    // Handle swimlane reorder
+    if (String(active.id).startsWith('swimlane-') && String(over.id).startsWith('swimlane-')) {
+      const swimlaneId = parseInt(String(active.id).replace('swimlane-', ''));
+      const targetSwimlaneId = parseInt(String(over.id).replace('swimlane-', ''));
+      if (swimlaneId === targetSwimlaneId) return;
+
+      const oldIndex = swimlanes.findIndex(s => s.id === swimlaneId);
+      const newIndex = swimlanes.findIndex(s => s.id === targetSwimlaneId);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      // Optimistic update
+      const reordered = arrayMove(swimlanes, oldIndex, newIndex);
+      const updatedSwimlanes = reordered.map((s, idx) => ({ ...s, position: idx }));
+      onSwimlanesChange(updatedSwimlanes);
+
+      try {
+        await boardsApi.reorderSwimlane(boardId, swimlaneId, newIndex);
+      } catch {
+        showToast('Failed to reorder swimlane', 'error');
+        onRefresh();
+      }
+      return;
+    }
 
     const cardId = parseInt(String(active.id).replace('backlog-', ''));
     const card = cards.find(c => c.id === cardId);
@@ -263,24 +323,21 @@ export function BacklogView({
 
     // Same-list reorder: optimistic local update
     if (card.sprint_id === targetCard.sprint_id && card.swimlane_id === targetCard.swimlane_id) {
-      const listCards = cards.filter(c =>
-        c.sprint_id === card.sprint_id && c.swimlane_id === card.swimlane_id
-      );
-      const oldIndex = listCards.findIndex(c => c.id === card.id);
-      const newIndex = listCards.findIndex(c => c.id === targetCard.id);
+      const oldIndex = cards.findIndex(c => c.id === card.id);
+      const newIndex = cards.findIndex(c => c.id === targetCard.id);
       if (oldIndex === -1 || newIndex === -1) return;
 
-      // Compute new position value between neighbors
-      const sorted = [...listCards];
-      const [moved] = sorted.splice(oldIndex, 1);
-      sorted.splice(newIndex, 0, moved);
+      // Reorder the cards array so the render order reflects the drag
+      const reordered = arrayMove(cards, oldIndex, newIndex);
 
-      // Assign sequential positions
-      const updatedIds = new Set(sorted.map(c => c.id));
-      const newCards = cards.map(c => {
-        if (!updatedIds.has(c.id)) return c;
-        const idx = sorted.findIndex(s => s.id === c.id);
-        return { ...c, position: idx * 1000 };
+      // Assign sequential positions based on new order within the same swimlane+sprint
+      const listIds = reordered
+        .filter(c => c.sprint_id === card.sprint_id && c.swimlane_id === card.swimlane_id)
+        .map(c => c.id);
+      const newCards = reordered.map(c => {
+        const posIdx = listIds.indexOf(c.id);
+        if (posIdx === -1) return c;
+        return { ...c, position: posIdx * 1000 };
       });
       onCardsChange(newCards);
 
@@ -402,94 +459,107 @@ export function BacklogView({
           )}
         </div>
 
-        {swimlanes.map((swimlane) => {
-          const swimlaneBacklogCards = backlogCards.filter((c) => c.swimlane_id === swimlane.id);
-          const isCollapsed = collapsedSwimlanes.has(swimlane.id);
-          return (
-            <div key={swimlane.id} className="backlog-section swimlane-backlog">
-              <div
-                className="backlog-section-header"
-                style={{ borderLeftColor: swimlane.color }}
-                onClick={() => toggleSwimlane(swimlane.id)}
-              >
-                <div className="backlog-section-header-left">
-                  {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                  <h3>
-                    <span className="swimlane-designator" style={{ color: swimlane.color }}>{swimlane.designator}</span>
-                    {swimlane.name}
-                    <span className="backlog-section-count">{swimlaneBacklogCards.length}</span>
-                  </h3>
-                </div>
-                <button
-                  className="btn btn-sm"
-                  onClick={(e) => { e.stopPropagation(); setAddingCardToSwimlane(swimlane.id); }}
-                >
-                  <Plus size={14} />
-                  Add
-                </button>
-              </div>
-              {!isCollapsed && (
-                <div className="backlog-cards">
-                  {addingCardToSwimlane === swimlane.id && (
-                    <div className="backlog-add-card-form">
-                      <input
-                        type="text"
-                        value={newCardTitle}
-                        onChange={(e) => setNewCardTitle(e.target.value)}
-                        placeholder="Enter card title..."
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleCreateCard(swimlane.id);
-                          if (e.key === 'Escape') {
-                            setAddingCardToSwimlane(null);
-                            setNewCardTitle('');
-                          }
-                        }}
-                      />
-                      <div className="backlog-add-card-actions">
-                        <button className="btn btn-primary btn-sm" onClick={() => handleCreateCard(swimlane.id)}>
-                          Add
-                        </button>
-                        <button
-                          className="btn btn-sm"
-                          onClick={() => {
-                            setAddingCardToSwimlane(null);
-                            setNewCardTitle('');
-                          }}
+        <SortableContext items={swimlanes.map(s => `swimlane-${s.id}`)} strategy={verticalListSortingStrategy}>
+          {swimlanes.map((swimlane) => {
+            const swimlaneBacklogCards = backlogCards.filter((c) => c.swimlane_id === swimlane.id);
+            const isCollapsed = collapsedSwimlanes.has(swimlane.id);
+            return (
+              <SortableSwimlaneSection key={swimlane.id} swimlane={swimlane}>
+                {(dragHandleProps) => (
+                  <>
+                    <div
+                      className="backlog-section-header"
+                      style={{ borderLeftColor: swimlane.color }}
+                      onClick={() => toggleSwimlane(swimlane.id)}
+                    >
+                      <div className="backlog-section-header-left">
+                        <div
+                          className="swimlane-drag-handle"
+                          {...dragHandleProps}
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          Cancel
-                        </button>
+                          <GripVertical size={14} />
+                        </div>
+                        {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                        <h3>
+                          <span className="swimlane-designator" style={{ color: swimlane.color }}>{swimlane.designator}</span>
+                          {swimlane.name}
+                          <span className="backlog-section-count">{swimlaneBacklogCards.length}</span>
+                        </h3>
                       </div>
+                      <button
+                        className="btn btn-sm"
+                        onClick={(e) => { e.stopPropagation(); setAddingCardToSwimlane(swimlane.id); }}
+                      >
+                        <Plus size={14} />
+                        Add
+                      </button>
                     </div>
-                  )}
-                  <SortableContext items={swimlaneBacklogCards.map(c => `backlog-${c.id}`)} strategy={verticalListSortingStrategy}>
-                    {swimlaneBacklogCards.map((card) => (
-                      <SortableBacklogCard
-                        key={card.id}
-                        card={card}
-                        designator={getSwimlaneName(card.swimlane_id)}
-                        priorityColor={getPriorityColor(card.priority)}
-                        onClick={() => onCardClick(card)}
-                        actionButton={currentSprint ? (
-                          <button
-                            className="btn btn-ghost btn-xs backlog-move-btn"
-                            onClick={(e) => { e.stopPropagation(); handleMoveToSprint(card.id); }}
-                            title={`Move to ${currentSprint.name}`}
-                          >
-                            <ArrowRight size={14} />
-                          </button>
-                        ) : undefined}
-                      />
-                    ))}
-                  </SortableContext>
-                  {swimlaneBacklogCards.length === 0 && addingCardToSwimlane !== swimlane.id && (
-                    <div className="backlog-empty">No cards in backlog</div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+                    {!isCollapsed && (
+                      <div className="backlog-cards">
+                        {addingCardToSwimlane === swimlane.id && (
+                          <div className="backlog-add-card-form">
+                            <input
+                              type="text"
+                              value={newCardTitle}
+                              onChange={(e) => setNewCardTitle(e.target.value)}
+                              placeholder="Enter card title..."
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleCreateCard(swimlane.id);
+                                if (e.key === 'Escape') {
+                                  setAddingCardToSwimlane(null);
+                                  setNewCardTitle('');
+                                }
+                              }}
+                            />
+                            <div className="backlog-add-card-actions">
+                              <button className="btn btn-primary btn-sm" onClick={() => handleCreateCard(swimlane.id)}>
+                                Add
+                              </button>
+                              <button
+                                className="btn btn-sm"
+                                onClick={() => {
+                                  setAddingCardToSwimlane(null);
+                                  setNewCardTitle('');
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        <SortableContext items={swimlaneBacklogCards.map(c => `backlog-${c.id}`)} strategy={verticalListSortingStrategy}>
+                          {swimlaneBacklogCards.map((card) => (
+                            <SortableBacklogCard
+                              key={card.id}
+                              card={card}
+                              designator={getSwimlaneName(card.swimlane_id)}
+                              priorityColor={getPriorityColor(card.priority)}
+                              onClick={() => onCardClick(card)}
+                              actionButton={currentSprint ? (
+                                <button
+                                  className="btn btn-ghost btn-xs backlog-move-btn"
+                                  onClick={(e) => { e.stopPropagation(); handleMoveToSprint(card.id); }}
+                                  title={`Move to ${currentSprint.name}`}
+                                >
+                                  <ArrowRight size={14} />
+                                </button>
+                              ) : undefined}
+                            />
+                          ))}
+                        </SortableContext>
+                        {swimlaneBacklogCards.length === 0 && addingCardToSwimlane !== swimlane.id && (
+                          <div className="backlog-empty">No cards in backlog</div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </SortableSwimlaneSection>
+            );
+          })}
+        </SortableContext>
       </div>
 
       {showCreateSprint && (
@@ -551,6 +621,22 @@ export function BacklogView({
             <div className="backlog-card-priority" style={{ backgroundColor: getPriorityColor(draggedCard.priority) }} />
             <span className="card-designator">{getSwimlaneName(draggedCard.swimlane_id)}{draggedCard.gitea_issue_id}</span>
             <span className="card-title">{draggedCard.title}</span>
+          </div>
+        )}
+        {draggedSwimlane && (
+          <div className="backlog-section swimlane-backlog swimlane-dragging">
+            <div
+              className="backlog-section-header"
+              style={{ borderLeftColor: draggedSwimlane.color }}
+            >
+              <div className="backlog-section-header-left">
+                <GripVertical size={14} />
+                <h3>
+                  <span className="swimlane-designator" style={{ color: draggedSwimlane.color }}>{draggedSwimlane.designator}</span>
+                  {draggedSwimlane.name}
+                </h3>
+              </div>
+            </div>
           </div>
         )}
       </DragOverlay>
