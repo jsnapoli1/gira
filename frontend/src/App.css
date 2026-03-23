@@ -961,38 +961,20 @@ body {
   margin-bottom: 1rem;
 }
 
-/* Board grid - positions column tracks behind swimlane rows */
+@property --gutter-width {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 180px;
+}
+
+/* Board grid */
 .board-grid {
-  position: relative;
   --gutter-width: 180px;
+  transition: --gutter-width 0.2s ease;
 }
 
 .board-grid.gutter-collapsed {
   --gutter-width: 36px;
-}
-
-/* Full-height column background tracks */
-.board-column-tracks {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.board-column-tracks-gutter {
-  width: var(--gutter-width);
-  flex-shrink: 0;
-  transition: width 0.2s ease;
-}
-
-.board-column-track {
-  flex: 1;
-  min-width: 250px;
-  max-width: 320px;
-  background: rgba(0, 0, 0, 0.03);
-  border-left: 1px solid var(--border);
-  margin: 0 4px;
 }
 
 /* Swimlane */
@@ -1003,13 +985,10 @@ body {
 }
 
 .swimlane-row {
-  display: flex;
-  align-items: stretch;
+  display: grid;
 }
 
 .swimlane-gutter {
-  width: var(--gutter-width);
-  flex-shrink: 0;
   display: flex;
   align-items: flex-start;
   padding: 0.75rem 0.75rem 0.75rem 0;
@@ -1109,16 +1088,9 @@ body {
   min-height: 40px;
 }
 
-.swimlane-columns {
-  display: flex;
-  flex: 1;
-  gap: 0;
-  border-top: 1px solid var(--border);
-}
-
 /* Unified Column Headers */
 .board-column-headers {
-  display: flex;
+  display: grid;
   position: sticky;
   top: 0;
   background: var(--bg);
@@ -1128,9 +1100,6 @@ body {
 }
 
 .board-column-headers-gutter {
-  width: var(--gutter-width);
-  flex-shrink: 0;
-  transition: width 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -1159,9 +1128,6 @@ body {
 }
 
 .board-column-header {
-  flex: 1;
-  min-width: 250px;
-  max-width: 320px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1180,10 +1146,9 @@ body {
 
 /* Board Column */
 .board-column {
-  flex: 1;
-  min-width: 250px;
-  max-width: 320px;
-  background: transparent;
+  background: rgba(0, 0, 0, 0.03);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   position: relative;
   z-index: 1;
 }

@@ -932,18 +932,12 @@ export function BoardView() {
                     <span>Add Swimlane</span>
                   </button>
                 </div>
-              ) : (
+              ) : (() => {
+                const gridTemplate = `var(--gutter-width) repeat(${(board.columns || []).length}, minmax(250px, 320px))`;
+                return (
                 <div className={`board-grid ${gutterCollapsed ? 'gutter-collapsed' : ''}`}>
-                  {/* Full-height column background tracks */}
-                  <div className="board-column-tracks" aria-hidden="true">
-                    <div className="board-column-tracks-gutter" />
-                    {(board.columns || []).map((column) => (
-                      <div key={column.id} className="board-column-track" />
-                    ))}
-                  </div>
-
                   {/* Column headers row */}
-                  <div className="board-column-headers">
+                  <div className="board-column-headers" style={{ gridTemplateColumns: gridTemplate }}>
                     <div className="board-column-headers-gutter">
                       <button className="gutter-collapse-btn" onClick={toggleGutter} title={gutterCollapsed ? 'Expand swimlane labels' : 'Collapse swimlane labels'}>
                         {gutterCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
@@ -969,7 +963,7 @@ export function BoardView() {
                     <SortableSwimlaneWrapper key={swimlane.id} id={`swimlane-${swimlane.id}`}>
                       {(dragHandleProps) => (
                     <div className={`swimlane ${isCollapsed ? 'swimlane-collapsed' : ''}`}>
-                      <div className="swimlane-row">
+                      <div className="swimlane-row" style={{ gridTemplateColumns: gridTemplate }}>
                         {/* Color ribbon + label in gutter */}
                         <div className={`swimlane-gutter ${gutterCollapsed ? 'gutter-collapsed' : ''}`} onClick={() => toggleSwimlane(swimlane.id)}>
                           <div
@@ -992,35 +986,31 @@ export function BoardView() {
                             </div>
                           )}
                         </div>
-                        {/* Columns */}
-                        {!isCollapsed && (
-                        <div className="swimlane-columns">
-                          {(board.columns || []).map((column) => (
-                            <DroppableColumn
-                              key={column.id}
-                              column={column}
-                              cards={cardsBySwimlanAndColumn[swimlane.id]?.[column.id] || []}
-                              swimlane={swimlane}
-                              onCardClick={(card) => setSelectedCard(card)}
-                              onQuickAdd={async (title) => {
-                                const card = await cardsApi.create({
-                                  board_id: board.id,
-                                  swimlane_id: swimlane.id,
-                                  column_id: column.id,
-                                  sprint_id: activeSprint?.id || null,
-                                  title,
-                                  description: '',
-                                  priority: 'medium',
-                                });
-                                setCards([...cards, card]);
-                              }}
-                              hasSelection={selectedCards.size > 0}
-                              selectedCards={selectedCards}
-                              onSelectCard={handleSelectCard}
-                            />
-                          ))}
-                        </div>
-                        )}
+                        {/* Columns — direct grid children, no wrapper div */}
+                        {!isCollapsed && (board.columns || []).map((column) => (
+                          <DroppableColumn
+                            key={column.id}
+                            column={column}
+                            cards={cardsBySwimlanAndColumn[swimlane.id]?.[column.id] || []}
+                            swimlane={swimlane}
+                            onCardClick={(card) => setSelectedCard(card)}
+                            onQuickAdd={async (title) => {
+                              const card = await cardsApi.create({
+                                board_id: board.id,
+                                swimlane_id: swimlane.id,
+                                column_id: column.id,
+                                sprint_id: activeSprint?.id || null,
+                                title,
+                                description: '',
+                                priority: 'medium',
+                              });
+                              setCards([...cards, card]);
+                            }}
+                            hasSelection={selectedCards.size > 0}
+                            selectedCards={selectedCards}
+                            onSelectCard={handleSelectCard}
+                          />
+                        ))}
                       </div>
                     </div>
                       )}
@@ -1029,7 +1019,8 @@ export function BoardView() {
                   })}
                   </SortableContext>
                 </div>
-              )}
+                );
+              })()}
             </div>
 
             <DragOverlay>
