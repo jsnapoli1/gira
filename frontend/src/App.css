@@ -944,6 +944,7 @@ body {
   overflow-x: auto;
   padding: 1.5rem;
   background: var(--bg);
+  position: relative;
 }
 
 .empty-swimlanes {
@@ -1039,6 +1040,36 @@ body {
 .swimlane-columns {
   display: flex;
   gap: 1rem;
+  position: relative;
+  z-index: 1;
+}
+
+/* Column background strips - creates depth spanning all swimlanes */
+.board-column-backgrounds {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 1rem;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.board-column-bg {
+  flex: 1;
+  min-width: 250px;
+  max-width: 320px;
+  border-radius: 8px;
+}
+
+.board-column-bg.odd {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.board-column-bg.even {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 /* Unified Column Headers */
