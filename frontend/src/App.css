@@ -961,124 +961,140 @@ body {
   margin-bottom: 1rem;
 }
 
+/* Board grid - positions column tracks behind swimlane rows */
+.board-grid {
+  position: relative;
+}
+
+/* Full-height column background tracks */
+.board-column-tracks {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.board-column-tracks-gutter {
+  width: 180px;
+  flex-shrink: 0;
+}
+
+.board-column-track {
+  flex: 1;
+  min-width: 250px;
+  max-width: 320px;
+  background: rgba(0, 0, 0, 0.03);
+  border-left: 1px solid var(--border);
+}
+
 /* Swimlane */
 .swimlane {
-  margin-bottom: 1.5rem;
+  position: relative;
+  z-index: 1;
+  margin-bottom: 0;
 }
 
-.swimlane-header {
+.swimlane-row {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
+  align-items: stretch;
+  border-top: 1px solid var(--border);
+}
+
+.swimlane-gutter {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  padding: 0.75rem 0.75rem 0.75rem 0;
   cursor: pointer;
   user-select: none;
+  gap: 0.5rem;
 }
 
-.swimlane-header:hover {
+.swimlane-gutter:hover {
   opacity: 0.85;
 }
 
-.swimlane-drag-handle {
-  width: 5px;
+.swimlane-ribbon {
+  width: 4px;
   align-self: stretch;
-  min-height: 28px;
-  border-radius: 3px;
+  min-height: 24px;
+  border-radius: 2px;
   cursor: grab;
   flex-shrink: 0;
-  transition: width 0.15s;
 }
 
-.swimlane-drag-handle:hover {
-  width: 7px;
-}
-
-.swimlane-drag-handle:active {
+.swimlane-ribbon:active {
   cursor: grabbing;
 }
 
-.swimlane-toggle {
+.swimlane-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.swimlane-label .swimlane-toggle {
   display: flex;
   align-items: center;
-  justify-content: center;
   background: none;
   border: none;
   padding: 0;
   cursor: pointer;
   color: var(--text-secondary);
   flex-shrink: 0;
+  gap: 0.25rem;
 }
 
-.swimlane-header h2 {
-  margin: 0;
-  font-size: 1rem;
+.swimlane-name {
+  font-size: 0.875rem;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .swimlane-repo {
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .swimlane-card-count {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
-  background: var(--bg);
-  padding: 0.125rem 0.5rem;
-  border-radius: 10px;
   font-weight: 500;
 }
 
-.swimlane-collapsed {
-  margin-bottom: 0.5rem;
-}
-
-.swimlane-collapsed .swimlane-header {
-  margin-bottom: 0;
+.swimlane-collapsed .swimlane-row {
+  min-height: 40px;
 }
 
 .swimlane-columns {
   display: flex;
-  gap: 1rem;
-  position: relative;
-}
-
-/* Column background strips - sit inside swimlane-columns so they align perfectly */
-.swimlane-column-backgrounds {
-  position: absolute;
-  inset: -6px -4px; /* extend slightly beyond padding */
-  display: flex;
-  gap: 1rem;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.swimlane-column-bg {
   flex: 1;
-  min-width: 250px;
-  max-width: 320px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.swimlane-column-bg.even {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.swimlane-column-bg.odd {
-  background: transparent;
+  gap: 0;
 }
 
 /* Unified Column Headers */
 .board-column-headers {
   display: flex;
-  gap: 1rem;
-  padding: 0 0 0.75rem 0;
-  margin-left: 0.5rem; /* Align with swimlane content */
   position: sticky;
   top: 0;
   background: var(--bg);
   z-index: 10;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+
+.board-column-headers-gutter {
+  width: 180px;
+  flex-shrink: 0;
 }
 
 .board-column-header {
@@ -1089,6 +1105,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 1rem;
+  border-left: 1px solid var(--border);
 }
 
 .board-column-header h3 {
@@ -1106,7 +1123,6 @@ body {
   min-width: 250px;
   max-width: 320px;
   background: transparent;
-  border-radius: 8px;
   position: relative;
   z-index: 1;
 }

@@ -922,86 +922,94 @@ export function BoardView() {
                   </button>
                 </div>
               ) : (
-                <>
-                {/* Unified column headers - shown once above all swimlanes */}
-                <div className="board-column-headers">
-                  {(board.columns || []).map((column) => {
-                    const totalCards = (board.swimlanes || []).reduce((sum, sl) =>
-                      sum + (cardsBySwimlanAndColumn[sl.id]?.[column.id]?.length || 0), 0);
+                <div className="board-grid">
+                  {/* Full-height column background tracks */}
+                  <div className="board-column-tracks" aria-hidden="true">
+                    <div className="board-column-tracks-gutter" />
+                    {(board.columns || []).map((column) => (
+                      <div key={column.id} className="board-column-track" />
+                    ))}
+                  </div>
+
+                  {/* Column headers row */}
+                  <div className="board-column-headers">
+                    <div className="board-column-headers-gutter" />
+                    {(board.columns || []).map((column) => {
+                      const totalCards = (board.swimlanes || []).reduce((sum, sl) =>
+                        sum + (cardsBySwimlanAndColumn[sl.id]?.[column.id]?.length || 0), 0);
+                      return (
+                        <div key={column.id} className="board-column-header">
+                          <h3>{column.name}</h3>
+                          {totalCards > 0 && <span className="column-count">{totalCards}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <SortableContext items={(board.swimlanes || []).map(s => `swimlane-${s.id}`)} strategy={verticalListSortingStrategy}>
+                  {(board.swimlanes || []).map((swimlane) => {
+                    const isCollapsed = collapsedSwimlanes.has(swimlane.id);
+                    const swimlaneCardCount = Object.values(cardsBySwimlanAndColumn[swimlane.id] || {}).reduce((sum, arr) => sum + arr.length, 0);
                     return (
-                      <div key={column.id} className="board-column-header">
-                        <h3>{column.name}</h3>
-                        {totalCards > 0 && <span className="column-count">{totalCards}</span>}
+                    <SortableSwimlaneWrapper key={swimlane.id} id={`swimlane-${swimlane.id}`}>
+                      {(dragHandleProps) => (
+                    <div className={`swimlane ${isCollapsed ? 'swimlane-collapsed' : ''}`}>
+                      <div className="swimlane-row">
+                        {/* Color ribbon + label in gutter */}
+                        <div className="swimlane-gutter" onClick={() => toggleSwimlane(swimlane.id)}>
+                          <div
+                            className="swimlane-ribbon"
+                            style={{ backgroundColor: swimlane.color }}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Drag to reorder"
+                            {...dragHandleProps}
+                          />
+                          <div className="swimlane-label">
+                            <button className="swimlane-toggle" type="button">
+                              {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                            <span className="swimlane-name">{swimlane.name}</span>
+                            <span className="swimlane-repo">{swimlane.repo_owner}/{swimlane.repo_name}</span>
+                            {isCollapsed && <span className="swimlane-card-count">{swimlaneCardCount} cards</span>}
+                          </div>
+                        </div>
+                        {/* Columns */}
+                        {!isCollapsed && (
+                        <div className="swimlane-columns">
+                          {(board.columns || []).map((column) => (
+                            <DroppableColumn
+                              key={column.id}
+                              column={column}
+                              cards={cardsBySwimlanAndColumn[swimlane.id]?.[column.id] || []}
+                              swimlane={swimlane}
+                              onCardClick={(card) => setSelectedCard(card)}
+                              onQuickAdd={async (title) => {
+                                const card = await cardsApi.create({
+                                  board_id: board.id,
+                                  swimlane_id: swimlane.id,
+                                  column_id: column.id,
+                                  sprint_id: activeSprint?.id || null,
+                                  title,
+                                  description: '',
+                                  priority: 'medium',
+                                });
+                                setCards([...cards, card]);
+                              }}
+                              hasSelection={selectedCards.size > 0}
+                              selectedCards={selectedCards}
+                              onSelectCard={handleSelectCard}
+                            />
+                          ))}
+                        </div>
+                        )}
                       </div>
+                    </div>
+                      )}
+                    </SortableSwimlaneWrapper>
                     );
                   })}
+                  </SortableContext>
                 </div>
-                <SortableContext items={(board.swimlanes || []).map(s => `swimlane-${s.id}`)} strategy={verticalListSortingStrategy}>
-                {(board.swimlanes || []).map((swimlane) => {
-                  const isCollapsed = collapsedSwimlanes.has(swimlane.id);
-                  const swimlaneCardCount = Object.values(cardsBySwimlanAndColumn[swimlane.id] || {}).reduce((sum, arr) => sum + arr.length, 0);
-                  return (
-                  <SortableSwimlaneWrapper key={swimlane.id} id={`swimlane-${swimlane.id}`}>
-                    {(dragHandleProps) => (
-                  <div className={`swimlane ${isCollapsed ? 'swimlane-collapsed' : ''}`}>
-                    <div className="swimlane-header" onClick={() => toggleSwimlane(swimlane.id)}>
-                      <div
-                        className="swimlane-drag-handle"
-                        style={{ backgroundColor: swimlane.color }}
-                        onClick={(e) => e.stopPropagation()}
-                        title="Drag to reorder"
-                        {...dragHandleProps}
-                      />
-                      <button className="swimlane-toggle" type="button">
-                        {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                      </button>
-                      <h2>{swimlane.name}</h2>
-                      <span className="swimlane-repo">
-                        {swimlane.repo_owner}/{swimlane.repo_name}
-                      </span>
-                      {isCollapsed && <span className="swimlane-card-count">{swimlaneCardCount} cards</span>}
-                    </div>
-                    {!isCollapsed && (
-                    <div className="swimlane-columns">
-                      {/* Column background strips aligned to actual columns */}
-                      <div className="swimlane-column-backgrounds" aria-hidden="true">
-                        {(board.columns || []).map((column, index) => (
-                          <div key={column.id} className={`swimlane-column-bg ${index % 2 === 0 ? 'even' : 'odd'}`} />
-                        ))}
-                      </div>
-                      {(board.columns || []).map((column) => (
-                        <DroppableColumn
-                          key={column.id}
-                          column={column}
-                          cards={cardsBySwimlanAndColumn[swimlane.id]?.[column.id] || []}
-                          swimlane={swimlane}
-                          onCardClick={(card) => setSelectedCard(card)}
-                          onQuickAdd={async (title) => {
-                            const card = await cardsApi.create({
-                              board_id: board.id,
-                              swimlane_id: swimlane.id,
-                              column_id: column.id,
-                              sprint_id: activeSprint?.id || null,
-                              title,
-                              description: '',
-                              priority: 'medium',
-                            });
-                            setCards([...cards, card]);
-                          }}
-                          hasSelection={selectedCards.size > 0}
-                          selectedCards={selectedCards}
-                          onSelectCard={handleSelectCard}
-                        />
-                      ))}
-                    </div>
-                    )}
-                  </div>
-                    )}
-                  </SortableSwimlaneWrapper>
-                  );
-                })}
-                </SortableContext>
-                </>
               )}
             </div>
 
