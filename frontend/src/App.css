@@ -992,6 +992,7 @@ body {
   max-width: 320px;
   background: rgba(0, 0, 0, 0.03);
   border-left: 1px solid var(--border);
+  margin: 0 4px;
 }
 
 /* Swimlane */
@@ -1004,7 +1005,6 @@ body {
 .swimlane-row {
   display: flex;
   align-items: stretch;
-  border-top: 1px solid var(--border);
 }
 
 .swimlane-gutter {
@@ -1113,6 +1113,7 @@ body {
   display: flex;
   flex: 1;
   gap: 0;
+  border-top: 1px solid var(--border);
 }
 
 /* Unified Column Headers */
@@ -1164,7 +1165,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 0.75rem;
   border-left: 1px solid var(--border);
 }
 
@@ -1214,7 +1215,7 @@ body {
 }
 
 .column-cards {
-  padding: 0.5rem;
+  padding: 0.75rem 0.75rem;
   min-height: 40px;
 }
 
