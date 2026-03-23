@@ -607,7 +607,7 @@ func (s *Server) handleCreateBoardLabel(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleUpdateBoardLabel(w http.ResponseWriter, r *http.Request) {
-	_, _ = s.loadBoardAndRole(w, r)
+	_, r = s.loadBoardAndRole(w, r)
 	boardRole := getBoardRoleFromContext(r.Context())
 	if boardRole == "" {
 		return
@@ -633,7 +633,7 @@ func (s *Server) handleUpdateBoardLabel(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleDeleteBoardLabel(w http.ResponseWriter, r *http.Request) {
-	_, _ = s.loadBoardAndRole(w, r)
+	_, r = s.loadBoardAndRole(w, r)
 	boardRole := getBoardRoleFromContext(r.Context())
 	if boardRole == "" {
 		return
