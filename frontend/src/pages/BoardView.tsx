@@ -29,7 +29,7 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2 } from 'lucide-react';
+import { Plus, Settings, ChevronLeft, ChevronRight, ChevronDown, Clock, Filter, X, Search, AlertTriangle, Save, BookmarkCheck, Trash2, Share2, Pencil } from 'lucide-react';
 
 function SortableSwimlaneWrapper({ id, children }: { id: string; children: (dragHandleProps: Record<string, any>) => React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -66,6 +66,10 @@ export function BoardView() {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [showAddCard, setShowAddCard] = useState<{ swimlaneId: number; columnId: number } | null>(null);
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
+  const [showEditSprint, setShowEditSprint] = useState(false);
+  const [editSprintName, setEditSprintName] = useState('');
+  const [editSprintEndDate, setEditSprintEndDate] = useState('');
+  const [savingSprint, setSavingSprint] = useState(false);
   const [viewMode, setViewMode] = useState<'board' | 'backlog' | 'all'>('board');
   // Bulk selection state
   const [selectedCards, setSelectedCards] = useState<Set<number>>(new Set());
@@ -309,6 +313,32 @@ export function BoardView() {
       console.error('Failed to load board:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEditSprintOpen = () => {
+    if (!activeSprint) return;
+    setEditSprintName(activeSprint.name);
+    setEditSprintEndDate(activeSprint.end_date ? activeSprint.end_date.slice(0, 10) : '');
+    setShowEditSprint(true);
+  };
+
+  const handleEditSprintSave = async () => {
+    if (!activeSprint) return;
+    setSavingSprint(true);
+    try {
+      const updated = await sprintsApi.update(activeSprint.id, {
+        name: editSprintName,
+        end_date: editSprintEndDate || undefined,
+      });
+      setActiveSprint(updated);
+      setSprints(prev => prev.map(s => s.id === updated.id ? updated : s));
+      setShowEditSprint(false);
+      showToast('Sprint updated', 'success');
+    } catch (err) {
+      showToast('Failed to update sprint', 'error');
+    } finally {
+      setSavingSprint(false);
     }
   };
 
@@ -639,13 +669,18 @@ export function BoardView() {
               </Link>
               <h1>{board.name}</h1>
               {activeSprint && (
-                <span className={`active-sprint-badge ${activeSprint.status === 'active' ? 'sprint-active' : 'sprint-planning'}`}>
+                <button
+                  className={`active-sprint-badge ${activeSprint.status === 'active' ? 'sprint-active' : 'sprint-planning'}`}
+                  onClick={handleEditSprintOpen}
+                  title="Edit sprint"
+                >
                   <Clock size={14} />
                   {activeSprint.name}
                   <span className="sprint-status-label">
                     {activeSprint.status === 'active' ? 'Active' : 'Planning'}
                   </span>
-                </span>
+                  <Pencil size={11} className="sprint-edit-icon" />
+                </button>
               )}
             </div>
             <div className="board-header-actions">
@@ -806,6 +841,42 @@ export function BoardView() {
             </div>
           )}
         </div>
+        {/* Edit Sprint Modal */}
+        {showEditSprint && (
+          <div className="modal-overlay" onClick={() => setShowEditSprint(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h2>Edit Sprint</h2>
+              <div className="form-group">
+                <label>Sprint Name</label>
+                <input
+                  type="text"
+                  value={editSprintName}
+                  onChange={(e) => setEditSprintName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label>End Date</label>
+                <input
+                  type="date"
+                  value={editSprintEndDate}
+                  onChange={(e) => setEditSprintEndDate(e.target.value)}
+                />
+              </div>
+              <div className="form-actions">
+                <button className="btn" onClick={() => setShowEditSprint(false)}>Cancel</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleEditSprintSave}
+                  disabled={savingSprint || !editSprintName.trim()}
+                >
+                  {savingSprint ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Save Filter Modal */}
         {showSaveFilterModal && (
           <div className="save-filter-modal-overlay" onClick={() => setShowSaveFilterModal(false)}>

@@ -879,6 +879,22 @@ body {
   font-size: 0.8rem;
   font-weight: 500;
   border-radius: 99px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.active-sprint-badge:hover {
+  opacity: 0.8;
+}
+
+.sprint-edit-icon {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.active-sprint-badge:hover .sprint-edit-icon {
+  opacity: 1;
 }
 
 .overdue-badge {
