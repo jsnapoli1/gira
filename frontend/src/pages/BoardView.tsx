@@ -122,6 +122,17 @@ export function BoardView() {
     });
   };
 
+  // Collapsed gutter (swimlane label sidebar)
+  const [gutterCollapsed, setGutterCollapsed] = useState(() => {
+    return localStorage.getItem('zira-gutter-collapsed') === 'true';
+  });
+  const toggleGutter = () => {
+    setGutterCollapsed(prev => {
+      localStorage.setItem('zira-gutter-collapsed', String(!prev));
+      return !prev;
+    });
+  };
+
   // Jira import state
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -922,7 +933,7 @@ export function BoardView() {
                   </button>
                 </div>
               ) : (
-                <div className="board-grid">
+                <div className={`board-grid ${gutterCollapsed ? 'gutter-collapsed' : ''}`}>
                   {/* Full-height column background tracks */}
                   <div className="board-column-tracks" aria-hidden="true">
                     <div className="board-column-tracks-gutter" />
@@ -933,7 +944,11 @@ export function BoardView() {
 
                   {/* Column headers row */}
                   <div className="board-column-headers">
-                    <div className="board-column-headers-gutter" />
+                    <div className="board-column-headers-gutter">
+                      <button className="gutter-collapse-btn" onClick={toggleGutter} title={gutterCollapsed ? 'Expand swimlane labels' : 'Collapse swimlane labels'}>
+                        {gutterCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+                      </button>
+                    </div>
                     {(board.columns || []).map((column) => {
                       const totalCards = (board.swimlanes || []).reduce((sum, sl) =>
                         sum + (cardsBySwimlanAndColumn[sl.id]?.[column.id]?.length || 0), 0);
@@ -956,7 +971,7 @@ export function BoardView() {
                     <div className={`swimlane ${isCollapsed ? 'swimlane-collapsed' : ''}`}>
                       <div className="swimlane-row">
                         {/* Color ribbon + label in gutter */}
-                        <div className="swimlane-gutter" onClick={() => toggleSwimlane(swimlane.id)}>
+                        <div className={`swimlane-gutter ${gutterCollapsed ? 'gutter-collapsed' : ''}`} onClick={() => toggleSwimlane(swimlane.id)}>
                           <div
                             className="swimlane-ribbon"
                             style={{ backgroundColor: swimlane.color }}
@@ -964,14 +979,18 @@ export function BoardView() {
                             title="Drag to reorder"
                             {...dragHandleProps}
                           />
-                          <div className="swimlane-label">
-                            <button className="swimlane-toggle" type="button">
-                              {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                            </button>
-                            <span className="swimlane-name">{swimlane.name}</span>
-                            <span className="swimlane-repo">{swimlane.repo_owner}/{swimlane.repo_name}</span>
-                            {isCollapsed && <span className="swimlane-card-count">{swimlaneCardCount} cards</span>}
-                          </div>
+                          {gutterCollapsed ? (
+                            <span className="swimlane-name-collapsed">{swimlane.name}</span>
+                          ) : (
+                            <div className="swimlane-label">
+                              <button className="swimlane-toggle" type="button">
+                                {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                              </button>
+                              <span className="swimlane-name">{swimlane.name}</span>
+                              <span className="swimlane-repo">{swimlane.repo_owner}/{swimlane.repo_name}</span>
+                              {isCollapsed && <span className="swimlane-card-count">{swimlaneCardCount} cards</span>}
+                            </div>
+                          )}
                         </div>
                         {/* Columns */}
                         {!isCollapsed && (

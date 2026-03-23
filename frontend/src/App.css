@@ -964,6 +964,11 @@ body {
 /* Board grid - positions column tracks behind swimlane rows */
 .board-grid {
   position: relative;
+  --gutter-width: 180px;
+}
+
+.board-grid.gutter-collapsed {
+  --gutter-width: 36px;
 }
 
 /* Full-height column background tracks */
@@ -976,8 +981,9 @@ body {
 }
 
 .board-column-tracks-gutter {
-  width: 180px;
+  width: var(--gutter-width);
   flex-shrink: 0;
+  transition: width 0.2s ease;
 }
 
 .board-column-track {
@@ -1002,7 +1008,7 @@ body {
 }
 
 .swimlane-gutter {
-  width: 180px;
+  width: var(--gutter-width);
   flex-shrink: 0;
   display: flex;
   align-items: flex-start;
@@ -1010,10 +1016,18 @@ body {
   cursor: pointer;
   user-select: none;
   gap: 0.5rem;
+  overflow: hidden;
+  transition: width 0.2s ease;
 }
 
 .swimlane-gutter:hover {
   opacity: 0.85;
+}
+
+.swimlane-gutter.gutter-collapsed {
+  align-items: center;
+  padding: 0.5rem 0.25rem;
+  gap: 0.25rem;
 }
 
 .swimlane-ribbon {
@@ -1023,6 +1037,12 @@ body {
   border-radius: 2px;
   cursor: grab;
   flex-shrink: 0;
+}
+
+.swimlane-gutter.gutter-collapsed .swimlane-ribbon {
+  width: 3px;
+  min-height: 16px;
+  align-self: auto;
 }
 
 .swimlane-ribbon:active {
@@ -1055,6 +1075,20 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Rotated name shown in collapsed gutter */
+.swimlane-name-collapsed {
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 120px;
+  color: var(--text);
 }
 
 .swimlane-repo {
@@ -1093,8 +1127,34 @@ body {
 }
 
 .board-column-headers-gutter {
-  width: 180px;
+  width: var(--gutter-width);
   flex-shrink: 0;
+  transition: width 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.5rem;
+}
+
+.gutter-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.gutter-collapse-btn:hover {
+  background: var(--surface);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .board-column-header {
