@@ -87,13 +87,13 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, 
     <div
       ref={setNodeRef}
       style={style}
-      className={`card-item${selected ? ' selected' : ''}`}
+      className={`card-item${selected ? ' selected' : ''}${hasSelection ? ' has-selection' : ''}`}
       onClick={handleClick}
       {...attributes}
       role="article"
       aria-label={card.title}
     >
-      {/* Checkbox: visible on hover or when any card is selected */}
+      {/* Checkbox: absolutely positioned, visible on hover or when any card is selected */}
       <div
         className={`card-select-checkbox ${hasSelection ? 'always-visible' : ''}`}
         onClick={handleCheckboxClick}
@@ -105,12 +105,10 @@ export const CardItem = React.memo(function CardItem({ card, swimlane, onClick, 
           onClick={(e) => e.stopPropagation()}
         />
       </div>
-      {/* Drag handle: hidden when selecting */}
-      {!hasSelection && (
-        <div className="card-drag-handle" {...listeners}>
-          <GripVertical size={14} />
-        </div>
-      )}
+      {/* Drag handle */}
+      <div className="card-drag-handle" {...listeners}>
+        <GripVertical size={14} />
+      </div>
       <div className="card-content">
         <div className="card-header">
           <span className={`card-type-badge type-${card.issue_type || 'task'}`} title={card.issue_type || 'task'}>

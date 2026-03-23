@@ -1121,6 +1121,7 @@ body {
 
 /* Card Item */
 .card-item {
+  position: relative;
   display: flex;
   gap: 0.5rem;
   background: var(--surface);
@@ -4920,30 +4921,38 @@ body {
 }
 
 .card-select-checkbox {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 10;
   display: flex;
   align-items: center;
-  padding: 0.5rem 0.25rem 0.5rem 0.5rem;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: var(--surface);
+  border-radius: 4px;
   opacity: 0;
-  width: 0;
-  overflow: hidden;
-  transition: opacity 0.15s, width 0.15s;
+  pointer-events: none;
+  transition: opacity 0.15s;
 }
 
 /* Show checkbox on card hover */
 .card-item:hover .card-select-checkbox {
   opacity: 1;
-  width: auto;
+  pointer-events: auto;
 }
 
-/* Always show when in selection mode (any card selected) */
+/* Always show when any card is selected */
 .card-select-checkbox.always-visible {
   opacity: 1;
-  width: auto;
+  pointer-events: auto;
 }
 
 .card-select-checkbox input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
   cursor: pointer;
   accent-color: var(--primary);
 }
