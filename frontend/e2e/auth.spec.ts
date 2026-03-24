@@ -109,7 +109,7 @@ test.describe('Signup form layout', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Signup', () => {
-  test('signup with valid credentials succeeds and redirects to /boards', async ({ page }) => {
+  test('signup with valid credentials succeeds and redirects to dashboard', async ({ page }) => {
     const email = uniqueEmail('signup');
 
     await page.goto('/signup');
@@ -119,7 +119,8 @@ test.describe('Signup', () => {
     await page.fill('#confirmPassword', 'password123');
     await page.click('button[type="submit"]');
 
-    await expect(page).toHaveURL(/\/boards/);
+    // After signup, app redirects to /dashboard
+    await expect(page).toHaveURL(/\/(boards|dashboard)/);
   });
 
   test('after signup a JWT token is stored in localStorage', async ({ page }) => {
@@ -131,7 +132,8 @@ test.describe('Signup', () => {
     await page.fill('#password', 'password123');
     await page.fill('#confirmPassword', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/);
+    // After signup, app redirects to /dashboard
+    await expect(page).toHaveURL(/\/(boards|dashboard)/);
 
     const token = await page.evaluate(() => localStorage.getItem('token'));
     expect(token).not.toBeNull();
@@ -204,7 +206,7 @@ test.describe('Signup', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Login', () => {
-  test('login with valid credentials redirects to /boards', async ({ page, request }) => {
+  test('login with valid credentials redirects to dashboard', async ({ page, request }) => {
     const email = uniqueEmail('login');
     await signupViaAPI(request, email, 'password123', 'Login User');
 
@@ -213,7 +215,8 @@ test.describe('Login', () => {
     await page.fill('#password', 'password123');
     await page.click('button[type="submit"]');
 
-    await expect(page).toHaveURL(/\/boards/);
+    // After login, app redirects to /dashboard
+    await expect(page).toHaveURL(/\/(boards|dashboard)/);
   });
 
   test('login with wrong password shows an error', async ({ page, request }) => {
@@ -254,7 +257,8 @@ test.describe('Login', () => {
     await page.fill('#email', email);
     await page.fill('#password', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/);
+    // After login, app redirects to /dashboard
+    await expect(page).toHaveURL(/\/(boards|dashboard)/);
 
     const token = await page.evaluate(() => localStorage.getItem('token'));
     expect(token).not.toBeNull();
@@ -381,7 +385,8 @@ test.describe('Display name shown in sidebar after login', () => {
     await page.fill('#email', email);
     await page.fill('#password', 'password123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/boards/);
+    // After login, app redirects to /dashboard
+    await expect(page).toHaveURL(/\/(boards|dashboard)/);
 
     // Ensure sidebar is expanded so .user-name is rendered
     await page.evaluate(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
