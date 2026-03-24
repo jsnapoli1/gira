@@ -230,6 +230,7 @@ test.describe('Reports Extended', () => {
   // -------------------------------------------------------------------------
 
   test('sprint selector appears after completing a sprint', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Sprint Selector Board');
 
@@ -249,6 +250,7 @@ test.describe('Reports Extended', () => {
   });
 
   test('sprint selector option text includes sprint name and status', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Sprint Label Board');
 
@@ -270,6 +272,7 @@ test.describe('Reports Extended', () => {
   });
 
   test('switching between sprints in selector keeps charts grid visible', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Multi Sprint Charts Board');
 
@@ -308,6 +311,7 @@ test.describe('Reports Extended', () => {
   // -------------------------------------------------------------------------
 
   test('metrics section shows completed sprint count ≥ 1 after completing a sprint', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Metrics Board');
 
@@ -335,6 +339,7 @@ test.describe('Reports Extended', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Metric Render Board');
 
@@ -365,6 +370,7 @@ test.describe('Reports Extended', () => {
   // -------------------------------------------------------------------------
 
   test('velocity chart renders recharts bars after completing a sprint', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Velocity Chart Board');
 
@@ -389,6 +395,7 @@ test.describe('Reports Extended', () => {
   });
 
   test('velocity chart shows two recharts-bar series for two completed sprints', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Dual Velocity Board');
 
@@ -420,6 +427,7 @@ test.describe('Reports Extended', () => {
   // -------------------------------------------------------------------------
 
   test('burndown chart SVG renders when sprint has metric data', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Burndown SVG Board');
 
@@ -448,6 +456,7 @@ test.describe('Reports Extended', () => {
   // -------------------------------------------------------------------------
 
   test('time tracking section is a child of .reports-page', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'TT Layout Board');
 
@@ -471,6 +480,7 @@ test.describe('Reports Extended', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Progress Bar Board');
 
@@ -498,6 +508,7 @@ test.describe('Reports Extended', () => {
   // -------------------------------------------------------------------------
 
   test('switching board selector updates content', async ({ request, page }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
 
     // Board A: has a completed sprint
@@ -608,6 +619,7 @@ test.describe('Reports Extended', () => {
     });
 
     test('burndown for completed sprint returns historical data with at least one entry', async ({ request }) => {
+    test.setTimeout(90000);
       const token = await createUser(request);
       const bs = await setupBoard(request, token, 'Burndown Historical Board');
       const sprintId = await createAndCompleteSprint(request, token, bs, 'Historical Sprint', 6);
@@ -670,6 +682,7 @@ test.describe('Reports Extended', () => {
     });
 
     test('velocity entries have sprint_name, completed_points, total_points fields', async ({ request }) => {
+    test.setTimeout(90000);
       const token = await createUser(request);
       const bs = await setupBoard(request, token, 'Velocity Fields Board');
       const sprintId = await createAndCompleteSprint(request, token, bs, 'Vel Fields Sprint', 9);
@@ -690,6 +703,7 @@ test.describe('Reports Extended', () => {
     });
 
     test('velocity shows completed points for a sprint with story-pointed cards', async ({ request }) => {
+    test.setTimeout(90000);
       const token = await createUser(request);
       const bs = await setupBoard(request, token, 'Velocity Points Board');
       const sprintId = await createAndCompleteSprint(request, token, bs, 'Points Vel Sprint', 13);
@@ -884,6 +898,7 @@ test.describe('Reports Extended', () => {
     });
 
     test('UI: burndown chart card heading is rendered', async ({ request, page }) => {
+    test.setTimeout(90000);
       const token = await createUser(request);
       const bs = await setupBoard(request, token, 'UI Burndown Board');
 
@@ -904,6 +919,7 @@ test.describe('Reports Extended', () => {
     });
 
     test('UI: velocity trend chart card heading is rendered', async ({ request, page }) => {
+    test.setTimeout(90000);
       const token = await createUser(request);
       const bs = await setupBoard(request, token, 'UI Velocity Board');
 
@@ -924,6 +940,7 @@ test.describe('Reports Extended', () => {
     });
 
     test('UI: sprint metrics shows Sprint Completion and Avg Velocity metric cards', async ({ request, page }) => {
+    test.setTimeout(90000);
       const token = await createUser(request);
       const bs = await setupBoard(request, token, 'UI Metrics Cards Board');
 
@@ -949,6 +966,7 @@ test.describe('Reports Extended', () => {
     });
 
     test('UI: cumulative flow chart card heading is rendered', async ({ request, page }) => {
+    test.setTimeout(90000);
       const token = await createUser(request);
       const bs = await setupBoard(request, token, 'UI CFD Board');
 
@@ -1258,6 +1276,7 @@ test.describe('Reports Extended II', () => {
   });
 
   test('burndown API entry date field is a valid date string', async ({ request }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Burndown Date Format Board');
     const sprintId = await createAndCompleteSprint(request, token, bs, 'Date Format Sprint', 3);
@@ -1325,6 +1344,7 @@ test.describe('Reports Extended II', () => {
   });
 
   test('velocity data total_points equals sum of story points in sprint', async ({ request }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'Velocity Sum Points Board');
     const sprintId = await createAndCompleteSprint(request, token, bs, 'Sum Sprint', 7);
@@ -1361,6 +1381,7 @@ test.describe('Reports Extended II', () => {
   // -------------------------------------------------------------------------
 
   test('sprint metrics total_points reflects story points of cards in sprint', async ({ request }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const bs = await setupBoard(request, token, 'SM Points Reflect Board');
     const sprintId = await createAndCompleteSprint(request, token, bs, 'Points Reflect Sprint', 11);

@@ -423,6 +423,11 @@ test.describe('Toast — multiple toasts stack', () => {
     await page.click('button[type="submit"]:has-text("Create Board")');
     await expect(page.locator('.toast-error').first()).toBeVisible({ timeout: 5000 });
 
+    // The modal stays open after failure (error path does not close it).
+    // Close it by clicking Cancel before attempting the second creation.
+    await page.locator('.modal .form-actions button:not([type="submit"])').click();
+    await expect(page.locator('.modal-overlay')).not.toBeVisible({ timeout: 3000 });
+
     // Quickly submit a second failing creation before the first toast dismisses.
     await page.click('button:has-text("Create Board")');
     await page.fill('#boardName', 'Fail Board 2');
@@ -634,7 +639,7 @@ test.describe('Toast — work log added', () => {
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
     const timeInput = page.locator(
-      'input[placeholder*="ours" i], input[placeholder*="h" i], .log-time-form input',
+      '.time-input-mini, input[placeholder="mins"]',
     ).first();
 
     if (!(await timeInput.isVisible())) {
@@ -645,7 +650,7 @@ test.describe('Toast — work log added', () => {
     await timeInput.fill('2');
 
     const submitBtn = page.locator(
-      '.log-time-form button[type="submit"], button:has-text("Log Time"), button:has-text("Add")',
+      '.time-tracking-actions .btn-primary, .time-tracking-actions button:has-text("Log")',
     ).first();
     await submitBtn.click();
 
@@ -670,7 +675,7 @@ test.describe('Toast — work log failure', () => {
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
     const timeInput = page.locator(
-      'input[placeholder*="ours" i], input[placeholder*="h" i], .log-time-form input',
+      '.time-input-mini, input[placeholder="mins"]',
     ).first();
     if (!(await timeInput.isVisible())) {
       test.skip(true, 'Time tracking input not visible in this build');
@@ -687,7 +692,7 @@ test.describe('Toast — work log failure', () => {
 
     await timeInput.fill('3');
     const submitBtn = page.locator(
-      '.log-time-form button[type="submit"], button:has-text("Log Time"), button:has-text("Add")',
+      '.time-tracking-actions .btn-primary, .time-tracking-actions button:has-text("Log")',
     ).first();
     await submitBtn.click();
 
@@ -1274,6 +1279,10 @@ test.describe('Toast — stacked toasts have individual messages', () => {
     await page.fill('#boardName', 'Stack Msg 1');
     await page.click('button[type="submit"]:has-text("Create Board")');
     await expect(page.locator('.toast-error').first()).toBeVisible({ timeout: 5000 });
+
+    // The modal stays open after failure — close it before attempting the second creation.
+    await page.locator('.modal .form-actions button:not([type="submit"])').click();
+    await expect(page.locator('.modal-overlay')).not.toBeVisible({ timeout: 3000 });
 
     await page.click('button:has-text("Create Board")');
     await page.fill('#boardName', 'Stack Msg 2');
