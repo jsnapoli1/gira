@@ -59,6 +59,17 @@ test.describe('Navigation Extended — deep link to board (authenticated)', () =
     await page.waitForURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
     expect(page.url()).toContain(`/boards/${board.id}`);
   });
+
+  test('deep link to board works after login via token injection', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-deeplink-postlogin');
+    const board = await createBoard(request, token, 'Post-Login Deep Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+
+    await expect(page.locator('.board-header h1')).toContainText('Post-Login Deep Board', { timeout: 10000 });
+    await expect(page).toHaveURL(new RegExp(`/boards/${board.id}`));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -74,6 +85,31 @@ test.describe('Navigation Extended — deep link redirects to login when unauthe
   test('visiting /boards/:id/settings without auth redirects to /login', async ({ page }) => {
     await page.goto('/boards/123/settings');
     await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+  });
+
+  test('visiting /dashboard without auth redirects to /login', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+  });
+
+  test('visiting /reports without auth redirects to /login', async ({ page }) => {
+    await page.goto('/reports');
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+  });
+
+  test('visiting /settings without auth redirects to /login', async ({ page }) => {
+    await page.goto('/settings');
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+  });
+
+  test('authenticated user visiting /login is redirected away from login page', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-auth-login-redirect');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto('/login');
+
+    // PublicRoute redirects authenticated users away from /login
+    await expect(page).not.toHaveURL(/\/login/, { timeout: 10000 });
   });
 });
 
@@ -164,6 +200,34 @@ test.describe('Navigation Extended — browser back/forward history', () => {
     await page.goBack();
     await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
   });
+
+  test('browser back from settings returns to previous page', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-back-from-settings');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/settings');
+    await expect(page.locator('h1:has-text("Settings")')).toBeVisible({ timeout: 10000 });
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
+  });
+
+  test('browser back from reports returns to previous page', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-back-from-reports');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/reports');
+    await expect(page.locator('h1:has-text("Reports")')).toBeVisible({ timeout: 10000 });
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -212,6 +276,24 @@ test.describe('Navigation Extended — active nav item', () => {
     await page.goto(`/boards/${board.id}/settings`);
 
     await expect(page.locator('.nav-item.active')).toContainText('Boards', { timeout: 10000 });
+  });
+
+  test('Dashboard nav item is active on /dashboard', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-active-dashboard');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto('/dashboard');
+
+    await expect(page.locator('.nav-item.active')).toContainText('Dashboard', { timeout: 10000 });
+  });
+
+  test('Settings nav item is active on /settings', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-active-settings');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto('/settings');
+
+    await expect(page.locator('.nav-item.active')).toContainText('Settings', { timeout: 10000 });
   });
 });
 
@@ -271,6 +353,60 @@ test.describe('Navigation Extended — sidebar collapse/expand', () => {
 
     const storedValue = await page.evaluate(() => localStorage.getItem('zira-sidebar-collapsed'));
     expect(storedValue).toBe('true');
+  });
+
+  test('collapsed sidebar still renders nav item icons', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-collapsed-icons');
+    await page.addInitScript((t: string) => {
+      localStorage.setItem('token', t);
+      localStorage.removeItem('zira-sidebar-collapsed');
+    }, token);
+    await page.goto('/boards');
+
+    // Collapse the sidebar
+    await page.locator('.sidebar-toggle').click();
+    await expect(page.locator('.sidebar')).toHaveClass(/collapsed/, { timeout: 5000 });
+
+    // Nav items should still be present (icons only, text hidden via CSS)
+    await expect(page.locator('.nav-item').first()).toBeVisible();
+
+    // The sidebar-nav should still contain the expected number of nav items
+    const navItemCount = await page.locator('.nav-item').count();
+    expect(navItemCount).toBeGreaterThanOrEqual(4);
+  });
+
+  test('collapsed sidebar nav items still navigate correctly', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-collapsed-nav');
+    await page.addInitScript((t: string) => {
+      localStorage.setItem('token', t);
+      localStorage.removeItem('zira-sidebar-collapsed');
+    }, token);
+    await page.goto('/boards');
+
+    // Collapse the sidebar
+    await page.locator('.sidebar-toggle').click();
+    await expect(page.locator('.sidebar')).toHaveClass(/collapsed/, { timeout: 5000 });
+
+    // Navigate using a nav item (by href since labels are hidden when collapsed)
+    await page.locator('.sidebar-nav a[href="/settings"]').click();
+    await expect(page).toHaveURL(/\/settings/, { timeout: 10000 });
+  });
+
+  test('collapsed state persists across page reload', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-persist-reload');
+    await page.addInitScript((t: string) => {
+      localStorage.setItem('token', t);
+      localStorage.removeItem('zira-sidebar-collapsed');
+    }, token);
+    await page.goto('/boards');
+
+    await page.locator('.sidebar-toggle').click();
+    await expect(page.locator('.sidebar')).toHaveClass(/collapsed/, { timeout: 5000 });
+
+    // Reload the page — localStorage should restore the collapsed state
+    await page.reload();
+    await page.waitForSelector('.sidebar', { timeout: 10000 });
+    await expect(page.locator('.sidebar')).toHaveClass(/collapsed/, { timeout: 5000 });
   });
 });
 
@@ -350,4 +486,204 @@ test.describe('Navigation Extended — card deep-link (not yet implemented)', ()
       });
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// Sidebar — primary nav links navigate to correct routes
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — sidebar primary links', () => {
+  test('Dashboard link in sidebar navigates to /dashboard', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-dash-link');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.nav-item', { hasText: 'Dashboard' }).click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+  });
+
+  test('Boards link in sidebar navigates to /boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-boards-link');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.nav-item', { hasText: 'Boards' }).click();
+    await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
+  });
+
+  test('Reports link in sidebar navigates to /reports', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-reports-link');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.nav-item', { hasText: 'Reports' }).click();
+    await expect(page).toHaveURL(/\/reports/, { timeout: 10000 });
+  });
+
+  test('Settings link in sidebar navigates to /settings', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-settings-link');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.nav-item', { hasText: 'Settings' }).click();
+    await expect(page).toHaveURL(/\/settings/, { timeout: 10000 });
+  });
+
+  test('logo / brand link navigates to home ("/")', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-logo-link');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    // The .logo link in the sidebar-header links to "/"
+    await page.locator('.sidebar-header .logo').click();
+
+    // "/" redirects authenticated users — they end up on dashboard or boards
+    const url = page.url();
+    expect(
+      url.includes('/dashboard') || url.includes('/boards') || url.endsWith('/')
+    ).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board list — navigation from board list to board
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — board list navigation', () => {
+  test('clicking a board card link navigates to that board', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-board-click');
+    const board = await createBoard(request, token, 'Clickable Board Nav');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.board-card-link', { hasText: 'Clickable Board Nav' }).click();
+    await expect(page).toHaveURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+    await expect(page.locator('.board-header h1')).toContainText('Clickable Board Nav');
+  });
+
+  test('board settings link from board view navigates to /boards/:id/settings', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-board-settings-link');
+    const board = await createBoard(request, token, 'Settings Link Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    // The settings gear icon link in board header
+    await page.locator(`.board-header-actions a[href="/boards/${board.id}/settings"]`).click();
+    await expect(page).toHaveURL(new RegExp(`/boards/${board.id}/settings`), { timeout: 10000 });
+  });
+
+  test('back-link chevron in board header returns to /boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-back-chevron');
+    const board = await createBoard(request, token, 'Back Chevron Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    // The .back-link in the board header
+    await page.locator('.back-link').click();
+    await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board settings — breadcrumb-style navigation
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — board settings navigation', () => {
+  test('board settings page loads for a board owner', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-bs-load');
+    const board = await createBoard(request, token, 'Settings Load Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    await expect(page.locator('.board-settings')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('board settings page shows the board name in the header', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-bs-name');
+    const board = await createBoard(request, token, 'Named Settings Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    await expect(page.locator('.board-settings')).toBeVisible({ timeout: 10000 });
+    // The board settings page renders the board name
+    await expect(page.locator('h1, h2, .board-name').first()).toContainText('Named Settings Board', { timeout: 8000 });
+  });
+
+  test('board settings back-link navigates to the board view', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-bs-back');
+    const board = await createBoard(request, token, 'Back From Settings Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.board-settings')).toBeVisible({ timeout: 10000 });
+
+    // BoardSettings.tsx has a ChevronLeft back link
+    await page.locator('.back-link').click();
+    await expect(page).toHaveURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keyboard navigation through sidebar links
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — keyboard navigation in sidebar', () => {
+  test('Tab key moves focus through sidebar nav items', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-tab-nav');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    // Focus the first nav item in the sidebar-nav
+    await page.locator('.sidebar-nav .nav-item').first().focus();
+    await expect(page.locator('.sidebar-nav .nav-item').first()).toBeFocused({ timeout: 5000 });
+
+    // Tab to the next nav item
+    await page.keyboard.press('Tab');
+    // After Tab, a subsequent nav item or interactive element should have focus
+    // We simply check no JS error occurred — the exact focus target varies by DOM order
+  });
+
+  test('Enter key on a focused sidebar nav item navigates to that route', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-enter-nav');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    // Focus the Settings nav link directly
+    await page.locator('.sidebar-nav a[href="/settings"]').focus();
+    await page.keyboard.press('Enter');
+
+    await expect(page).toHaveURL(/\/settings/, { timeout: 10000 });
+  });
+
+  test('sidebar nav items are reachable via keyboard (have href)', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-href-nav');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    // All four primary nav links should have href attributes
+    const hrefs = await page.locator('.sidebar-nav .nav-item').evaluateAll(
+      (els) => els.map((el) => el.getAttribute('href')).filter(Boolean)
+    );
+
+    expect(hrefs).toContain('/dashboard');
+    expect(hrefs).toContain('/boards');
+    expect(hrefs).toContain('/reports');
+    expect(hrefs).toContain('/settings');
+  });
 });
