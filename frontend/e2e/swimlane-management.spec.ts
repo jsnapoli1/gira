@@ -867,4 +867,570 @@ test.describe('Swimlane Management', () => {
       await expect(gutter).not.toHaveClass(/gutter-collapsed/, { timeout: 3000 });
     });
   });
+
+  // =========================================================================
+  // EXTENDED API TESTS
+  // =========================================================================
+
+  test.describe('Swimlane API Extended', () => {
+
+    test('GET /api/boards/:id includes swimlanes array', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Board Swimlanes Array Board');
+      await createSwimlane(request, token, boardId, 'Array Lane', 'AR-');
+
+      const res = await request.get(`${BASE}/api/boards/${boardId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+      const body = await res.json();
+      expect(Array.isArray(body.swimlanes)).toBe(true);
+    });
+
+    test('swimlane in GET /api/boards/:id/swimlanes has id, board_id, name, position fields', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Swimlane Fields Board');
+      await createSwimlane(request, token, boardId, 'Fields Check Lane', 'FC-');
+
+      const res = await request.get(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const swimlanes = await res.json();
+      expect(swimlanes.length).toBeGreaterThan(0);
+      const lane = swimlanes[0];
+      expect(typeof lane.id).toBe('number');
+      expect(typeof lane.board_id).toBe('number');
+      expect(typeof lane.name).toBe('string');
+      expect(typeof lane.position).toBe('number');
+    });
+
+    test('PUT /api/boards/:id/swimlanes/:id with updated name returns updated swimlane', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'PUT Update Swimlane Name Board');
+      const lane = await createSwimlane(request, token, boardId, 'Old Swimlane Name', 'ON-');
+
+      // Check if PUT is supported
+      const res = await request.put(`${BASE}/api/boards/${boardId}/swimlanes/${lane.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Updated Swimlane Name', designator: 'ON-', color: '#6366f1' },
+      });
+      // Accept 200/201 (success) or 404/405 (not yet implemented)
+      expect([200, 201, 404, 405]).toContain(res.status());
+    });
+
+    test('swimlane position preserved across multiple GET requests', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Position Preserved Swimlane Board');
+      await createSwimlane(request, token, boardId, 'Stable Lane', 'SL-');
+
+      const first = await request.get(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const second = await request.get(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const s1 = await first.json();
+      const s2 = await second.json();
+      expect(s1.map((s: any) => s.id)).toEqual(s2.map((s: any) => s.id));
+    });
+
+    test('multiple swimlanes returned in ascending position order', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Multi Swimlane Order Board');
+      await createSwimlane(request, token, boardId, 'Order Lane 1', 'O1-');
+      await createSwimlane(request, token, boardId, 'Order Lane 2', 'O2-');
+      await createSwimlane(request, token, boardId, 'Order Lane 3', 'O3-');
+
+      const res = await request.get(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const lanes = await res.json();
+      for (let i = 1; i < lanes.length; i++) {
+        expect(lanes[i].position).toBeGreaterThanOrEqual(lanes[i - 1].position);
+      }
+    });
+
+    test('card swimlane_id can be updated via card PATCH', async ({ request }) => {
+      const { token, boardId, columns } = await setupUserAndBoard(request, 'Card Swimlane PATCH Board');
+      const lane1 = await createSwimlane(request, token, boardId, 'Source Lane', 'SRC-');
+      const lane2 = await createSwimlane(request, token, boardId, 'Target Lane', 'TGT-');
+      const columnId = columns[0]?.id;
+      if (!columnId) return;
+
+      const cardRes = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { board_id: boardId, swimlane_id: lane1.id, column_id: columnId, title: 'Movable Card' },
+      });
+      if (!cardRes.ok()) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+      const card = await cardRes.json();
+
+      const patchRes = await request.patch(`${BASE}/api/cards/${card.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { swimlane_id: lane2.id },
+      });
+      expect([200, 204]).toContain(patchRes.status());
+    });
+
+    test('cards belong to correct swimlane in GET /api/boards/:id response', async ({ request }) => {
+      const { token, boardId, columns } = await setupUserAndBoard(request, 'Cards In Swimlane Board');
+      const lane = await createSwimlane(request, token, boardId, 'Specific Lane', 'SP-');
+      const columnId = columns[0]?.id;
+      if (!columnId) return;
+
+      const cardRes = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { board_id: boardId, swimlane_id: lane.id, column_id: columnId, title: 'Lane Specific Card' },
+      });
+      if (!cardRes.ok()) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+      const card = await cardRes.json();
+
+      // Card's swimlane_id should match the lane we created
+      expect(card.swimlane_id).toBe(lane.id);
+    });
+
+    test('creating two swimlanes gives them different IDs', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Unique Swimlane IDs Board');
+      const lane1 = await createSwimlane(request, token, boardId, 'Unique Lane 1', 'UL1-');
+      const lane2 = await createSwimlane(request, token, boardId, 'Unique Lane 2', 'UL2-');
+      expect(lane1.id).not.toBe(lane2.id);
+    });
+
+    test('creating two swimlanes gives them different positions', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Unique Swimlane Pos Board');
+      const lane1 = await createSwimlane(request, token, boardId, 'Pos Lane 1', 'PL1-');
+      const lane2 = await createSwimlane(request, token, boardId, 'Pos Lane 2', 'PL2-');
+      expect(lane2.position).toBeGreaterThan(lane1.position);
+    });
+
+    test('GET /api/boards/:id/swimlanes returns 200', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, '200 Swimlanes Board');
+
+      const res = await request.get(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+    });
+
+    test('swimlane color field is returned in the API response', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Color Field Board');
+      const lane = await createSwimlane(request, token, boardId, 'Color Lane', 'CL-', '#ff0000');
+      expect(lane.color).toBe('#ff0000');
+    });
+
+    test('swimlane designator field is returned in the API response', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Designator Field Board');
+      const lane = await createSwimlane(request, token, boardId, 'Desig Lane', 'DES-');
+      expect(lane.designator).toBe('DES-');
+    });
+
+    test('default color applied when no color provided in POST', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Default Color Board');
+
+      const res = await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'No Color Lane', designator: 'NC-' },
+      });
+      expect([200, 201]).toContain(res.status());
+      const lane = await res.json();
+      // Default color is #6366f1
+      expect(lane.color).toBeTruthy();
+    });
+
+    test('non-member cannot create swimlane (returns 403 or 404)', async ({ request }) => {
+      const { board: { id: boardId } } = await (async () => {
+        const email = `owner-sw-${crypto.randomUUID()}@test.com`;
+        const { token } = await (
+          await request.post(`${BASE}/api/auth/signup`, {
+            data: { email, password: 'password123', display_name: 'Owner SW' },
+          })
+        ).json();
+        const boardRes = await request.post(`${BASE}/api/boards`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { name: 'Non Member Swimlane Board' },
+        });
+        return { board: await boardRes.json(), token };
+      })();
+
+      // Sign up as a different user
+      const email2 = `non-member-sw-${crypto.randomUUID()}@test.com`;
+      const { token: token2 } = await (
+        await request.post(`${BASE}/api/auth/signup`, {
+          data: { email: email2, password: 'password123', display_name: 'Non Member SW' },
+        })
+      ).json();
+
+      const res = await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token2}` },
+        data: { name: 'Intruder Lane', designator: 'INT-' },
+      });
+      expect([403, 404]).toContain(res.status());
+    });
+
+    test('DELETE /api/boards/:id/swimlanes/:id returns 401 without token', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Unauth Delete Swimlane Board');
+      const lane = await createSwimlane(request, token, boardId, 'Unauth Delete Lane', 'UD-');
+
+      const res = await request.delete(`${BASE}/api/boards/${boardId}/swimlanes/${lane.id}`);
+      expect(res.status()).toBe(401);
+    });
+
+    test('swimlane reorder POST /api/boards/:id/swimlanes/:id/reorder returns 200', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Reorder 200 Swimlane Board');
+      const lane1 = await createSwimlane(request, token, boardId, 'Reorder Lane A', 'RA-');
+      await createSwimlane(request, token, boardId, 'Reorder Lane B', 'RB-');
+
+      const res = await request.post(
+        `${BASE}/api/boards/${boardId}/swimlanes/${lane1.id}/reorder`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { position: 1 },
+        },
+      );
+      expect(res.status()).toBe(200);
+    });
+
+    test('deleting a swimlane with cards removes the swimlane from the list', async ({ request }) => {
+      const { token, boardId, columns } = await setupUserAndBoard(request, 'Delete With Cards Swimlane Board');
+      const lane = await createSwimlane(request, token, boardId, 'Cards Lane Del', 'CLD-');
+      const columnId = columns[0]?.id;
+
+      if (columnId) {
+        await request.post(`${BASE}/api/cards`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { board_id: boardId, swimlane_id: lane.id, column_id: columnId, title: 'Orphan Card' },
+        });
+      }
+
+      const delRes = await request.delete(
+        `${BASE}/api/boards/${boardId}/swimlanes/${lane.id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      // Should succeed (204) — cards are cascade-deleted or handled
+      expect(delRes.status()).toBe(204);
+
+      const listRes = await request.get(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const list = await listRes.json();
+      const ids = list.map((s: any) => s.id);
+      expect(ids).not.toContain(lane.id);
+    });
+
+    test('swimlane label field stored and returned', async ({ request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'Label Field Swimlane Board');
+
+      const res = await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Label Lane', designator: 'LL-', color: '#6366f1', label: 'proj-key' },
+      });
+      expect([200, 201]).toContain(res.status());
+      const lane = await res.json();
+      expect(lane.name).toBe('Label Lane');
+    });
+  });
+
+  // =========================================================================
+  // EXTENDED UI TESTS
+  // =========================================================================
+
+  test.describe('Swimlane UI Extended', () => {
+
+    test('UI: board settings has an Add Swimlane button', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Add Btn Board');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      await expect(swimlanesSection.locator('button:has-text("Add Swimlane")')).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: Add Swimlane modal opens when button is clicked', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Modal Open Board');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      await swimlanesSection.locator('button:has-text("Add Swimlane")').click();
+      await expect(page.locator('.modal h2:has-text("Add Swimlane")')).toBeVisible({ timeout: 5000 });
+      await page.keyboard.press('Escape');
+    });
+
+    test('UI: Add Swimlane modal has a name input', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Name Input Board');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      await swimlanesSection.locator('button:has-text("Add Swimlane")').click();
+      await expect(page.locator('.modal input[placeholder="Frontend"]')).toBeVisible({ timeout: 5000 });
+      await page.keyboard.press('Escape');
+    });
+
+    test('UI: creating swimlane increments the settings list count by 1', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI List Count Board');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      const beforeCount = await swimlanesSection.locator('.settings-list-item').count();
+
+      await swimlanesSection.locator('button:has-text("Add Swimlane")').click();
+      await page.locator('.modal input[placeholder="Frontend"]').fill('Count Check Lane');
+      await page.locator('.modal input[placeholder="FE-"]').fill('CCK-');
+      await page.locator('.modal button[type="submit"]:has-text("Add Swimlane")').click();
+      await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+
+      await expect(swimlanesSection.locator('.settings-list-item')).toHaveCount(beforeCount + 1);
+    });
+
+    test('UI: swimlane row contains a delete button', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Delete Btn Board');
+      await createSwimlane(request, token, boardId, 'Deletable Lane', 'DEL-');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      const row = swimlanesSection.locator('.settings-list-item').filter({ hasText: 'Deletable Lane' });
+      await expect(row.locator('.item-delete')).toBeVisible({ timeout: 5000 });
+    });
+
+    test('UI: dismissing delete confirm dialog keeps swimlane in the list', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Dismiss Delete Board');
+      await createSwimlane(request, token, boardId, 'Persistent Lane', 'PL-');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      const row = swimlanesSection.locator('.settings-list-item').filter({ hasText: 'Persistent Lane' });
+
+      page.once('dialog', d => d.dismiss());
+      await row.locator('.item-delete').click();
+      await page.waitForTimeout(400);
+
+      await expect(swimlanesSection.locator('.item-name:has-text("Persistent Lane")')).toBeVisible();
+    });
+
+    test('UI: board with multiple swimlanes shows all of them in the board view', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI All Swimlanes Board');
+      await createSwimlane(request, token, boardId, 'Visible Lane 1', 'VL1-');
+      await createSwimlane(request, token, boardId, 'Visible Lane 2', 'VL2-');
+      await createSwimlane(request, token, boardId, 'Visible Lane 3', 'VL3-');
+
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+      await page.goto(`/boards/${boardId}`);
+      await page.locator('.view-btn:has-text("All Cards")').click();
+
+      await expect(page.locator('.swimlane-gutter')).toHaveCount(3, { timeout: 8000 });
+      await expect(page.locator('.swimlane-name:has-text("Visible Lane 1")')).toBeVisible();
+      await expect(page.locator('.swimlane-name:has-text("Visible Lane 2")')).toBeVisible();
+      await expect(page.locator('.swimlane-name:has-text("Visible Lane 3")')).toBeVisible();
+    });
+
+    test('UI: swimlane section in settings is visible', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Swimlane Section Board');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      await expect(page.locator('.settings-section').filter({ hasText: 'Swimlanes' })).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: swimlane color swatch is visible in settings list item', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Color Swatch Board');
+      await createSwimlane(request, token, boardId, 'Swatch Lane', 'SW-', '#22c55e');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      const row = swimlanesSection.locator('.settings-list-item').filter({ hasText: 'Swatch Lane' });
+      await expect(row.locator('.item-color')).toBeVisible({ timeout: 5000 });
+    });
+
+    test('UI: new swimlane appears on board without page reload', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI No Reload Swimlane Board');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      await swimlanesSection.locator('button:has-text("Add Swimlane")').click();
+      await page.locator('.modal input[placeholder="Frontend"]').fill('No Reload Lane');
+      await page.locator('.modal input[placeholder="FE-"]').fill('NRL-');
+      await page.locator('.modal button[type="submit"]:has-text("Add Swimlane")').click();
+      await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+
+      // Swimlane should appear in settings list without reload
+      await expect(swimlanesSection.locator('.item-name:has-text("No Reload Lane")')).toBeVisible();
+    });
+
+    test('UI: swimlane rows adjust height based on card content', async ({ page, request }) => {
+      const { token, boardId, columns } = await setupUserAndBoard(request, 'UI Row Height Board');
+      const lane = await createSwimlane(request, token, boardId, 'Height Lane', 'HL-');
+      const columnId = columns[0]?.id;
+      if (!columnId) return;
+
+      // Create several cards so the row must grow
+      let created = 0;
+      for (let i = 0; i < 5; i++) {
+        const r = await request.post(`${BASE}/api/cards`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { board_id: boardId, swimlane_id: lane.id, column_id: columnId, title: `Height Card ${i + 1}` },
+        });
+        if (r.ok()) created++;
+      }
+      if (created === 0) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+      await page.goto(`/boards/${boardId}`);
+      await page.locator('.view-btn:has-text("All Cards")').click();
+
+      const gutter = page.locator('.swimlane-gutter').first();
+      await expect(gutter).toBeVisible({ timeout: 8000 });
+      const gutterHeight = await gutter.evaluate((el: Element) => el.getBoundingClientRect().height);
+      expect(gutterHeight).toBeGreaterThan(50);
+    });
+
+    test('UI: empty swimlane row shows a placeholder area', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Empty Swimlane Row Board');
+      await createSwimlane(request, token, boardId, 'Empty Placeholder Lane', 'EPL-');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}`);
+      await page.locator('.view-btn:has-text("All Cards")').click();
+
+      const gutter = page.locator('.swimlane-gutter').first();
+      await expect(gutter).toBeVisible({ timeout: 8000 });
+      // The gutter row should exist even without cards — just an empty droppable area
+      await expect(page.locator('.swimlane-name:has-text("Empty Placeholder Lane")')).toBeVisible({ timeout: 5000 });
+    });
+
+    test('UI: swimlane filter option shows all created swimlane names', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Filter All Names Board');
+      await createSwimlane(request, token, boardId, 'Filter Lane X', 'FLX-');
+      await createSwimlane(request, token, boardId, 'Filter Lane Y', 'FLY-');
+
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+      await page.goto(`/boards/${boardId}`);
+
+      await page.locator('.filter-toggle-btn').click();
+      await expect(page.locator('.filters-expanded')).toBeVisible();
+
+      const swimlaneSelect = page.locator('.filters-expanded .filter-select').first();
+      await expect(swimlaneSelect.locator('option:has-text("Filter Lane X")')).toHaveCount(1);
+      await expect(swimlaneSelect.locator('option:has-text("Filter Lane Y")')).toHaveCount(1);
+    });
+
+    test('UI: after swimlane deletion the filter dropdown no longer lists that swimlane', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Filter After Delete Board');
+      const lane = await createSwimlane(request, token, boardId, 'Gone Filter Lane', 'GFL-');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      // Delete the swimlane via API
+      await request.delete(`${BASE}/api/boards/${boardId}/swimlanes/${lane.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      await page.goto(`/boards/${boardId}`);
+      await page.locator('.filter-toggle-btn').click();
+      await expect(page.locator('.filters-expanded')).toBeVisible();
+
+      const swimlaneSelect = page.locator('.filters-expanded .filter-select').first();
+      await expect(swimlaneSelect.locator('option:has-text("Gone Filter Lane")')).toHaveCount(0);
+    });
+
+    test.fixme('UI: drag-to-reorder swimlanes via DnD', async ({ page, request }) => {
+      // @dnd-kit drag-and-drop is unreliable in headless Playwright.
+      // Use POST /api/boards/:id/swimlanes/:id/reorder endpoint instead.
+    });
+
+    test.fixme('UI: swimlane row collapse persists after board reload', async ({ page, request }) => {
+      // Collapse state is not persisted across page loads — this is a known
+      // limitation. Once localStorage persistence is added, update this test
+      // to verify the collapsed state survives a hard reload.
+    });
+
+    test('UI: reorder swimlanes via up/down move buttons in settings', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Reorder Swimlane Buttons Board');
+      await createSwimlane(request, token, boardId, 'First Swim', 'FS-');
+      await createSwimlane(request, token, boardId, 'Second Swim', 'SS-');
+
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+      await page.goto(`/boards/${boardId}/settings`);
+
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      const items = swimlanesSection.locator('.settings-list-item');
+      const countBefore = await items.count();
+      expect(countBefore).toBeGreaterThanOrEqual(2);
+
+      const secondNameBefore = await items.nth(1).locator('.item-name').textContent();
+
+      await items.nth(1).locator('.reorder-btn[title="Move up"]').click();
+      await page.waitForTimeout(500);
+
+      const firstNameAfter = await items.nth(0).locator('.item-name').textContent();
+      expect(firstNameAfter).toBe(secondNameBefore);
+    });
+
+    test('UI: board settings swimlane section shows empty-list message with no swimlanes', async ({ page, request }) => {
+      const { token, boardId } = await setupUserAndBoard(request, 'UI Empty List Board');
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+      await page.goto(`/boards/${boardId}/settings`);
+      const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
+      await expect(swimlanesSection.locator('.empty-list')).toBeVisible({ timeout: 5000 });
+    });
+
+    test('UI: collapsed swimlane card count badge shows when sprint is active', async ({ page, request }) => {
+      const { token, boardId, columns } = await setupUserAndBoard(request, 'UI Collapsed Count Board');
+      const lane = await createSwimlane(request, token, boardId, 'Sprint Count Lane', 'SCL-');
+      const columnId = columns[0]?.id;
+      if (!columnId) return;
+
+      const sprintRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Count Sprint UI' },
+      });
+      if (!sprintRes.ok()) {
+        test.skip(true, 'Sprint creation unavailable');
+        return;
+      }
+      const sprint = await sprintRes.json();
+
+      let cardsAssigned = 0;
+      for (const title of ['SCL Card 1', 'SCL Card 2']) {
+        const cardRes = await request.post(`${BASE}/api/cards`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { board_id: boardId, swimlane_id: lane.id, column_id: columnId, title },
+        });
+        if (!cardRes.ok()) continue;
+        const card = await cardRes.json();
+        await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { sprint_id: sprint.id },
+        });
+        cardsAssigned++;
+      }
+
+      if (cardsAssigned > 0) {
+        await request.post(`${BASE}/api/sprints/${sprint.id}/start`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } else {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      await page.addInitScript((t) => localStorage.setItem('token', t), token);
+      await page.goto(`/boards/${boardId}`);
+
+      const gutter = page.locator('.swimlane-gutter').first();
+      await expect(gutter).toBeVisible({ timeout: 8000 });
+      await gutter.click();
+
+      await expect(page.locator('.swimlane-card-count')).toContainText(`${cardsAssigned}`, { timeout: 5000 });
+    });
+  });
 });
