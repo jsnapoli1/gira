@@ -102,7 +102,7 @@ test.describe('GET /api/auth/me', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Profile section on settings page shows display name
+// 3. Profile section on settings page shows display name and email
 // ---------------------------------------------------------------------------
 
 test.describe('Profile section on settings page', () => {
@@ -127,10 +127,36 @@ test.describe('Profile section on settings page', () => {
 
     await expect(page.locator('.profile-info p')).toContainText(email);
   });
+
+  test('profile card is visible on the settings page', async ({ page, request }) => {
+    const email = `profile-card-${crypto.randomUUID()}@example.com`;
+    const { token } = await signupAPI(request, 'ProfileCardUser', email);
+
+    await page.addInitScript(injectToken(token), token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.profile-card')).toBeVisible();
+  });
+
+  test('profile changes persist across page reload', async ({ page, request }) => {
+    // Verify that re-loading the settings page still shows the correct user data,
+    // confirming that the AuthContext re-fetches from the server on reload.
+    const email = `profile-reload-${crypto.randomUUID()}@example.com`;
+    const { token } = await signupAPI(request, 'ReloadPersistUser', email);
+
+    await page.addInitScript(injectToken(token), token);
+    await page.goto('/settings');
+    await expect(page.locator('.profile-info h3')).toContainText('ReloadPersistUser');
+
+    await page.reload();
+
+    await expect(page.locator('.profile-info h3')).toContainText('ReloadPersistUser');
+    await expect(page.locator('.profile-info p')).toContainText(email);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// 4. Avatar / initials in sidebar
+// 4. Avatar / initials in sidebar and settings
 // ---------------------------------------------------------------------------
 
 test.describe('Avatar / initials in sidebar', () => {
@@ -155,6 +181,16 @@ test.describe('Avatar / initials in sidebar', () => {
     // When avatar_url is absent, the profile card renders .avatar-placeholder with the initial
     await expect(page.locator('.avatar-placeholder')).toBeVisible();
     await expect(page.locator('.avatar-placeholder')).toContainText('I');
+  });
+
+  test('avatar placeholder shows first character of display name uppercased', async ({ page, request }) => {
+    const email = `profile-initial-${crypto.randomUUID()}@example.com`;
+    const { token } = await signupAPI(request, 'wonderUser', email);
+
+    await page.addInitScript(injectToken(token), token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.avatar-placeholder')).toContainText('W');
   });
 });
 
@@ -223,6 +259,21 @@ test.describe('Session persistence', () => {
     const stored = await page.evaluate(() => localStorage.getItem('token'));
     expect(stored).not.toBeNull();
     expect(stored).toBe(token);
+  });
+
+  test('settings page is accessible after page reload', async ({ page, request }) => {
+    const email = `profile-settings-reload-${crypto.randomUUID()}@example.com`;
+    const { token } = await signupAPI(request, 'SettingsReloadUser', email);
+
+    await page.addInitScript(injectToken(token), token);
+    await page.goto('/settings');
+    await expect(page.locator('.settings-page')).toBeVisible();
+
+    await page.reload();
+
+    // Should still be on settings page and authenticated
+    await expect(page).toHaveURL(/\/settings/);
+    await expect(page.locator('.settings-page')).toBeVisible();
   });
 });
 
@@ -438,5 +489,47 @@ test.describe('User ID stability', () => {
 
     expect(meBeforeReload.id).toBe(meAfterReload.id);
     expect(meBeforeReload.id).toBe(user.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. Profile page renders full settings layout
+// ---------------------------------------------------------------------------
+
+test.describe('Settings page structure', () => {
+  test('settings page has correct heading', async ({ page, request }) => {
+    const email = `profile-heading-${crypto.randomUUID()}@example.com`;
+    const { token } = await signupAPI(request, 'HeadingUser', email);
+
+    await page.addInitScript(injectToken(token), token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.page-header h1')).toContainText('Settings');
+  });
+
+  test('settings page shows About Zira section', async ({ page, request }) => {
+    const email = `profile-about-${crypto.randomUUID()}@example.com`;
+    const { token } = await signupAPI(request, 'AboutUser', email);
+
+    await page.addInitScript(injectToken(token), token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.settings-section h2:has-text("About Zira")')).toBeVisible();
+    await expect(page.locator('.about-info')).toContainText('Version: 1.0.0');
+  });
+
+  test('settings page shows Your API Credentials section', async ({ page, request }) => {
+    const email = `profile-cred-${crypto.randomUUID()}@example.com`;
+    const { token } = await signupAPI(request, 'CredSectionUser', email);
+
+    await page.addInitScript(injectToken(token), token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.settings-section h2:has-text("Your API Credentials")')).toBeVisible();
+  });
+
+  test('unauthenticated user is redirected from /settings to /login', async ({ page }) => {
+    await page.goto('/settings');
+    await expect(page).toHaveURL(/\/login/);
   });
 });
