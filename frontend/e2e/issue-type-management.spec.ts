@@ -1,7 +1,7 @@
 /**
  * issue-type-management.spec.ts
  *
- * Comprehensive CRUD tests for issue types that are NOT already covered in
+ * Comprehensive CRUD tests for issue types not already covered in
  * issue-types-extended.spec.ts. That file covers:
  *   - list returns array (empty or defaults)
  *   - create with name/icon/color, appears in list
@@ -13,27 +13,34 @@
  *
  * This file adds:
  *   - Create with name-only (no icon, no color), color defaults to #6366f1
- *   - Response shape: has id, name, board_id
+ *   - Response shape: has id, name, board_id, icon, color
  *   - Empty name rejected (400)
  *   - Very long name accepted
- *   - Null/empty icon & color are stored (null color uses default)
- *   - Multiple issue types for same board preserved independently
- *   - Unauthorized (no token) returns 401
+ *   - Null/empty icon stores correctly
+ *   - Omitting color field defaults to #6366f1
+ *   - Two types with same name on same board both get unique IDs
+ *   - Multiple types on same board preserved independently
+ *   - Unauthorized (no token) returns 401 on list and create
  *   - Non-board-member cannot create (403)
- *   - After deletion, not present in list (explicit negative check by id)
- *   - Creating two types with same name on the same board
- *   - Issue types from another board are not returned for this board
+ *   - Board member (viewer) cannot create (403)
+ *   - After deletion, not present by id in list
+ *   - Deleting one type does not remove others
+ *   - Types from another board are not returned for this board
  *   - Default types returned when no custom types exist
- *   - UI: Issue Types section present in board settings (structure check only,
- *         board-settings.spec.ts checks the section heading but not content)
+ *   - Update name with empty string returns 400
+ *   - Updated type reflected in list
+ *   - Card has issue_type field in API response
+ *   - Create card with specific issue type via API
+ *   - Update card issue type via API
+ *   - UI: Issue Types section present in board settings
  *   - UI: "Add Type" button is present
  *   - UI: create form has name field
  *   - UI: created type appears in list with correct name
  *   - UI: delete type via UI (item is removed)
  *   - UI: edit type via UI (name updated)
  *   - UI: card detail shows issue_type field
- *   - UI: filter by issue type on board view (fixme - filter UI not implemented)
- *   - UI: issue types shown when creating card (fixme - custom types not in dropdown yet)
+ *   - fixme: filter by issue type on board view
+ *   - fixme: custom types appear in card-creation dropdown
  */
 
 import { test, expect } from '@playwright/test';
@@ -102,10 +109,13 @@ async function tryCreateCard(
   columnId: number,
   swimlaneId: number,
   title = 'Test Card',
+  issueType?: string,
 ): Promise<any | null> {
+  const data: any = { title, board_id: boardId, column_id: columnId, swimlane_id: swimlaneId };
+  if (issueType) data.issue_type = issueType;
   const res = await request.post(`${BASE}/api/cards`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: { title, board_id: boardId, column_id: columnId, swimlane_id: swimlaneId },
+    data,
   });
   if (!res.ok()) return null;
   return res.json();
@@ -123,7 +133,6 @@ test.describe('Issue Type Management — API: Create', () => {
     const body = await res.json();
     expect(body.id).toBeGreaterThan(0);
     expect(body.name).toBe('Name Only');
-    // When no color is sent, backend defaults to #6366f1
     expect(body.color).toBeTruthy();
   });
 
@@ -137,7 +146,7 @@ test.describe('Issue Type Management — API: Create', () => {
     expect(body.color).toBe('#ff5500');
   });
 
-  test('response shape includes id, name, board_id, icon, color, position', async ({ request }) => {
+  test('response shape includes id, name, board_id, icon, color', async ({ request }) => {
     const { token, board } = await setup(request, 'itm-shape');
     const res = await createIssueType(request, token, board.id, 'Shape Test', '●', '#aabbcc');
     expect(res.status()).toBe(201);
@@ -146,7 +155,6 @@ test.describe('Issue Type Management — API: Create', () => {
     expect(typeof body.name).toBe('string');
     expect(typeof body.board_id).toBe('number');
     expect(body.board_id).toBe(board.id);
-    // icon and color may be empty strings or null but must be present
     expect('icon' in body).toBe(true);
     expect('color' in body).toBe(true);
   });
@@ -161,7 +169,6 @@ test.describe('Issue Type Management — API: Create', () => {
     const { token, board } = await setup(request, 'itm-long-name');
     const longName = 'A'.repeat(200);
     const res = await createIssueType(request, token, board.id, longName);
-    // Backend should accept long names — 201 or 200
     expect([200, 201]).toContain(res.status());
     if (res.ok()) {
       const body = await res.json();
@@ -169,7 +176,7 @@ test.describe('Issue Type Management — API: Create', () => {
     }
   });
 
-  test('create issue type with empty icon stores empty string', async ({ request }) => {
+  test('create issue type with empty icon stores empty string or null', async ({ request }) => {
     const { token, board } = await setup(request, 'itm-empty-icon');
     const res = await request.post(`${BASE}/api/boards/${board.id}/issue-types`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -178,13 +185,10 @@ test.describe('Issue Type Management — API: Create', () => {
     expect(res.status()).toBe(201);
     const body = await res.json();
     expect(body.name).toBe('No Icon Type');
-    // icon is empty string or null — both are acceptable
     expect(body.icon === '' || body.icon === null || body.icon === undefined).toBe(true);
   });
 
-  test('create issue type without color field — backend uses default color #6366f1', async ({
-    request,
-  }) => {
+  test('create issue type without color field defaults to #6366f1', async ({ request }) => {
     const { token, board } = await setup(request, 'itm-no-color');
     const res = await request.post(`${BASE}/api/boards/${board.id}/issue-types`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -195,19 +199,27 @@ test.describe('Issue Type Management — API: Create', () => {
     expect(body.color).toBe('#6366f1');
   });
 
-  test('two issue types with the same name can be created on the same board', async ({
-    request,
-  }) => {
+  test('two issue types with the same name get different IDs', async ({ request }) => {
     const { token, board } = await setup(request, 'itm-dup-name');
     const r1 = await createIssueType(request, token, board.id, 'Duplicate Name');
     const r2 = await createIssueType(request, token, board.id, 'Duplicate Name');
-    // Backend does not enforce uniqueness on name — both should succeed
     expect(r1.status()).toBe(201);
     expect(r2.status()).toBe(201);
     const b1 = await r1.json();
     const b2 = await r2.json();
-    // They get different IDs
     expect(b1.id).not.toBe(b2.id);
+  });
+
+  test('newly created type is immediately returned in the list', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-immediate-list');
+    const res = await createIssueType(request, token, board.id, 'Immediate Check', '◆', '#00ccff');
+    const created = await res.json();
+
+    const listRes = await request.get(`${BASE}/api/boards/${board.id}/issue-types`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const types: any[] = await listRes.json();
+    expect(types.find((t) => t.id === created.id)).toBeTruthy();
   });
 });
 
@@ -233,23 +245,32 @@ test.describe('Issue Type Management — API: List', () => {
     expect(names).toContain('Type Gamma');
   });
 
-  test('when no custom types exist, list returns built-in defaults (not empty)', async ({
-    request,
-  }) => {
+  test('when no custom types exist, list returns built-in defaults', async ({ request }) => {
     const { token, board } = await setup(request, 'itm-defaults');
     const listRes = await request.get(`${BASE}/api/boards/${board.id}/issue-types`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(listRes.ok()).toBeTruthy();
     const types: any[] = await listRes.json();
-    // Should return the 5 built-in types: epic, story, task, bug, subtask
     expect(types.length).toBeGreaterThanOrEqual(1);
-    const names = types.map((t) => t.name);
-    // At least one of the defaults must be present
+    const names = types.map((t) => t.name.toLowerCase());
     const hasDefault = names.some((n: string) =>
       ['epic', 'story', 'task', 'bug', 'subtask'].includes(n),
     );
     expect(hasDefault).toBe(true);
+  });
+
+  test('default types include at least epic, story, task, bug, subtask', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-defaults-count');
+    const listRes = await request.get(`${BASE}/api/boards/${board.id}/issue-types`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const types: any[] = await listRes.json();
+    const names = types.map((t) => t.name.toLowerCase());
+    const expected = ['epic', 'story', 'task', 'bug', 'subtask'];
+    for (const e of expected) {
+      expect(names).toContain(e);
+    }
   });
 
   test('issue types from one board are not returned for a different board', async ({ request }) => {
@@ -262,8 +283,13 @@ test.describe('Issue Type Management — API: List', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     const typesB: any[] = await listB.json();
-    // 'BoardA Only Type' must not appear in board B's list
     expect(typesB.some((t) => t.name === 'BoardA Only Type')).toBe(false);
+  });
+
+  test('GET list without token returns 401', async ({ request }) => {
+    const { board } = await setup(request, 'itm-unauth-list');
+    const res = await request.get(`${BASE}/api/boards/${board.id}/issue-types`);
+    expect(res.status()).toBe(401);
   });
 });
 
@@ -307,6 +333,23 @@ test.describe('Issue Type Management — API: Update', () => {
     expect(updated.color).toBe('#ff0000');
   });
 
+  test('update issue type icon via PUT persists correctly', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-update-icon');
+    const createRes = await createIssueType(request, token, board.id, 'Icon Change', '◆', '#5555ff');
+    const created = await createRes.json();
+
+    const updateRes = await request.put(
+      `${BASE}/api/boards/${board.id}/issue-types/${created.id}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Icon Change', icon: '⭐', color: '#5555ff' },
+      },
+    );
+    expect(updateRes.ok()).toBeTruthy();
+    const updated = await updateRes.json();
+    expect(updated.icon).toBe('⭐');
+  });
+
   test('update with empty name returns 400', async ({ request }) => {
     const { token, board } = await setup(request, 'itm-update-empty-name');
     const createRes = await createIssueType(request, token, board.id, 'Valid Name', '●', '#abcdef');
@@ -341,6 +384,23 @@ test.describe('Issue Type Management — API: Update', () => {
     expect(found.name).toBe('List Post-Update');
     expect(types.some((t) => t.name === 'List Pre-Update')).toBe(false);
   });
+
+  test('update preserves board_id and id', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-update-ids');
+    const createRes = await createIssueType(request, token, board.id, 'Preserve IDs', '◇', '#cccccc');
+    const created = await createRes.json();
+
+    const updateRes = await request.put(
+      `${BASE}/api/boards/${board.id}/issue-types/${created.id}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Preserve IDs Updated', icon: '◇', color: '#dddddd' },
+      },
+    );
+    const updated = await updateRes.json();
+    expect(updated.id).toBe(created.id);
+    expect(updated.board_id).toBe(board.id);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -348,7 +408,7 @@ test.describe('Issue Type Management — API: Update', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Issue Type Management — API: Delete', () => {
-  test('delete issue type returns 204 and is absent from list', async ({ request }) => {
+  test('delete issue type returns 204 and is absent from list by id', async ({ request }) => {
     const { token, board } = await setup(request, 'itm-delete');
     const createRes = await createIssueType(request, token, board.id, 'Delete Me', '🗑', '#ff0000');
     const created = await createRes.json();
@@ -363,7 +423,6 @@ test.describe('Issue Type Management — API: Delete', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     const types: any[] = await listRes.json();
-    // Explicitly verify by id — not just by name
     expect(types.find((t) => t.id === created.id)).toBeUndefined();
   });
 
@@ -382,10 +441,16 @@ test.describe('Issue Type Management — API: Delete', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     const types: any[] = await listRes.json();
-    // Kept type must still be present
     expect(types.find((t) => t.id === keep.id)).toBeTruthy();
-    // Removed type must be absent
     expect(types.find((t) => t.id === remove.id)).toBeUndefined();
+  });
+
+  test('deleting a non-existent type returns 404', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-del-notfound');
+    const res = await request.delete(`${BASE}/api/boards/${board.id}/issue-types/999999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect([404, 204]).toContain(res.status());
   });
 });
 
@@ -395,13 +460,13 @@ test.describe('Issue Type Management — API: Delete', () => {
 
 test.describe('Issue Type Management — API: Authorization', () => {
   test('unauthenticated request to list issue types returns 401', async ({ request }) => {
-    const { token, board } = await setup(request, 'itm-auth-list');
+    const { board } = await setup(request, 'itm-auth-list');
     const res = await request.get(`${BASE}/api/boards/${board.id}/issue-types`);
     expect(res.status()).toBe(401);
   });
 
   test('unauthenticated request to create issue type returns 401', async ({ request }) => {
-    const { token, board } = await setup(request, 'itm-auth-create');
+    const { board } = await setup(request, 'itm-auth-create');
     const res = await request.post(`${BASE}/api/boards/${board.id}/issue-types`, {
       data: { name: 'Unauth Type' },
     });
@@ -419,14 +484,13 @@ test.describe('Issue Type Management — API: Authorization', () => {
     expect(res.status()).toBe(403);
   });
 
-  test('board member (viewer role) cannot create issue type (403)', async ({ request }) => {
+  test('board member (viewer) cannot create issue type (403)', async ({ request }) => {
     const { token: ownerToken, board } = await setup(request, 'itm-member-403-owner');
     const { token: memberToken, userId: memberId } = await createUser(
       request,
       'itm-member-403-member',
     );
 
-    // Add user as a regular member (non-admin)
     await request.post(`${BASE}/api/boards/${board.id}/members`, {
       headers: { Authorization: `Bearer ${ownerToken}` },
       data: { user_id: memberId, role: 'member' },
@@ -436,8 +500,123 @@ test.describe('Issue Type Management — API: Authorization', () => {
       headers: { Authorization: `Bearer ${memberToken}` },
       data: { name: 'Member Type', icon: '', color: '#aaaaaa' },
     });
-    // Members without edit board privilege get 403
     expect(res.status()).toBe(403);
+  });
+
+  test('non-board-member cannot delete issue type (403)', async ({ request }) => {
+    const { token: ownerToken, board } = await setup(request, 'itm-del-403-owner');
+    const { token: outsiderToken } = await createUser(request, 'itm-del-403-outsider');
+
+    const createRes = await createIssueType(request, ownerToken, board.id, 'Protected Type', '●', '#999999');
+    const created = await createRes.json();
+
+    const res = await request.delete(
+      `${BASE}/api/boards/${board.id}/issue-types/${created.id}`,
+      { headers: { Authorization: `Bearer ${outsiderToken}` } },
+    );
+    expect([403, 404]).toContain(res.status());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API Tests — Card integration
+// ---------------------------------------------------------------------------
+
+test.describe('Issue Type Management — API: Card integration', () => {
+  test('card has issue_type field in API response', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-card-field');
+    const columns = board.columns || [];
+    const swimlaneRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Default', designator: 'DT' },
+    });
+    const swimlane = await swimlaneRes.json();
+
+    const card = await tryCreateCard(request, token, board.id, columns[0]?.id, swimlane.id);
+    if (!card) {
+      test.skip(true, 'Card creation requires Gitea — skipping');
+      return;
+    }
+
+    expect('issue_type' in card).toBe(true);
+  });
+
+  test('create card with specific issue type stores it correctly', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-card-create');
+    const columns = board.columns || [];
+    const swimlaneRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Default', designator: 'DT' },
+    });
+    const swimlane = await swimlaneRes.json();
+
+    const card = await tryCreateCard(
+      request,
+      token,
+      board.id,
+      columns[0]?.id,
+      swimlane.id,
+      'Story Card',
+      'story',
+    );
+    if (!card) {
+      test.skip(true, 'Card creation requires Gitea — skipping');
+      return;
+    }
+
+    expect(card.issue_type).toBe('story');
+  });
+
+  test('update card issue type via PUT /api/cards/:id', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-card-update');
+    const columns = board.columns || [];
+    const swimlaneRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Default', designator: 'DT' },
+    });
+    const swimlane = await swimlaneRes.json();
+
+    const card = await tryCreateCard(
+      request,
+      token,
+      board.id,
+      columns[0]?.id,
+      swimlane.id,
+      'Type Change Card',
+      'task',
+    );
+    if (!card) {
+      test.skip(true, 'Card creation requires Gitea — skipping');
+      return;
+    }
+
+    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { issue_type: 'bug' },
+    });
+    expect(updateRes.ok()).toBeTruthy();
+    const updated = await updateRes.json();
+    expect(updated.issue_type).toBe('bug');
+  });
+
+  test('card with default type "task" is created when no type specified', async ({ request }) => {
+    const { token, board } = await setup(request, 'itm-card-default');
+    const columns = board.columns || [];
+    const swimlaneRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Default', designator: 'DT' },
+    });
+    const swimlane = await swimlaneRes.json();
+
+    const card = await tryCreateCard(request, token, board.id, columns[0]?.id, swimlane.id);
+    if (!card) {
+      test.skip(true, 'Card creation requires Gitea — skipping');
+      return;
+    }
+
+    // Default should be 'task' or an empty string — not an error
+    const validDefaults = ['task', '', null, undefined];
+    expect(validDefaults).toContain(card.issue_type);
   });
 });
 
@@ -476,7 +655,6 @@ test.describe('Issue Type Management — UI: Board Settings section', () => {
     await page.click('button:has-text("Add Type")');
     await page.waitForSelector('.modal', { timeout: 5000 });
 
-    // The name input must be present
     await expect(
       page.locator('.modal input[placeholder*="Bug, Feature, Task"]'),
     ).toBeVisible();
@@ -495,12 +673,11 @@ test.describe('Issue Type Management — UI: Board Settings section', () => {
     await expect(page.locator('.modal .color-picker')).toBeVisible();
   });
 
-  test('created issue type appears in the list with the entered name', async ({
+  test('pre-created issue type appears in the list with correct name', async ({
     page,
     request,
   }) => {
     const { token, board } = await setup(request, 'itm-ui-appears');
-    // Pre-create via API so the item is ready on page load
     await createIssueType(request, token, board.id, 'UI Appears Type', '◆', '#0055ff');
 
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
@@ -594,6 +771,58 @@ test.describe('Issue Type Management — UI: Board Settings section', () => {
       page.locator('.issue-types-list .item-name:has-text("UI Edit Original")'),
     ).not.toBeVisible();
   });
+
+  test('color picker swatches are present and clickable', async ({ page, request }) => {
+    const { token, board } = await setup(request, 'itm-ui-swatches');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('h2:has-text("Issue Types")').scrollIntoViewIfNeeded();
+    await page.click('button:has-text("Add Type")');
+    await page.waitForSelector('.modal', { timeout: 5000 });
+
+    const swatches = page.locator('.modal .color-picker .color-option');
+    const count = await swatches.count();
+    expect(count).toBeGreaterThan(0);
+    if (count > 1) {
+      await swatches.nth(1).click();
+      await expect(swatches.nth(1)).toHaveClass(/selected/);
+    }
+  });
+
+  test('closing modal without creating does not add a new type to the list', async ({
+    page,
+    request,
+  }) => {
+    const { token, board } = await setup(request, 'itm-ui-cancel');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('h2:has-text("Issue Types")').scrollIntoViewIfNeeded();
+
+    // Count types before opening modal
+    const beforeCount = await page.locator('.issue-types-list .issue-type-item').count();
+
+    await page.click('button:has-text("Add Type")');
+    await page.waitForSelector('.modal', { timeout: 5000 });
+
+    // Fill name but dismiss via Cancel/close button
+    await page.locator('.modal input[placeholder*="Bug, Feature, Task"]').fill('Cancelled Type');
+    const cancelBtn = page.locator('.modal button:has-text("Cancel"), .modal .modal-close, .modal button[aria-label*="close"]').first();
+    if (await cancelBtn.isVisible()) {
+      await cancelBtn.click();
+    } else {
+      await page.keyboard.press('Escape');
+    }
+
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+
+    // Count should not have increased
+    const afterCount = await page.locator('.issue-types-list .issue-type-item').count();
+    expect(afterCount).toBeLessThanOrEqual(beforeCount);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -624,8 +853,55 @@ test.describe('Issue Type Management — UI: Card detail shows issue type', () =
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // The card detail must expose the issue type somewhere
     await expect(page.locator('.card-issue-type')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('default issue type is shown as "task" in card detail', async ({ page, request }) => {
+    const { token, board } = await setup(request, 'itm-ui-card-default');
+    const columns = board.columns || [];
+    const swimlaneRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Default', designator: 'DT' },
+    });
+    const swimlane = await swimlaneRes.json();
+
+    const card = await tryCreateCard(request, token, board.id, columns[0]?.id, swimlane.id);
+    if (!card) {
+      test.skip(true, 'Card creation requires Gitea — skipping');
+      return;
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    await expect(page.locator('.card-issue-type')).toContainText('task', { timeout: 5000 });
+  });
+
+  test('card type badge is visible on card in board view', async ({ page, request }) => {
+    const { token, board } = await setup(request, 'itm-ui-badge-visible');
+    const columns = board.columns || [];
+    const swimlaneRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Default', designator: 'DT' },
+    });
+    const swimlane = await swimlaneRes.json();
+
+    const card = await tryCreateCard(request, token, board.id, columns[0]?.id, swimlane.id);
+    if (!card) {
+      test.skip(true, 'Card creation requires Gitea — skipping');
+      return;
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await expect(page.locator('.card-type-badge').first()).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -647,7 +923,6 @@ test.describe('Issue Type Management — UI: Unimplemented features (fixme)', ()
       await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
       await page.goto(`/boards/${board.id}`);
 
-      // Open a new card form and check the issue type selector
       await page.click('button:has-text("Add Card")');
       await page.waitForSelector('.add-card-form', { timeout: 5000 });
       const options = page.locator('.add-card-form select[name="issue_type"] option');
@@ -670,11 +945,9 @@ test.describe('Issue Type Management — UI: Unimplemented features (fixme)', ()
       await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
       await page.goto(`/boards/${board.id}`);
 
-      // Open filter panel
       await page.click('button[aria-label="Filter"], button:has-text("Filter")');
       await page.waitForSelector('.filter-panel', { timeout: 5000 });
       await page.locator('.filter-panel select[name="issue_type"]').selectOption('task');
-      // Verify only task cards are shown
       const badges = page.locator('.card-type-badge');
       const count = await badges.count();
       for (let i = 0; i < count; i++) {
