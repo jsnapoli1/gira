@@ -867,3 +867,428 @@ test.describe('Multi-Project — swimlane reorder', () => {
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// Board isolation (API-level cross-user access control)
+// ---------------------------------------------------------------------------
+
+test.describe('Multi-Project — board isolation', () => {
+  test("User A's boards are not returned in User B's GET /api/boards", async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'IsoA', 'iso-a');
+    const { token: tokenB } = await createUser(request, 'IsoB', 'iso-b');
+
+    const boardA = await createBoard(request, tokenA, 'User A Private Board');
+
+    const listRes = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect(listRes.status()).toBe(200);
+    const boards: any[] = await listRes.json();
+    const ids = boards.map((b: any) => b.id);
+    expect(ids).not.toContain(boardA.id);
+  });
+
+  test("User B cannot get User A's board details — returns 403 or 404", async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'DetailA', 'detail-a');
+    const { token: tokenB } = await createUser(request, 'DetailB', 'detail-b');
+
+    const boardA = await createBoard(request, tokenA, 'Detail Board A');
+
+    const res = await request.get(`${BASE}/api/boards/${boardA.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect([403, 404]).toContain(res.status());
+  });
+
+  test("User B cannot update User A's board — returns 403 or 404", async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'UpdateA', 'update-a');
+    const { token: tokenB } = await createUser(request, 'UpdateB', 'update-b');
+
+    const boardA = await createBoard(request, tokenA, 'Update Board A');
+
+    const res = await request.put(`${BASE}/api/boards/${boardA.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+      data: { name: 'HIJACKED' },
+    });
+    expect([403, 404]).toContain(res.status());
+
+    // Verify name was not changed
+    const checkRes = await request.get(`${BASE}/api/boards/${boardA.id}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    const board = await checkRes.json();
+    expect(board.name).toBe('Update Board A');
+  });
+
+  test("User B cannot delete User A's board — returns 403 or 404", async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'DelBoardA', 'del-board-a');
+    const { token: tokenB } = await createUser(request, 'DelBoardB', 'del-board-b');
+
+    const boardA = await createBoard(request, tokenA, 'Delete Board A');
+
+    const res = await request.delete(`${BASE}/api/boards/${boardA.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect([403, 404]).toContain(res.status());
+
+    // Verify board still exists for owner
+    const checkRes = await request.get(`${BASE}/api/boards/${boardA.id}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    expect(checkRes.status()).toBe(200);
+  });
+
+  test("User B cannot create a card on User A's board — returns 403 or 404", async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'CardOwner', 'card-owner');
+    const { token: tokenB } = await createUser(request, 'CardAttacker', 'card-atk');
+
+    const boardA = await createBoard(request, tokenA, 'Card Target Board');
+
+    // Get columns for boardA (need a column id)
+    const colsRes = await request.get(`${BASE}/api/boards/${boardA.id}/columns`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    const cols: any[] = await colsRes.json();
+    const firstColId = cols[0]?.id;
+    if (!firstColId) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+      data: { title: 'Injected Card', board_id: boardA.id, column_id: firstColId },
+    });
+    expect([403, 404]).toContain(cardRes.status());
+  });
+
+  test("User B cannot see User A's cards via GET /api/boards/:id/cards", async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'CardViewer', 'card-viewer-a');
+    const { token: tokenB } = await createUser(request, 'CardAttacker2', 'card-atk-2');
+
+    const boardA = await createBoard(request, tokenA, 'Cards Board A');
+
+    const cardsRes = await request.get(`${BASE}/api/boards/${boardA.id}/cards`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect([403, 404]).toContain(cardsRes.status());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board membership cross-user
+// ---------------------------------------------------------------------------
+
+test.describe('Multi-Project — board membership cross-user', () => {
+  test('User A creates board and adds User B as member', async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'MemCrossOwner', 'mc-own');
+    const { user: userB } = await createUser(request, 'MemCrossGuest', 'mc-guest');
+
+    const board = await createBoard(request, tokenA, 'Cross User Board');
+    await addMember(request, tokenA, board.id, userB.id);
+
+    const membersRes = await request.get(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    const members: any[] = await membersRes.json();
+    expect(members.some((m: any) => m.user_id === userB.id)).toBe(true);
+  });
+
+  test('User B can see board in their board list after being added', async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'ListAfterAdd', 'laa-own');
+    const { token: tokenB, user: userB } = await createUser(request, 'ListAfterGuest', 'laa-guest');
+
+    const board = await createBoard(request, tokenA, 'Visible After Add Board');
+    await addMember(request, tokenA, board.id, userB.id);
+
+    const listRes = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    const boards: any[] = await listRes.json();
+    expect(boards.some((b: any) => b.id === board.id)).toBe(true);
+  });
+
+  test('User B can access board as member', async ({ browser, request }) => {
+    const { token: tokenA } = await createUser(request, 'AccessAsM', 'asm-own');
+    const { token: tokenB, user: userB } = await createUser(request, 'AccessAsMember', 'asm-mem');
+
+    const board = await createBoard(request, tokenA, 'Member Access Board');
+    await addMember(request, tokenA, board.id, userB.id);
+
+    const ctx = await browser.newContext();
+    try {
+      const page = await ctx.newPage();
+      await page.addInitScript((t: string) => localStorage.setItem('token', t), tokenB);
+      await page.goto(`/boards/${board.id}`);
+      await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('User B (member) cannot delete board — owner permission required', async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'NoDelOwn', 'ndel-own');
+    const { token: tokenB, user: userB } = await createUser(request, 'NoDelMem', 'ndel-mem');
+
+    const board = await createBoard(request, tokenA, 'No Delete Board');
+    await addMember(request, tokenA, board.id, userB.id);
+
+    const delRes = await request.delete(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect([403, 404]).toContain(delRes.status());
+
+    // Board still exists for owner
+    const checkRes = await request.get(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    expect(checkRes.status()).toBe(200);
+  });
+
+  test('User A can remove User B from board', async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'RemoveOwner', 'rem-own');
+    const { user: userB } = await createUser(request, 'RemoveGuest', 'rem-guest');
+
+    const board = await createBoard(request, tokenA, 'Remove Member Board');
+    await addMember(request, tokenA, board.id, userB.id);
+
+    const delMemberRes = await request.delete(
+      `${BASE}/api/boards/${board.id}/members/${userB.id}`,
+      { headers: { Authorization: `Bearer ${tokenA}` } },
+    );
+    expect([200, 204]).toContain(delMemberRes.status());
+
+    const membersRes = await request.get(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    const members: any[] = await membersRes.json();
+    expect(members.some((m: any) => m.user_id === userB.id)).toBe(false);
+  });
+
+  test('after removal User B cannot access the board', async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'AfterRemOwn', 'arrem-own');
+    const { token: tokenB, user: userB } = await createUser(request, 'AfterRemMem', 'arrem-mem');
+
+    const board = await createBoard(request, tokenA, 'After Remove Board');
+    await addMember(request, tokenA, board.id, userB.id);
+
+    // Confirm access works before removal
+    const beforeRes = await request.get(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect(beforeRes.status()).toBe(200);
+
+    // Remove member
+    await request.delete(`${BASE}/api/boards/${board.id}/members/${userB.id}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+
+    // Now access should be denied
+    const afterRes = await request.get(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect([403, 404]).toContain(afterRes.status());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multiple boards owned by one user (API)
+// ---------------------------------------------------------------------------
+
+test.describe('Multi-Project — multiple boards per user (API)', () => {
+  test('user can create 5 boards and all are returned in the list', async ({ request }) => {
+    const { token } = await createUser(request, 'FiveBoards', 'five-brd');
+    const created: number[] = [];
+
+    for (let i = 1; i <= 5; i++) {
+      const board = await createBoard(request, token, `Board ${i} of 5`);
+      created.push(board.id);
+    }
+
+    const listRes = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boards: any[] = await listRes.json();
+    const ids = boards.map((b: any) => b.id);
+    for (const id of created) {
+      expect(ids).toContain(id);
+    }
+  });
+
+  test('each created board has a unique id', async ({ request }) => {
+    const { token } = await createUser(request, 'UniqIds', 'uniq-ids');
+    const ids: number[] = [];
+
+    for (let i = 0; i < 4; i++) {
+      const board = await createBoard(request, token, `Unique Board ${i}`);
+      ids.push(board.id);
+    }
+
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
+  });
+
+  test('cards in Board A are not visible in Board B', async ({ request }) => {
+    const { token } = await createUser(request, 'CardIso', 'card-iso');
+    const boardA = await createBoard(request, token, 'Card Iso Board A');
+    const boardB = await createBoard(request, token, 'Card Iso Board B');
+
+    // Get columns for Board A and create a card there
+    const colsRes = await request.get(`${BASE}/api/boards/${boardA.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const cols: any[] = await colsRes.json();
+    if (!cols[0]?.id) {
+      test.skip(true, 'Board A has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Board A Only Card', board_id: boardA.id, column_id: cols[0].id },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed — likely Gitea not configured');
+      return;
+    }
+
+    // Board B cards endpoint should not include the card from Board A
+    const boardBCardsRes = await request.get(`${BASE}/api/boards/${boardB.id}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (boardBCardsRes.status() !== 200) {
+      test.skip(true, 'Could not list Board B cards');
+      return;
+    }
+    const boardBCards: any[] = await boardBCardsRes.json();
+    expect(boardBCards.some((c: any) => c.title === 'Board A Only Card')).toBe(false);
+  });
+
+  test('labels in Board A are not visible in Board B', async ({ request }) => {
+    const { token } = await createUser(request, 'LabelIso', 'lbl-iso');
+    const boardA = await createBoard(request, token, 'Label Iso Board A');
+    const boardB = await createBoard(request, token, 'Label Iso Board B');
+
+    await request.post(`${BASE}/api/boards/${boardA.id}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Board A Exclusive Label', color: '#ef4444' },
+    });
+
+    const boardBLabelsRes = await request.get(`${BASE}/api/boards/${boardB.id}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boardBLabels: any[] = await boardBLabelsRes.json();
+    expect(boardBLabels.some((l: any) => l.name === 'Board A Exclusive Label')).toBe(false);
+  });
+
+  test('sprint in Board A is not visible in Board B', async ({ request }) => {
+    const { token } = await createUser(request, 'SprintIso', 'spr-iso');
+    const boardA = await createBoard(request, token, 'Sprint Iso Board A');
+    const boardB = await createBoard(request, token, 'Sprint Iso Board B');
+
+    const sprintRes = await request.post(`${BASE}/api/boards/${boardA.id}/sprints`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Board A Sprint' },
+    });
+    expect(sprintRes.status()).toBe(201);
+
+    const boardBSprintsRes = await request.get(`${BASE}/api/boards/${boardB.id}/sprints`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(boardBSprintsRes.status()).toBe(200);
+    const boardBSprints: any[] = await boardBSprintsRes.json();
+    expect(boardBSprints.some((s: any) => s.name === 'Board A Sprint')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multiple boards UI
+// ---------------------------------------------------------------------------
+
+test.describe('Multi-Project — multiple boards UI', () => {
+  test('create two boards — both appear in /boards list', async ({ page, request }) => {
+    const { token } = await createUser(request, 'TwoBoardsUI', 'two-brd-ui');
+    await createBoard(request, token, 'UI Board Alpha');
+    await createBoard(request, token, 'UI Board Beta');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await page.waitForSelector('.board-card', { timeout: 10000 });
+
+    const names = await page.locator('.board-card h3').allTextContents();
+    expect(names.some((n) => n.includes('UI Board Alpha'))).toBe(true);
+    expect(names.some((n) => n.includes('UI Board Beta'))).toBe(true);
+  });
+
+  test('board list shows both boards with correct names', async ({ page, request }) => {
+    const { token } = await createUser(request, 'BoardListNames', 'brd-list-nm');
+    const nameA = `Board List Name A ${crypto.randomUUID().slice(0, 6)}`;
+    const nameB = `Board List Name B ${crypto.randomUUID().slice(0, 6)}`;
+
+    await createBoard(request, token, nameA);
+    await createBoard(request, token, nameB);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await page.waitForSelector('.board-card', { timeout: 10000 });
+
+    await expect(page.locator(`.board-card h3:has-text("${nameA}")`)).toBeVisible();
+    await expect(page.locator(`.board-card h3:has-text("${nameB}")`)).toBeVisible();
+  });
+
+  test('navigate between two boards — each board page loads correctly', async ({ page, request }) => {
+    const { token } = await createUser(request, 'NavBetween', 'nav-btwn');
+    const boardA = await createBoard(request, token, 'Nav Board A');
+    const boardB = await createBoard(request, token, 'Nav Board B');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto(`/boards/${boardA.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    await page.goto(`/boards/${boardB.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('switching boards shows correct board name in the header', async ({ page, request }) => {
+    const { token } = await createUser(request, 'SwitchHeader', 'sw-hdr');
+    const boardA = await createBoard(request, token, 'Switch Board Alpha');
+    const boardB = await createBoard(request, token, 'Switch Board Beta');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto(`/boards/${boardA.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.board-header, .board-title').first()).toContainText('Switch Board Alpha');
+
+    await page.goto(`/boards/${boardB.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.board-header, .board-title').first()).toContainText('Switch Board Beta');
+  });
+
+  test('board settings are board-specific — columns from Board A not visible in Board B settings', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await createUser(request, 'SettingsSpec', 'stg-spec');
+    const boardA = await createBoard(request, token, 'Settings Specific A');
+    const boardB = await createBoard(request, token, 'Settings Specific B');
+
+    await request.post(`${BASE}/api/boards/${boardA.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Board A Only Column', position: 99 },
+    });
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto(`/boards/${boardA.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.item-name:has-text("Board A Only Column")')).toBeVisible({
+      timeout: 8000,
+    });
+
+    await page.goto(`/boards/${boardB.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.item-name:has-text("Board A Only Column")')).not.toBeVisible();
+  });
+});
