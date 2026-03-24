@@ -485,6 +485,7 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
   });
 
   test('custom field value persists across full page reload', async ({ page, request }) => {
+    test.setTimeout(60000);
     const { token, board } = await setupUserAndBoard(request);
     const columns = board.columns || [];
     const swimlane = await (

@@ -1018,16 +1018,22 @@ export function BoardView() {
                             swimlane={swimlane}
                             onCardClick={(card) => setSelectedCard(card)}
                             onQuickAdd={async (title) => {
-                              const card = await cardsApi.create({
-                                board_id: board.id,
-                                swimlane_id: swimlane.id,
-                                column_id: column.id,
-                                sprint_id: activeSprint?.id || null,
-                                title,
-                                description: '',
-                                priority: 'medium',
-                              });
-                              setCards([...cards, card]);
+                              try {
+                                const card = await cardsApi.create({
+                                  board_id: board.id,
+                                  swimlane_id: swimlane.id,
+                                  column_id: column.id,
+                                  sprint_id: activeSprint?.id || null,
+                                  title,
+                                  description: '',
+                                  priority: 'medium',
+                                });
+                                setCards([...cards, card]);
+                                showToast('Card created', 'success');
+                              } catch (err) {
+                                console.error('Failed to create card:', err);
+                                showToast('Failed to create card', 'error');
+                              }
                             }}
                             hasSelection={selectedCards.size > 0}
                             selectedCards={selectedCards}

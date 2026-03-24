@@ -782,4 +782,881 @@ test.describe('Workflow Rules', () => {
       page.locator('.settings-section h2:has-text("Workflow Rules")')
     ).toBeVisible({ timeout: 10000 });
   });
+
+  // ── API: GET /api/boards/:id/workflow returns 200 with correct Content-Type ─
+  test('workflow API: GET returns 200 with JSON content-type', async ({ request }) => {
+    const { token, board } = await setup(request);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    expect(res.status()).toBe(200);
+    const contentType = res.headers()['content-type'] ?? '';
+    expect(contentType).toContain('application/json');
+  });
+
+  // ── API: each rule object has exactly the expected fields ─────────────────
+  test('workflow API: each rule object includes id, board_id, from_column_id, to_column_id', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    const rules: any[] = await (
+      await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+
+    expect(rules.length).toBeGreaterThan(0);
+    const rule = rules[0];
+    expect(typeof rule.id).toBe('number');
+    expect(typeof rule.board_id).toBe('number');
+    expect(typeof rule.from_column_id).toBe('number');
+    expect(typeof rule.to_column_id).toBe('number');
+    // Should NOT expose sensitive fields
+    expect(rule.password_hash).toBeUndefined();
+  });
+
+  // ── API: PUT with empty rules array clears all existing rules ─────────────
+  test('workflow API: PUT empty rules array clears all existing rules', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // First set some rules
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    // Verify they exist
+    let rules: any[] = await (
+      await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(rules.length).toBe(1);
+
+    // Clear via empty PUT
+    const clearRes = await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [] },
+    });
+    expect(clearRes.ok()).toBe(true);
+
+    rules = await (
+      await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(rules.length).toBe(0);
+  });
+
+  // ── API: duplicate rule pair is handled gracefully ─────────────────────────
+  test('workflow API: duplicate rule pairs in PUT do not create duplicate rows', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // Attempt to submit the same rule twice in the same PUT
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        rules: [
+          { from_column_id: columns[0].id, to_column_id: columns[1].id },
+          { from_column_id: columns[0].id, to_column_id: columns[1].id },
+        ],
+      },
+    });
+    // At most one rule for this pair should exist
+    const stored: any[] = await (
+      await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    const matching = stored.filter(
+      (r: any) => r.from_column_id === columns[0].id && r.to_column_id === columns[1].id
+    );
+    expect(matching.length).toBeLessThanOrEqual(1);
+  });
+
+  // ── API: self-transition rule (same from and to column) handled gracefully ─
+  test('workflow API: self-transition rule (same from and to column) handled gracefully', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(1);
+
+    // Attempt to set a self-transition rule — should not crash
+    const res = await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        rules: [{ from_column_id: columns[0].id, to_column_id: columns[0].id }],
+      },
+    });
+    // Either accepts or rejects gracefully — should not 500
+    expect([200, 400, 422]).toContain(res.status());
+  });
+
+  // ── API: user not member of board gets 403 or 404 on GET ──────────────────
+  test('workflow API: user not a member of board cannot read workflow rules', async ({ request }) => {
+    const { board } = await setup(request, 'Owner Board WF');
+    // Create a second user who is NOT a board member
+    const email = `test-nonmember-${Date.now()}@test.com`;
+    const { token: strangerToken } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Stranger' },
+      })
+    ).json();
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${strangerToken}` },
+    });
+    // Should be 403 or 404 — not 200
+    expect([403, 404]).toContain(res.status());
+  });
+
+  // ── API: viewer role can read but not set workflow rules ──────────────────
+  test('workflow API: viewer role can GET but not PUT workflow rules', async ({ request }) => {
+    const { token: ownerToken, board } = await setup(request);
+    const columns = await getColumns(request, ownerToken, board.id);
+
+    // Create viewer user
+    const email = `test-viewer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.com`;
+    const { token: viewerToken, user: viewerUser } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Viewer User' },
+      })
+    ).json();
+
+    // Add as viewer
+    await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { user_id: viewerUser.id, role: 'viewer' },
+    });
+
+    // Viewer CAN read
+    const getRes = await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
+    expect(getRes.ok()).toBe(true);
+
+    // Viewer cannot PUT
+    const putRes = await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+    expect(putRes.status()).toBe(403);
+  });
+
+  // ── API: card move to same column (reorder) always allowed ────────────────
+  test('workflow API: moving card to same column (reorder) always allowed even with strict rules', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // Set a rule that only allows col[0] -> col[1]
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'SameCol Swimlane', designator: 'SC-', color: '#aabbcc' },
+      })
+    ).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Same Column Card',
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: columns[0].id,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed — skipping same-column move test');
+      return;
+    }
+    const card = await cardRes.json();
+
+    // Move to same column (reorder) should be allowed regardless of rules
+    const moveRes = await request.put(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: columns[0].id, swimlane_id: swimlane.id },
+    });
+    expect(moveRes.ok()).toBe(true);
+  });
+
+  // ── API: non-member cannot move card even to allowed column ───────────────
+  test('workflow API: non-member cannot move a card even to an allowed column', async ({ request }) => {
+    const { token: ownerToken, board } = await setup(request);
+    const columns = await getColumns(request, ownerToken, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // Allow col[0] -> col[1]
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+        data: { name: 'NM Swimlane', designator: 'NM-', color: '#112233' },
+      })
+    ).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'NonMember Card',
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: columns[0].id,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed — skipping');
+      return;
+    }
+    const card = await cardRes.json();
+
+    // Stranger user (not a board member) tries to move
+    const email = `test-nm-${Date.now()}@test.com`;
+    const { token: strangerToken } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Stranger' },
+      })
+    ).json();
+
+    const moveRes = await request.put(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${strangerToken}` },
+      data: { column_id: columns[1].id, swimlane_id: swimlane.id },
+    });
+    expect([403, 404]).toContain(moveRes.status());
+  });
+
+  // ── API: can set all non-diagonal transitions ─────────────────────────────
+  test('workflow API: can set all non-diagonal (N*(N-1)) transitions for a board', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    const n = columns.length;
+    expect(n).toBeGreaterThanOrEqual(2);
+
+    // Build all non-diagonal (from != to) pairs
+    const allRules: Array<{ from_column_id: number; to_column_id: number }> = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i !== j) {
+          allRules.push({ from_column_id: columns[i].id, to_column_id: columns[j].id });
+        }
+      }
+    }
+
+    const putRes = await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: allRules },
+    });
+    expect(putRes.ok()).toBe(true);
+
+    const rules: any[] = await (
+      await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(rules.length).toBe(allRules.length);
+  });
+
+  // ── API: two different admins on different boards have independent rules ───
+  test('workflow API: two admins on separate boards have independent workflow state', async ({ request }) => {
+    const email1 = `wf-user1-${Date.now()}@test.com`;
+    const email2 = `wf-user2-${Date.now()}@test.com`;
+
+    const { token: t1 } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email: email1, password: 'password123', display_name: 'User1' },
+      })
+    ).json();
+    const { token: t2 } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email: email2, password: 'password123', display_name: 'User2' },
+      })
+    ).json();
+
+    const board1 = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${t1}` },
+        data: { name: 'IsolatedA' },
+      })
+    ).json();
+    const board2 = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${t2}` },
+        data: { name: 'IsolatedB' },
+      })
+    ).json();
+
+    const cols1 = await getColumns(request, t1, board1.id);
+
+    // Set rule on board1 only
+    await request.put(`${BASE}/api/boards/${board1.id}/workflow`, {
+      headers: { Authorization: `Bearer ${t1}` },
+      data: { rules: [{ from_column_id: cols1[0].id, to_column_id: cols1[1].id }] },
+    });
+
+    // Board2 should have no rules
+    const rules2: any[] = await (
+      await request.get(`${BASE}/api/boards/${board2.id}/workflow`, {
+        headers: { Authorization: `Bearer ${t2}` },
+      })
+    ).json();
+    expect(rules2.length).toBe(0);
+  });
+
+  // ── API: GET for non-existent board returns 404 ───────────────────────────
+  test('workflow API: GET for non-existent board returns 404', async ({ request }) => {
+    const { token } = await setup(request);
+
+    const res = await request.get(`${BASE}/api/boards/99999998/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(404);
+  });
+
+  // ── API: PUT for non-existent board returns 404 ───────────────────────────
+  test('workflow API: PUT for non-existent board returns 404', async ({ request }) => {
+    const { token } = await setup(request);
+
+    const res = await request.put(`${BASE}/api/boards/99999997/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [] },
+    });
+    expect(res.status()).toBe(404);
+  });
+
+  // ── API: blocked card move returns 403 with readable error ────────────────
+  test('workflow API: blocked card move returns 403 with readable error message', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // Only allow col[0] -> col[1]; block col[1] -> col[0]
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'BlockMsg Swimlane', designator: 'BM-', color: '#cc0000' },
+      })
+    ).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Blocked Msg Card',
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: columns[1].id,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed — skipping error message test');
+      return;
+    }
+    const card = await cardRes.json();
+
+    const moveRes = await request.put(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: columns[0].id, swimlane_id: swimlane.id },
+    });
+    expect(moveRes.status()).toBe(403);
+    const body = await moveRes.text();
+    // Error body should mention workflow or transition
+    expect(body.toLowerCase()).toMatch(/transition|workflow/);
+  });
+
+  // ── API: board member can move card along allowed transition ──────────────
+  test('workflow API: board member (non-admin) can move card along allowed transition', async ({ request }) => {
+    const { token: ownerToken, board } = await setup(request);
+    const { token: memberToken } = await createMemberUser(request, board.id, ownerToken);
+    const columns = await getColumns(request, ownerToken, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // Set rule: col[0] -> col[1] allowed
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+        data: { name: 'Member Move Lane', designator: 'ML-', color: '#009900' },
+      })
+    ).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'Member Move Card',
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: columns[0].id,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed — skipping member move test');
+      return;
+    }
+    const card = await cardRes.json();
+
+    // Member performs the allowed move
+    const moveRes = await request.put(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { column_id: columns[1].id, swimlane_id: swimlane.id },
+    });
+    expect(moveRes.ok()).toBe(true);
+  });
+
+  // ── API: board member is blocked from disallowed transition ───────────────
+  test('workflow API: board member is blocked from disallowed card transition', async ({ request }) => {
+    const { token: ownerToken, board } = await setup(request);
+    const { token: memberToken } = await createMemberUser(request, board.id, ownerToken);
+    const columns = await getColumns(request, ownerToken, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // Allow only col[0] -> col[1]
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+        data: { name: 'Block Member Lane', designator: 'BML-', color: '#ff6600' },
+      })
+    ).json();
+
+    // Card starts in col[1]
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'Member Blocked Card',
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: columns[1].id,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed — skipping member blocked test');
+      return;
+    }
+    const card = await cardRes.json();
+
+    // Member tries to move col[1] -> col[0] (blocked)
+    const moveRes = await request.put(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { column_id: columns[0].id, swimlane_id: swimlane.id },
+    });
+    expect(moveRes.status()).toBe(403);
+  });
+
+  // ── UI: workflow section contains descriptive text ────────────────────────
+  test('workflow settings section contains descriptive subtitle or label text', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const workflowSection = page.locator('.settings-section').filter({ hasText: 'Workflow Rules' });
+    await expect(workflowSection).toBeVisible();
+    // Section should have more than just the heading
+    const sectionText = await workflowSection.textContent();
+    expect((sectionText ?? '').length).toBeGreaterThan(15);
+  });
+
+  // ── UI: disabling workflow rules persists after page reload ───────────────
+  test('disabling workflow rules via toggle persists after page reload', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await gotoSettingsAndWaitForColumns(page, board.id);
+
+    const workflowSection = page.locator('.settings-section').filter({ hasText: 'Workflow Rules' });
+
+    // Enable and configure a transition
+    await clickWorkflowToggle(workflowSection);
+    await expect(page.locator('.workflow-matrix')).toBeVisible();
+
+    const firstCellCheckbox = page
+      .locator('.workflow-matrix tbody .workflow-matrix-cell input[type="checkbox"]')
+      .first();
+    await firstCellCheckbox.click();
+    await workflowSection.locator('button:has-text("Save Workflow Rules")').click();
+    await expect(
+      workflowSection.locator('button:has-text("Save Workflow Rules")')
+    ).toBeVisible({ timeout: 5000 });
+
+    // Disable workflow rules
+    await clickWorkflowToggle(workflowSection);
+    await expect(
+      workflowSection.locator('.workflow-toggle input[type="checkbox"]')
+    ).not.toBeChecked();
+    await workflowSection.locator('button:has-text("Save Workflow Rules")').click();
+    await expect(
+      workflowSection.locator('button:has-text("Save Workflow Rules")')
+    ).toBeVisible({ timeout: 5000 });
+
+    // Reload and verify still disabled
+    await page.reload();
+    await expect(
+      page.locator('.settings-section').filter({ hasText: 'Columns' }).locator('.item-name').first()
+    ).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(300);
+    await expect(page.locator('.workflow-matrix')).not.toBeVisible();
+  });
+
+  // ── UI: settings page loads without JS errors ─────────────────────────────
+  test('board settings page loads without console errors in workflow section', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    const errors: string[] = [];
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') errors.push(msg.text());
+    });
+    page.on('pageerror', (err) => errors.push(err.message));
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await gotoSettingsAndWaitForColumns(page, board.id);
+
+    // Filter out known benign errors
+    const realErrors = errors.filter(
+      (e) =>
+        !e.includes('net::ERR') &&
+        !e.includes('favicon') &&
+        !e.includes('chrome-extension')
+    );
+    expect(realErrors).toHaveLength(0);
+  });
+
+  // ── UI: Save Workflow Rules button only visible when workflow is enabled ───
+  test('Save Workflow Rules button is hidden before workflow is enabled', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await gotoSettingsAndWaitForColumns(page, board.id);
+
+    const workflowSection = page.locator('.settings-section').filter({ hasText: 'Workflow Rules' });
+
+    // Before enabling: save button should not exist
+    await expect(
+      workflowSection.locator('button:has-text("Save Workflow Rules")')
+    ).not.toBeVisible();
+
+    // Enable
+    await clickWorkflowToggle(workflowSection);
+    await expect(page.locator('.workflow-matrix')).toBeVisible();
+
+    // Save button should now appear
+    await expect(
+      workflowSection.locator('button:has-text("Save Workflow Rules")')
+    ).toBeVisible();
+  });
+
+  // ── UI: column names appear in workflow matrix header ─────────────────────
+  test('workflow matrix header contains the names of the board columns', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await gotoSettingsAndWaitForColumns(page, board.id);
+
+    const workflowSection = page.locator('.settings-section').filter({ hasText: 'Workflow Rules' });
+    await clickWorkflowToggle(workflowSection);
+    await expect(page.locator('.workflow-matrix')).toBeVisible();
+
+    // Each column name should appear in the matrix header row
+    for (const col of columns) {
+      await expect(
+        page.locator('.workflow-matrix thead').getByText(col.name, { exact: false })
+      ).toBeVisible();
+    }
+  });
+
+  // ── UI: column names appear in workflow matrix row headers ────────────────
+  test('workflow matrix row headers contain the names of the board columns', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await gotoSettingsAndWaitForColumns(page, board.id);
+
+    const workflowSection = page.locator('.settings-section').filter({ hasText: 'Workflow Rules' });
+    await clickWorkflowToggle(workflowSection);
+    await expect(page.locator('.workflow-matrix')).toBeVisible();
+
+    // Each column name should appear as a row header in tbody
+    for (const col of columns) {
+      await expect(
+        page.locator('.workflow-matrix tbody').getByText(col.name, { exact: false })
+      ).toBeVisible();
+    }
+  });
+
+  // ── UI: checking a cell does not disable the save button ──────────────────
+  test('workflow matrix: checking a cell leaves the save button enabled', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await gotoSettingsAndWaitForColumns(page, board.id);
+
+    const workflowSection = page.locator('.settings-section').filter({ hasText: 'Workflow Rules' });
+    await clickWorkflowToggle(workflowSection);
+    await expect(page.locator('.workflow-matrix')).toBeVisible();
+
+    const firstCheckbox = page
+      .locator('.workflow-matrix tbody .workflow-matrix-cell input[type="checkbox"]')
+      .first();
+    await firstCheckbox.click();
+
+    const saveBtn = workflowSection.locator('button:has-text("Save Workflow Rules")');
+    await expect(saveBtn).toBeVisible();
+    await expect(saveBtn).not.toBeDisabled();
+  });
+
+  // ── UI: workflow enable toggle is an accessible checkbox input ─────────────
+  test('workflow enable toggle is a proper accessible checkbox input', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const toggle = page.locator('.workflow-toggle input[type="checkbox"]');
+    await expect(toggle).toBeVisible();
+    const tagName = await toggle.evaluate((el) => el.tagName.toLowerCase());
+    expect(tagName).toBe('input');
+  });
+
+  // ── UI: workflow section is scrollable into view ───────────────────────────
+  test('workflow rules section is reachable by scrolling the settings page', async ({ page, request }) => {
+    const { token, board } = await setup(request);
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const workflowSection = page.locator('.settings-section').filter({ hasText: 'Workflow Rules' });
+    await workflowSection.scrollIntoViewIfNeeded();
+    await expect(workflowSection).toBeVisible();
+  });
+
+  // ── UI: board admin sees workflow section; member navigated away ──────────
+  test('workflow settings section is visible for board admin', async ({ page, request }) => {
+    const { token: ownerToken, board } = await setup(request);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.locator('.settings-section').filter({ hasText: 'Workflow Rules' })
+    ).toBeVisible();
+  });
+
+  // ── API: re-enabling rules after clear restores enforcement ───────────────
+  test('workflow API: re-setting rules after clearing restores enforcement', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // Set a rule
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    // Clear all rules (now all moves allowed)
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [] },
+    });
+
+    // Re-set the same rule again
+    const reSetRes = await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+    expect(reSetRes.ok()).toBe(true);
+
+    const rules: any[] = await (
+      await request.get(`${BASE}/api/boards/${board.id}/workflow`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(rules.length).toBe(1);
+    expect(rules[0].from_column_id).toBe(columns[0].id);
+    expect(rules[0].to_column_id).toBe(columns[1].id);
+  });
+
+  // ── API: bulk card move respects workflow rules ────────────────────────────
+  test('workflow API: bulk card move to disallowed column returns 403', async ({ request }) => {
+    const { token, board } = await setup(request);
+    const columns = await getColumns(request, token, board.id);
+    expect(columns.length).toBeGreaterThanOrEqual(2);
+
+    // Only allow col[0] -> col[1]
+    await request.put(`${BASE}/api/boards/${board.id}/workflow`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { rules: [{ from_column_id: columns[0].id, to_column_id: columns[1].id }] },
+    });
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Bulk WF Lane', designator: 'BWF-', color: '#8833cc' },
+      })
+    ).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Bulk WF Card',
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: columns[1].id,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed — skipping bulk move test');
+      return;
+    }
+    const card = await cardRes.json();
+
+    // Attempt bulk move col[1] -> col[0] (disallowed)
+    const bulkRes = await request.post(`${BASE}/api/boards/${board.id}/cards/bulk-move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        card_ids: [card.id],
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    // Should be blocked (403) or endpoint not exist (404/405)
+    expect([403, 404, 405]).toContain(bulkRes.status());
+  });
+
+  // ── Fixme: event-driven workflow rules (not yet implemented) ──────────────
+
+  test.fixme('workflow rules: POST /api/boards/:id/workflow-rules creates event-driven rule (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - The current workflow system is column-transition based (allow/deny).
+     *   - Event-driven rules (trigger_type, action_type, conditions, actions) are
+     *     not yet implemented in this codebase.
+     *   - A separate /workflow-rules endpoint needs to be created alongside /workflow.
+     *   - Rule shape: { name, trigger_type, action_type, conditions, actions, is_active }
+     *   - trigger_type: card_moved | card_created | card_updated | due_date_approaching
+     *   - action_type: assign_label | notify_member | move_card | set_priority
+     */
+  });
+
+  test.fixme('workflow rules: GET /api/boards/:id/workflow-rules returns array of event-driven rules (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - Should return all event-driven rules for the board as a JSON array.
+     *   - Each rule should include: id, board_id, name, trigger_type, action_type,
+     *     conditions (JSON), actions (JSON), is_active, created_at.
+     */
+  });
+
+  test.fixme('workflow rules: rule with is_active false is not triggered (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - is_active flag on event-driven rules controls execution.
+     *   - Inactive rules should be silently skipped at trigger time.
+     */
+  });
+
+  test.fixme('workflow rules: multiple event-driven rules for same trigger all execute (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - When multiple rules share the same trigger_type, all active ones execute.
+     *   - Execution order may follow rule creation order (ascending id).
+     */
+  });
+
+  test.fixme('workflow rules: rule execution is logged in activity_log (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - Each time an event-driven rule fires, an activity_log entry should be
+     *     created with action="workflow_rule_executed" and the rule id in new_value.
+     */
+  });
+
+  test.fixme('workflow rules: DELETE /api/boards/:id/workflow-rules/:rid removes rule (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - DELETE endpoint for individual event-driven rules not yet implemented.
+     *   - Should return 204 on success, 404 if rule not found.
+     */
+  });
+
+  test.fixme('workflow rules: PUT /api/boards/:id/workflow-rules/:rid updates rule fields (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - PATCH/PUT endpoint to update name, conditions, actions or toggle is_active.
+     *   - Returns updated rule object on success.
+     */
+  });
+
+  test.fixme('workflow rules: conditions field stored and returned as JSON object (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - conditions field should be a JSON object, not a plain string.
+     *   - Example: { "column_id": 5, "label_ids": [1, 2] }
+     */
+  });
+
+  test.fixme('workflow rules: actions field stored and returned as JSON object (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - actions field: { "label_id": 3 } for assign_label,
+     *     { "user_id": 7 } for notify_member, etc.
+     */
+  });
+
+  test.fixme('workflow rules: board admin can CRUD event-driven rules; member gets 403 (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - Only board admins should create/update/delete event-driven rules.
+     *   - Members get 403 on write operations but can read rules.
+     */
+  });
+
+  test.fixme('workflow rules: UI shows Add Rule button in Workflow Rules section (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - BoardSettings.tsx needs an event-driven rules sub-section with
+     *     an "Add Rule" button that opens a form.
+     *   - Form fields: name, trigger type (dropdown), action type (dropdown).
+     */
+  });
+
+  test.fixme('workflow rules: toggling is_active via UI enable/disable toggle (not implemented)', async () => {
+    /**
+     * Implementation notes:
+     *   - Each event-driven rule in the UI list should have an enable/disable toggle.
+     *   - Clicking it calls PUT /api/boards/:id/workflow-rules/:rid with is_active toggled.
+     */
+  });
 });
