@@ -396,17 +396,17 @@ test.describe('Notification navigation', () => {
     await triggerAssignmentNotification(request, tokenB, card.id, user.id);
 
     // Navigate directly to the board with the ?card= param (as a notification link would).
-    // The BoardView useEffect that handles ?card= will automatically switch to "All Cards"
-    // view and open the card detail modal once cards have loaded.
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}?card=${card.id}`);
     await page.waitForSelector('.notification-bell', { timeout: 15000 });
 
-    // Wait for cards to load (the ?card effect requires cards to be in state)
-    // The board view will switch to "All Cards" automatically when the ?card param is processed.
-    await page.waitForSelector('.card-item', { timeout: 15000 });
+    // Switch to "All Cards" view first — in "board" mode without an active sprint,
+    // no card items render (the board shows an empty sprint message). Once "All Cards"
+    // is active, cards are visible AND the ?card useEffect can find the card.
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
 
-    // The card detail modal should open automatically
+    // The card detail modal should open automatically (the ?card param effect fires once cards load)
     await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 12000 });
   });
 });

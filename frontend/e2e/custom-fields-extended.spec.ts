@@ -227,11 +227,16 @@ test.describe('Card Modal — Multiple Custom Fields', () => {
     await expect(page.locator('.custom-fields-compact')).toBeVisible({ timeout: 8000 });
 
     const input = page.locator('.custom-field-inline input[type="number"]');
+    // Set up the listener before filling so we don't miss the response
+    const savePromise = page.waitForResponse(
+      (r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT',
+      { timeout: 10000 },
+    ).catch(() => null);
     await input.fill('42');
-    // Wait for the save API response before closing the modal
-    const savePromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
     await input.blur();
     await savePromise;
+    // Extra guard: wait a moment in case the response was already received before fill
+    await page.waitForTimeout(500);
 
     // Close and reopen
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
