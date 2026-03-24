@@ -107,9 +107,10 @@ type Card struct {
 }
 
 type Label struct {
-	ID    int64  `json:"id"`
-	Name  string `json:"name"`
-	Color string `json:"color"`
+	ID      int64  `json:"id"`
+	BoardID int64  `json:"board_id"`
+	Name    string `json:"name"`
+	Color   string `json:"color"`
 }
 
 type BoardMember struct {

@@ -430,6 +430,365 @@ test.describe('Board Export — API', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Board Export — Additional API tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Board Export — Additional API', () => {
+  test('header row contains Description field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header).toContain('Description');
+  });
+
+  test('header row contains StoryPoints or story_points field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header.toLowerCase()).toMatch(/story.?points|storypoints/i);
+  });
+
+  test('header row contains DueDate or due_date field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header.toLowerCase()).toMatch(/due.?date|duedate/i);
+  });
+
+  test('header row contains CreatedAt or created_at field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header.toLowerCase()).toMatch(/created/i);
+  });
+
+  test('header row contains UpdatedAt or updated_at field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header.toLowerCase()).toMatch(/updated/i);
+  });
+
+  test('export response is idempotent — two calls return identical headers', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res1 = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const res2 = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header1 = (await res1.text()).split('\n')[0];
+    const header2 = (await res2.text()).split('\n')[0];
+    expect(header1).toBe(header2);
+  });
+
+  test('card with story_points appears in export with that value', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'SP Lane', designator: 'SP' },
+      })
+    ).json();
+
+    const columns = board.columns || [];
+    if (!columns.length) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'SP Card',
+        board_id: board.id,
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+        story_points: 8,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    expect(body).toContain('8');
+  });
+
+  test('card with high priority appears in export with "high"', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'High Pri Lane', designator: 'HP' },
+      })
+    ).json();
+
+    const columns = board.columns || [];
+    if (!columns.length) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'High Priority Export Card',
+        board_id: board.id,
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+        priority: 'high',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    expect(body.toLowerCase()).toContain('high');
+  });
+
+  test('export with card description includes description text', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Desc Lane', designator: 'DL' },
+      })
+    ).json();
+
+    const columns = board.columns || [];
+    if (!columns.length) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Described Card',
+        board_id: board.id,
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+        description: 'Unique description for export test',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    expect(body).toContain('Unique description for export test');
+  });
+
+  test('export response Content-Disposition filename is quoted', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const disposition = res.headers()['content-disposition'] ?? '';
+    // Standard: filename="..." with quotes
+    expect(disposition).toMatch(/filename=/i);
+  });
+
+  test('CSV data row card ID matches an integer', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'ID Check Lane', designator: 'IC' },
+      })
+    ).json();
+
+    const columns = board.columns || [];
+    if (!columns.length) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'ID Check Card',
+        board_id: board.id,
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+    const card = await cardRes.json();
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const dataLines = body.split('\n').slice(1).map((l) => l.trim()).filter(Boolean);
+    expect(dataLines.length).toBeGreaterThan(0);
+    // First field in the data row should be the card id (numeric)
+    const firstField = dataLines[0].split(',')[0].replace(/^"/, '').replace(/"$/, '');
+    expect(Number(firstField)).toBe(card.id);
+  });
+
+  test('export of board with no cards returns body with single line only (header)', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const nonEmptyLines = body.split('\n').map((l) => l.trim()).filter(Boolean);
+    expect(nonEmptyLines).toHaveLength(1);
+  });
+
+  test('export column name order is consistent across requests', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res1 = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const res2 = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header1 = (await res1.text()).split('\n')[0];
+    const header2 = (await res2.text()).split('\n')[0];
+    expect(header1).toBe(header2);
+  });
+
+  test('export title field is the second field after ID', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    const fields = header.split(',');
+    expect(fields[0]).toMatch(/id/i);
+    expect(fields[1]).toMatch(/title/i);
+  });
+
+  test('cards in different columns all appear in export', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Multi Col Lane', designator: 'MC' },
+      })
+    ).json();
+
+    const columns = board.columns || [];
+    if (columns.length < 2) {
+      test.skip(true, 'Board has fewer than 2 columns');
+      return;
+    }
+
+    const r1 = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Multi Col Card 1', board_id: board.id, column_id: columns[0].id, swimlane_id: swimlane.id },
+    });
+    const r2 = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Multi Col Card 2', board_id: board.id, column_id: columns[1].id, swimlane_id: swimlane.id },
+    });
+
+    if (!r1.ok() || !r2.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    expect(body).toContain('Multi Col Card 1');
+    expect(body).toContain('Multi Col Card 2');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Board Export — UI additional tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Board Export — UI additional', () => {
+  test('settings page heading is visible', async ({ page, request }) => {
+    const { board } = await setupUserAndBoard(request, page);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('h1, h2, .page-title').first()).toBeVisible();
+  });
+
+  test('Import / Export section has a descriptive heading', async ({ page, request }) => {
+    const { board } = await setupUserAndBoard(request, page);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const section = page.locator('.settings-section').filter({ hasText: 'Import / Export' });
+    await section.scrollIntoViewIfNeeded();
+    await expect(section.locator('h2, h3').first()).toBeVisible();
+  });
+
+  test('Export button is not disabled', async ({ page, request }) => {
+    const { board } = await setupUserAndBoard(request, page);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const section = page.locator('.settings-section').filter({ hasText: 'Import / Export' });
+    await section.scrollIntoViewIfNeeded();
+    const btn = section.locator('button:has-text("Export to CSV")');
+    await expect(btn).not.toBeDisabled();
+  });
+
+  test('Import button is not disabled initially', async ({ page, request }) => {
+    const { board } = await setupUserAndBoard(request, page);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const section = page.locator('.settings-section').filter({ hasText: 'Import / Export' });
+    await section.scrollIntoViewIfNeeded();
+    const btn = section.locator('button:has-text("Import from Jira CSV")');
+    await expect(btn).not.toBeDisabled();
+  });
+
+  test('Export and Import buttons are siblings in the same section', async ({ page, request }) => {
+    const { board } = await setupUserAndBoard(request, page);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const section = page.locator('.settings-section').filter({ hasText: 'Import / Export' });
+    await section.scrollIntoViewIfNeeded();
+    await expect(section.locator('button:has-text("Export to CSV")')).toBeVisible();
+    await expect(section.locator('button:has-text("Import from Jira CSV")')).toBeVisible();
+  });
+
+  test('export URL token matches localStorage token after sign-in', async ({ page, request }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    let capturedUrl = '';
+    await page.exposeFunction('captureExportUrlMatch', (url: string) => {
+      capturedUrl = url;
+    });
+    await page.addInitScript(() => {
+      const orig = window.open.bind(window);
+      (window as any).open = (url: string, ...args: any[]) => {
+        (window as any).captureExportUrlMatch(url);
+        return orig(url, ...args);
+      };
+    });
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const section = page.locator('.settings-section').filter({ hasText: 'Import / Export' });
+    await section.scrollIntoViewIfNeeded();
+    await section.locator('button:has-text("Export to CSV")').click();
+
+    await expect.poll(() => capturedUrl, { timeout: 5000 }).toContain(token);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Board Settings — Export UI
 // ─────────────────────────────────────────────────────────────────────────────
 

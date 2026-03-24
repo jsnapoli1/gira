@@ -232,9 +232,9 @@ test.describe('Bulk Actions', () => {
     await page.click('.bulk-action-bar button:has-text("Move to...")');
     await expect(page.locator('.bulk-action-dropdown')).toBeVisible({ timeout: 3000 });
 
-    // Click the last column option (different from the first column)
+    // Click the second column (In Progress) to move cards there
     const columnItems = page.locator('.bulk-action-dropdown .bulk-action-dropdown-item');
-    await columnItems.last().click();
+    await columnItems.nth(1).click();
 
     // Bulk bar should disappear after action
     await expect(page.locator('.bulk-action-bar')).not.toBeVisible({ timeout: 8000 });

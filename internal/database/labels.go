@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/jsnapoli/zira/internal/models"
@@ -20,15 +21,16 @@ func (d *DB) CreateLabel(boardID int64, name, color string) (*models.Label, erro
 		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
 	}
 	return &models.Label{
-		ID:    id,
-		Name:  name,
-		Color: color,
+		ID:      id,
+		BoardID: boardID,
+		Name:    name,
+		Color:   color,
 	}, nil
 }
 
 func (d *DB) GetBoardLabels(boardID int64) ([]models.Label, error) {
 	rows, err := d.Query(
-		`SELECT id, name, color FROM labels WHERE board_id = ? ORDER BY name`,
+		`SELECT id, board_id, name, color FROM labels WHERE board_id = ? ORDER BY name`,
 		boardID,
 	)
 	if err != nil {
@@ -39,7 +41,7 @@ func (d *DB) GetBoardLabels(boardID int64) ([]models.Label, error) {
 	labels := []models.Label{}
 	for rows.Next() {
 		var label models.Label
-		if err := rows.Scan(&label.ID, &label.Name, &label.Color); err != nil {
+		if err := rows.Scan(&label.ID, &label.BoardID, &label.Name, &label.Color); err != nil {
 			return nil, fmt.Errorf("failed to scan label: %w", err)
 		}
 		labels = append(labels, label)
@@ -56,12 +58,35 @@ func (d *DB) DeleteLabel(id int64) error {
 	return err
 }
 
-func (d *DB) UpdateLabel(id int64, name, color string) error {
+func (d *DB) UpdateLabel(id int64, name, color string) (*models.Label, error) {
 	_, err := d.Exec(
 		`UPDATE labels SET name = ?, color = ? WHERE id = ?`,
 		name, color, id,
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	var label models.Label
+	err = d.QueryRow(`SELECT id, board_id, name, color FROM labels WHERE id = ?`, id).
+		Scan(&label.ID, &label.BoardID, &label.Name, &label.Color)
+	if err != nil {
+		return nil, err
+	}
+	return &label, nil
+}
+
+// GetLabelByID returns a label by its ID, or nil if not found.
+func (d *DB) GetLabelByID(id int64) (*models.Label, error) {
+	var label models.Label
+	err := d.QueryRow(`SELECT id, board_id, name, color FROM labels WHERE id = ?`, id).
+		Scan(&label.ID, &label.BoardID, &label.Name, &label.Color)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &label, nil
 }
 
 func (d *DB) AddLabelToCard(cardID, labelID int64) error {
@@ -82,7 +107,7 @@ func (d *DB) RemoveLabelFromCard(cardID, labelID int64) error {
 
 func (d *DB) GetCardLabels(cardID int64) ([]models.Label, error) {
 	rows, err := d.Query(
-		`SELECT l.id, l.name, l.color
+		`SELECT l.id, l.board_id, l.name, l.color
 		 FROM labels l
 		 JOIN card_labels cl ON l.id = cl.label_id
 		 WHERE cl.card_id = ?
@@ -94,10 +119,10 @@ func (d *DB) GetCardLabels(cardID int64) ([]models.Label, error) {
 	}
 	defer rows.Close()
 
-	var labels []models.Label
+	labels := []models.Label{}
 	for rows.Next() {
 		var label models.Label
-		if err := rows.Scan(&label.ID, &label.Name, &label.Color); err != nil {
+		if err := rows.Scan(&label.ID, &label.BoardID, &label.Name, &label.Color); err != nil {
 			return nil, err
 		}
 		labels = append(labels, label)

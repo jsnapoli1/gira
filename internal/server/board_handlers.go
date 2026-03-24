@@ -581,8 +581,13 @@ func (s *Server) handleGetBoardLabels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateBoardLabel(w http.ResponseWriter, r *http.Request) {
-	board, _ := s.loadBoardAndRole(w, r)
+	board, r := s.loadBoardAndRole(w, r)
 	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
 		return
 	}
 	var req struct {
@@ -612,6 +617,10 @@ func (s *Server) handleUpdateBoardLabel(w http.ResponseWriter, r *http.Request) 
 	if boardRole == "" {
 		return
 	}
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
 	labelID, err := strconv.ParseInt(r.PathValue("labelId"), 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid label ID", http.StatusBadRequest)
@@ -625,17 +634,23 @@ func (s *Server) handleUpdateBoardLabel(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	if err := s.DB.UpdateLabel(labelID, req.Name, req.Color); err != nil {
+	updated, err := s.DB.UpdateLabel(labelID, req.Name, req.Color)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(updated)
 }
 
 func (s *Server) handleDeleteBoardLabel(w http.ResponseWriter, r *http.Request) {
 	_, r = s.loadBoardAndRole(w, r)
 	boardRole := getBoardRoleFromContext(r.Context())
 	if boardRole == "" {
+		return
+	}
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
 		return
 	}
 	labelID, err := strconv.ParseInt(r.PathValue("labelId"), 10, 64)
@@ -647,7 +662,7 @@ func (s *Server) handleDeleteBoardLabel(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	w.WriteHeader(http.StatusOK)
 }
 
 // Workflow handlers
