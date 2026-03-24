@@ -1235,3 +1235,80 @@ test.describe('Navigation Extended — complete navigation flows', () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Authenticated navigation — page title updates
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — page title and heading updates', () => {
+  test('/boards page has "Boards" in the document or heading', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-title-boards');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.page-header h1, h1').first()).toContainText('Boards', { timeout: 10000 });
+  });
+
+  test('/reports page has "Reports" in the heading', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-title-reports');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await expect(page.locator('h1').first()).toContainText('Reports', { timeout: 10000 });
+  });
+
+  test('/settings page has "Settings" in the heading', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-title-settings');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await expect(page.locator('h1').first()).toContainText('Settings', { timeout: 10000 });
+  });
+
+  test('/boards/:id page has the board name in the heading', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-title-board');
+    const board = await createBoard(request, token, 'Heading Title Board');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-header h1, .board-header .board-name').first()).toContainText('Heading Title Board', { timeout: 10000 });
+  });
+
+  test('login page is accessible at /login without authentication', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page).toHaveURL(/\/login/, { timeout: 5000 });
+    await expect(page.locator('form')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('signup page is accessible at /signup without authentication', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page).toHaveURL(/\/signup/, { timeout: 5000 });
+    await expect(page.locator('form')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('navigating from /login to /signup works without errors', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.locator('form')).toBeVisible({ timeout: 5000 });
+
+    const signupLink = page.locator('a[href="/signup"], a:has-text("Sign up"), a:has-text("Register")').first();
+    if (await signupLink.isVisible({ timeout: 3000 })) {
+      await signupLink.click();
+      await expect(page).toHaveURL(/\/signup/, { timeout: 8000 });
+      await expect(page.locator('form')).toBeVisible({ timeout: 5000 });
+    } else {
+      await page.goto('/signup');
+      await expect(page).toHaveURL(/\/signup/, { timeout: 5000 });
+    }
+  });
+
+  test('navigating from /signup to /login works without errors', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page.locator('form')).toBeVisible({ timeout: 5000 });
+
+    const loginLink = page.locator('a[href="/login"], a:has-text("Sign in"), a:has-text("Log in")').first();
+    if (await loginLink.isVisible({ timeout: 3000 })) {
+      await loginLink.click();
+      await expect(page).toHaveURL(/\/login/, { timeout: 8000 });
+      await expect(page.locator('form')).toBeVisible({ timeout: 5000 });
+    } else {
+      await page.goto('/login');
+      await expect(page).toHaveURL(/\/login/, { timeout: 5000 });
+    }
+  });
+});

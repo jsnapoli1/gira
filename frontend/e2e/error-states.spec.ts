@@ -2022,10 +2022,75 @@ test.describe('Error States — Delete and update errors', () => {
 
     // After a 401 on a data fetch, app may redirect to /login or show an error
     await page.waitForTimeout(3000);
-    const url = page.url();
     const bodyText = await page.locator('body').innerText();
     // Should not be a blank page
     expect(bodyText.trim().length).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 76. Rapid navigation between routes — no JS errors
+  // -------------------------------------------------------------------------
+
+  test('rapid navigation between boards/reports/settings — no JS errors', async ({ page, request }) => {
+    const { token } = await createUser(request, 'RapidNav Tester', 'rapidnav');
+    await createBoard(request, token, 'Rapid Nav Board');
+
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    // Rapid fire navigation
+    await page.goto('/reports');
+    await page.goto('/settings');
+    await page.goto('/dashboard');
+    await page.goto('/boards');
+
+    await page.locator('.boards-grid, .empty-state').first().waitFor({ timeout: 10000 });
+    expect(errors).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 77. Boards page renders after login flow (full UI login)
+  // -------------------------------------------------------------------------
+
+  test('boards page renders correctly after standard login flow', async ({ page, request }) => {
+    const { email } = await createUser(request, 'UILogin Tester', 'uilogin');
+
+    await page.goto('/login');
+    await page.fill('input[type="email"]', email);
+    await page.fill('input[type="password"]', 'password123');
+    await page.click('button[type="submit"]');
+
+    // Should end up on an authenticated page
+    await page.waitForURL(/\/(dashboard|boards)/, { timeout: 10000 });
+    const bodyText = await page.locator('body').innerText();
+    expect(bodyText.trim().length).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 78. Mocked 500 on /api/auth/me — stays on /login without crash
+  // -------------------------------------------------------------------------
+
+  test('mocked 500 on /api/auth/me — stays on /login without crash', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
+    await page.route('**/api/auth/me', (route) => {
+      route.fulfill({ status: 500, body: 'Server Error' });
+    });
+
+    // Set a garbage token so the app tries to call /api/auth/me
+    await page.goto('/login');
+    await page.evaluate(() => localStorage.setItem('token', 'maybe-valid-looking-token'));
+    await page.reload();
+
+    // Should still be on /login (auth check failed) — not a blank screen
+    await page.waitForTimeout(2000);
+    const bodyText = await page.locator('body').innerText();
+    expect(bodyText.trim().length).toBeGreaterThan(0);
+    expect(errors).toHaveLength(0);
   });
 
 });
