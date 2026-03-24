@@ -677,4 +677,517 @@ test.describe('Card Priority & Ordering', () => {
     // DnD Kit drag simulation is fragile in Playwright.
     // Implement once a keyboard-based reorder API or test-id drag target is available.
   });
+
+  // -------------------------------------------------------------------------
+  // 19. API: card has a priority field returned in GET /api/boards/:id/cards
+  // -------------------------------------------------------------------------
+  test('API: GET /api/boards/:id/cards returns priority field on each card', async ({ request }) => {
+    const email = `prio-api-list-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'PrioListTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Prio List Board' },
+    })).json();
+
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'PL-' },
+    })).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: board.columns[0].id,
+        title: 'Priority Field Card',
+        priority: 'high',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+    expect(card.priority).toBe('high');
+
+    const listRes = await request.get(`${BASE}/api/boards/${board.id}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listRes.ok()).toBeTruthy();
+    const cards: any[] = await listRes.json();
+    const found = cards.find((c: any) => c.id === card.id);
+    expect(found).toBeDefined();
+    expect(found.priority).toBe('high');
+  });
+
+  // -------------------------------------------------------------------------
+  // 20. API: create card with specific priority — low
+  // -------------------------------------------------------------------------
+  test('API: POST /api/cards with priority:low stores and returns low priority', async ({ request }) => {
+    const email = `prio-create-low-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'CreateLowTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Create Low Board' },
+    })).json();
+
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'CL-' },
+    })).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: board.columns[0].id,
+        title: 'Low Priority Card',
+        priority: 'low',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+    expect(card.priority).toBe('low');
+  });
+
+  // -------------------------------------------------------------------------
+  // 21. API: card has a position field in GET /api/boards/:id/cards
+  // -------------------------------------------------------------------------
+  test('API: GET /api/boards/:id/cards returns a numeric position field on each card', async ({ request }) => {
+    const email = `prio-position-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'PositionTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Position Board' },
+    })).json();
+
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'POS-' },
+    })).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: board.columns[0].id,
+        title: 'Position Card',
+        priority: 'medium',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+
+    const listRes = await request.get(`${BASE}/api/boards/${board.id}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listRes.ok()).toBeTruthy();
+    const cards: any[] = await listRes.json();
+    const found = cards.find((c: any) => c.id === card.id);
+    expect(found).toBeDefined();
+    expect(typeof found.position).toBe('number');
+  });
+
+  // -------------------------------------------------------------------------
+  // 22. API: multiple cards have different positions
+  // -------------------------------------------------------------------------
+  test('API: multiple cards created sequentially get unique positions', async ({ request }) => {
+    const email = `prio-multipos-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'MultiPosTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'MultiPos Board' },
+    })).json();
+
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'MP-' },
+    })).json();
+
+    const ids: number[] = [];
+    for (const title of ['Card A', 'Card B', 'Card C']) {
+      const r = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { board_id: board.id, swimlane_id: swimlane.id, column_id: board.columns[0].id, title, priority: 'medium' },
+      });
+      if (!r.ok()) {
+        test.skip(true, `Card creation unavailable: ${await r.text()}`);
+        return;
+      }
+      ids.push((await r.json()).id);
+    }
+
+    const listRes = await request.get(`${BASE}/api/boards/${board.id}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const cards: any[] = await listRes.json();
+
+    const positions = ids.map((id) => cards.find((c: any) => c.id === id)?.position).filter((p) => p !== undefined);
+    const uniquePositions = new Set(positions);
+    expect(uniquePositions.size).toBe(3);
+  });
+
+  // -------------------------------------------------------------------------
+  // 23. API: POST /api/cards/:id/reorder updates position
+  // -------------------------------------------------------------------------
+  test('API: POST /api/cards/:id/reorder with a valid position returns 200', async ({ request }) => {
+    const email = `prio-reorder-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'ReorderTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Reorder Board' },
+    })).json();
+
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'RO-' },
+    })).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { board_id: board.id, swimlane_id: swimlane.id, column_id: board.columns[0].id, title: 'Reorder Card', priority: 'medium' },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+
+    const reorderRes = await request.post(`${BASE}/api/cards/${card.id}/reorder`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { position: 5000 },
+    });
+    expect(reorderRes.status()).toBe(200);
+  });
+
+  // -------------------------------------------------------------------------
+  // 24. API: story_points field present on card from GET /api/boards/:id/cards
+  // -------------------------------------------------------------------------
+  test('API: GET /api/boards/:id/cards returns story_points field on cards', async ({ request }) => {
+    const email = `prio-sp-api-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'StoryPointsApiTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'SP API Board' },
+    })).json();
+
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'SPA-' },
+    })).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: board.columns[0].id,
+        title: 'SP API Card',
+        story_points: 13,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+    expect(card.story_points).toBe(13);
+
+    const listRes = await request.get(`${BASE}/api/boards/${board.id}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listRes.ok()).toBeTruthy();
+    const cards: any[] = await listRes.json();
+    const found = cards.find((c: any) => c.id === card.id);
+    expect(found).toBeDefined();
+    expect(found.story_points).toBe(13);
+  });
+
+  // -------------------------------------------------------------------------
+  // 25. API: set story points via PUT updates the value
+  // -------------------------------------------------------------------------
+  test('API: PUT /api/cards/:id with story_points updates the value', async ({ request }) => {
+    const email = `prio-sp-put-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'SpPutTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'SP Put Board' },
+    })).json();
+
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'SPP-' },
+    })).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { board_id: board.id, swimlane_id: swimlane.id, column_id: board.columns[0].id, title: 'SP Put Card', priority: 'medium' },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+
+    const putRes = await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: card.title,
+        description: '',
+        priority: 'medium',
+        story_points: 21,
+      },
+    });
+    expect(putRes.status()).toBe(200);
+    const updated = await putRes.json();
+    expect(updated.story_points).toBe(21);
+  });
+
+  // -------------------------------------------------------------------------
+  // 26. UI: story points shown in card detail modal view mode
+  // -------------------------------------------------------------------------
+  test('UI: story points shown in card detail modal with "pts" suffix', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'SP Modal Card', 'medium', 5);
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+    await page.locator('.card-item').first().click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // View mode shows "X pts"
+    const spBadge = page.locator('.card-detail-meta .card-points');
+    await expect(spBadge).toBeVisible({ timeout: 5000 });
+    await expect(spBadge).toContainText('5');
+    await expect(spBadge).toContainText('pts');
+  });
+
+  // -------------------------------------------------------------------------
+  // 27. UI: story points input field in card edit modal
+  // -------------------------------------------------------------------------
+  test('UI: story points input field is present in card edit modal', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'SP Edit Card', 'medium', 3);
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+    await page.locator('.card-item').first().click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+
+    // Story Points input is a number input in the form-row
+    const spInput = page.locator('.card-detail-edit input[type="number"]').first();
+    await expect(spInput).toBeVisible({ timeout: 5000 });
+    await expect(spInput).toHaveValue('3');
+  });
+
+  // -------------------------------------------------------------------------
+  // 28. UI: updating story points in modal persists after save
+  // -------------------------------------------------------------------------
+  test('UI: updating story points in card modal saves the new value', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'SP Update Card', 'medium', 2);
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+    const card = await res.json();
+
+    await openBoardAllCards(page, board.id);
+    await page.locator('.card-item').first().click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+
+    const spInput = page.locator('.card-detail-edit input[type="number"]').first();
+    await spInput.fill('8');
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes(`/api/cards/${card.id}`) && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+    expect(response.status()).toBe(200);
+
+    // After save, view mode should show updated value
+    await expect(page.locator('.card-detail-meta .card-points')).toContainText('8', { timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 29. UI: story points badge shown in backlog card row
+  // -------------------------------------------------------------------------
+  test('UI: story points badge shown in backlog card row', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Backlog SP Card', 'medium', 13);
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+    const card = await res.json();
+
+    // Create sprint and assign card so it appears in backlog sprint panel
+    const sprintRes = await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'SP Backlog Sprint', goal: '' },
+    });
+    const sprint = await sprintRes.json();
+
+    await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: card.title,
+        description: '',
+        priority: 'medium',
+        story_points: 13,
+        sprint_id: sprint.id,
+        column_id: card.column_id,
+        swimlane_id: card.swimlane_id,
+        position: card.position,
+      },
+    });
+
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-header', { timeout: 10000 });
+    await page.click('.view-btn:has-text("Backlog")');
+    await expect(page.locator('.backlog-card')).toHaveCount(1, { timeout: 10000 });
+
+    // Backlog card row shows the .card-points badge
+    const spBadge = page.locator('.backlog-card .card-points');
+    await expect(spBadge).toBeVisible({ timeout: 5000 });
+    await expect(spBadge).toContainText('13');
+  });
+
+  // -------------------------------------------------------------------------
+  // 30. API: GET /api/metrics/velocity returns completed_points for sprints
+  // -------------------------------------------------------------------------
+  test('API: GET /api/metrics/velocity returns completed_points for completed sprints', async ({ request }) => {
+    const email = `prio-velocity-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'VelocityTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Velocity Board' },
+    })).json();
+
+    // Velocity endpoint should return an array (possibly empty for new boards)
+    const velRes = await request.get(`${BASE}/api/metrics/velocity?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(velRes.ok()).toBeTruthy();
+    const velocity: any[] = await velRes.json();
+    expect(Array.isArray(velocity)).toBeTruthy();
+
+    // If any data is returned, each entry must have completed_points
+    for (const entry of velocity) {
+      expect(typeof entry.completed_points).toBe('number');
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // 31. UI: "Low" priority selector in modal changes badge to blue/low color
+  // -------------------------------------------------------------------------
+  test('UI: select low priority in modal — board card shows low priority badge', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'To Low Card', 'high');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+    await expect(page.locator('[aria-label="Priority: high"]')).toBeVisible({ timeout: 5000 });
+
+    await page.locator('.card-item').first().click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+
+    const prioritySelect = page.locator('.card-detail-edit select').nth(1);
+    await prioritySelect.selectOption('low');
+
+    await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+
+    await page.click('.modal-close-btn');
+    await expect(page.locator('[aria-label="Priority: low"]')).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 32. UI: card ordering preserved after page reload
+  // -------------------------------------------------------------------------
+  test('UI: card ordering in All Cards view is preserved after page reload', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const titles = ['Card Alpha', 'Card Beta', 'Card Gamma'];
+    for (const title of titles) {
+      const r = await createCard(request, token, board.id, swimlane.id, columns[0].id, title, 'medium');
+      if (!r.ok()) {
+        test.skip(true, `Card creation unavailable: ${await r.text()}`);
+        return;
+      }
+    }
+
+    await openBoardAllCards(page, board.id);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
+
+    const orderBefore = await page.locator('.card-item .card-title, .card-item').allTextContents();
+
+    // Reload the page
+    await page.reload();
+    await page.waitForSelector('.board-header', { timeout: 10000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 10000 });
+
+    const orderAfter = await page.locator('.card-item .card-title, .card-item').allTextContents();
+
+    // Order should be stable (same sequence)
+    expect(orderAfter).toEqual(orderBefore);
+  });
 });

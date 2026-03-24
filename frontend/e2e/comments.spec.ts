@@ -11,6 +11,7 @@ interface SetupResult {
   token: string;
   boardId: number;
   cardId: number;
+  userId: number;
 }
 
 async function setupBoardWithCard(
@@ -18,15 +19,14 @@ async function setupBoardWithCard(
   displayName = 'Comment Test User',
 ): Promise<SetupResult | null> {
   const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const { token } = await (
-    await request.post(`${BASE}/api/auth/signup`, {
-      data: {
-        email: `test-comments-${uid}@example.com`,
-        password: 'password123',
-        display_name: displayName,
-      },
-    })
-  ).json();
+  const signupRes = await request.post(`${BASE}/api/auth/signup`, {
+    data: {
+      email: `test-comments-${uid}@example.com`,
+      password: 'password123',
+      display_name: displayName,
+    },
+  });
+  const { token, user } = await signupRes.json();
 
   const board = await (
     await request.post(`${BASE}/api/boards`, {
@@ -55,7 +55,7 @@ async function setupBoardWithCard(
   if (!cardRes.ok()) return null;
 
   const card = await cardRes.json();
-  return { token, boardId: board.id, cardId: card.id };
+  return { token, boardId: board.id, cardId: card.id, userId: user.id };
 }
 
 async function openCardModal(
@@ -351,5 +351,447 @@ test.describe('Comments', () => {
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
     await expect(page.locator('.comment-body-compact')).toContainText('Persistent comment');
+  });
+
+  // =========================================================================
+  // Additional API tests
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // 12. API: POST /api/cards/:id/comments returns 201 with comment data
+  // -------------------------------------------------------------------------
+  test('API: POST /api/cards/:id/comments returns 201 with comment data', async ({ request }) => {
+    const setup = await setupBoardWithCard(request, 'API Commenter');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body: 'API created comment' },
+    });
+
+    expect(res.ok()).toBe(true);
+    expect(res.status()).toBe(201);
+
+    const comment = await res.json();
+    expect(comment.id).toBeTruthy();
+    expect(comment.body).toBe('API created comment');
+  });
+
+  // -------------------------------------------------------------------------
+  // 13. API: Comment has id, body, user_id, card_id, and created_at
+  // -------------------------------------------------------------------------
+  test('API: comment response has id, body, user_id, card_id, and created_at fields', async ({ request }) => {
+    const setup = await setupBoardWithCard(request, 'API Fields');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body: 'Fields check comment' },
+    });
+
+    const comment = await res.json();
+    expect(typeof comment.id).toBe('number');
+    expect(typeof comment.body).toBe('string');
+    expect(typeof comment.user_id).toBe('number');
+    expect(comment.card_id).toBe(setup.cardId);
+    expect(comment.created_at).toBeTruthy();
+    const d = new Date(comment.created_at);
+    expect(d.getTime()).not.toBeNaN();
+  });
+
+  // -------------------------------------------------------------------------
+  // 14. API: GET /api/cards/:id/comments returns array including the new comment
+  // -------------------------------------------------------------------------
+  test('API: GET /api/cards/:id/comments returns array containing the posted comment', async ({ request }) => {
+    const setup = await setupBoardWithCard(request, 'API List');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const createRes = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body: 'Listed comment' },
+    });
+    const created = await createRes.json();
+
+    const listRes = await request.get(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    expect(listRes.ok()).toBe(true);
+    const list: { id: number }[] = await listRes.json();
+    expect(Array.isArray(list)).toBe(true);
+    const found = list.find((c) => c.id === created.id);
+    expect(found).toBeDefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // 15. API: Comment body content matches what was sent
+  // -------------------------------------------------------------------------
+  test('API: returned comment body matches the sent content', async ({ request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const body = 'Exact content match test';
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body },
+    });
+    const comment = await res.json();
+    expect(comment.body).toBe(body);
+  });
+
+  // -------------------------------------------------------------------------
+  // 16. API: Comment user_id matches the authenticated user
+  // -------------------------------------------------------------------------
+  test('API: comment user_id matches the ID of the authenticated commenter', async ({ request }) => {
+    const setup = await setupBoardWithCard(request, 'API UserID');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body: 'User ID check' },
+    });
+    const comment = await res.json();
+    expect(comment.user_id).toBe(setup.userId);
+  });
+
+  // -------------------------------------------------------------------------
+  // 17. API: Multiple comments on one card — all returned by GET
+  // -------------------------------------------------------------------------
+  test('API: multiple comments posted to a card are all returned by GET', async ({ request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const texts = ['API comment A', 'API comment B', 'API comment C'];
+    const ids: number[] = [];
+    for (const body of texts) {
+      const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+        headers: { Authorization: `Bearer ${setup.token}` },
+        data: { body },
+      });
+      expect(res.ok()).toBe(true);
+      const c = await res.json();
+      ids.push(c.id);
+    }
+
+    const listRes = await request.get(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const list: { id: number }[] = await listRes.json();
+    for (const id of ids) {
+      expect(list.find((c) => c.id === id)).toBeDefined();
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // 18. API: Unauthorized request to POST comment returns 401
+  // -------------------------------------------------------------------------
+  test('API: posting a comment without a token returns 401', async ({ request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      // No Authorization header
+      data: { body: 'Unauthorized comment' },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // 19. API: Empty body comment returns 400
+  // -------------------------------------------------------------------------
+  test('API: posting a comment with empty body returns 400', async ({ request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body: '' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  // -------------------------------------------------------------------------
+  // 20. API: Comment with special characters and emoji is stored correctly
+  // -------------------------------------------------------------------------
+  test('API: comment with emoji and unicode special chars is stored and returned intact', async ({ request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const specialBody = '🎉 Unicode テスト <script>alert(1)</script> & "quotes"';
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body: specialBody },
+    });
+    expect(res.ok()).toBe(true);
+    const comment = await res.json();
+    expect(comment.body).toBe(specialBody);
+  });
+
+  // -------------------------------------------------------------------------
+  // 21. API: Very long comment (2000 chars) is accepted
+  // -------------------------------------------------------------------------
+  test('API: very long comment (2000 characters) is accepted and returned', async ({ request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const longBody = 'A'.repeat(2000);
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body: longBody },
+    });
+    expect(res.ok()).toBe(true);
+    const comment = await res.json();
+    expect(comment.body.length).toBe(2000);
+  });
+
+  // =========================================================================
+  // Additional UI tests
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // 22. UI: Comment input textarea is visible in card modal
+  // -------------------------------------------------------------------------
+  test('UI: comment input textarea is visible in the card modal', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+    await expect(page.locator('.comment-form-compact textarea')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 23. UI: Submitted comment body appears in the list
+  // -------------------------------------------------------------------------
+  test('UI: submitted comment body appears in the comment list', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    await page.fill('.comment-form-compact textarea', 'Visible comment text');
+    await page.click('.comment-form-compact button[type="submit"]');
+
+    await expect(
+      page.locator('.comment-body-compact').filter({ hasText: 'Visible comment text' }),
+    ).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 24. UI: Comments section exists and has correct section label
+  // -------------------------------------------------------------------------
+  test('UI: conversations/comments section is present in the card modal', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+    await expect(page.locator('.conversations-section')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 25. UI: Comment count badge on card — fixme if not implemented
+  // -------------------------------------------------------------------------
+  test('UI: comment count badge on card item reflects posted comments', async ({ page, request }) => {
+    test.fixme(
+      true,
+      'No comment count badge exists on card items in the current UI. ' +
+        'Enable this test once a comment count indicator is added to the card item view.',
+    );
+
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    // Post a comment via API first so the board view can show the count
+    await request.post(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { body: 'Badge test comment' },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // A comment count badge should appear on the card
+    await expect(page.locator('.card-comment-count, .card-item .comment-badge')).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 26. UI: Markdown in comments is rendered — fixme if not supported
+  // -------------------------------------------------------------------------
+  test('UI: markdown bold syntax in a comment body is rendered as <strong>', async ({ page, request }) => {
+    test.fixme(
+      true,
+      'Markdown rendering in comments is not verified. ' +
+        'Enable this test once the UI renders comment bodies as Markdown.',
+    );
+
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    await page.fill('.comment-form-compact textarea', '**bold text**');
+    await page.click('.comment-form-compact button[type="submit"]');
+
+    // If Markdown is rendered, a <strong> tag should be present inside the comment body
+    await expect(page.locator('.comment-body-compact strong')).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 27. UI: Pressing Ctrl+Enter submits the comment
+  // -------------------------------------------------------------------------
+  test('UI: pressing Ctrl+Enter in the textarea submits the comment', async ({ page, request }) => {
+    test.fixme(
+      true,
+      'Ctrl+Enter submit keyboard shortcut is not verified. ' +
+        'Enable this test once the shortcut is confirmed or implemented.',
+    );
+
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    await page.fill('.comment-form-compact textarea', 'Hotkey submit comment');
+    await page.keyboard.press('Control+Enter');
+
+    await expect(
+      page.locator('.comment-body-compact').filter({ hasText: 'Hotkey submit comment' }),
+    ).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 28. UI: Whitespace-only comment does not enable the submit button
+  // -------------------------------------------------------------------------
+  test('UI: whitespace-only input keeps the submit button disabled', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    // Type only spaces/newlines
+    await page.fill('.comment-form-compact textarea', '   ');
+
+    // The submit button should still be disabled (trimmed content is empty)
+    // Note: if the server rejects it but the UI allows the click, this tests
+    // that no comment appears in the list.
+    const submitBtn = page.locator('.comment-form-compact button[type="submit"]');
+    const isDisabled = await submitBtn.isDisabled();
+    if (!isDisabled) {
+      // If the UI allows it, click and confirm no new comment appears
+      await submitBtn.click();
+      // Allow a short window — no comment should appear
+      await page.waitForTimeout(1500);
+      await expect(page.locator('.comment-item-compact')).toHaveCount(0);
+    } else {
+      expect(isDisabled).toBe(true);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // 29. UI: Multiple comments are shown in correct order in the modal
+  // -------------------------------------------------------------------------
+  test('UI: three comments submitted via UI appear in insertion order', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    for (const text of ['Alpha', 'Beta', 'Gamma']) {
+      await page.fill('.comment-form-compact textarea', text);
+      await page.click('.comment-form-compact button[type="submit"]');
+      await expect(
+        page.locator('.comment-body-compact').filter({ hasText: text }),
+      ).toBeVisible({ timeout: 8000 });
+    }
+
+    const bodies = page.locator('.comment-body-compact');
+    await expect(bodies.nth(0)).toContainText('Alpha');
+    await expect(bodies.nth(1)).toContainText('Beta');
+    await expect(bodies.nth(2)).toContainText('Gamma');
+  });
+
+  // -------------------------------------------------------------------------
+  // 30. API: GET /api/cards/:id/comments returns 200 with an array on a fresh card
+  // -------------------------------------------------------------------------
+  test('API: GET /api/cards/:id/comments returns 200 and an empty array on a new card', async ({ request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/cards/${setup.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    expect(res.ok()).toBe(true);
+    expect(res.status()).toBe(200);
+    const list = await res.json();
+    expect(Array.isArray(list)).toBe(true);
+    expect(list.length).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 31. UI: Comment form textarea placeholder is visible
+  // -------------------------------------------------------------------------
+  test('UI: comment textarea has a placeholder hint text', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request);
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const textarea = page.locator('.comment-form-compact textarea');
+    await expect(textarea).toBeVisible();
+    const placeholder = await textarea.getAttribute('placeholder');
+    expect(placeholder).toBeTruthy();
+    expect(placeholder!.length).toBeGreaterThan(0);
   });
 });
