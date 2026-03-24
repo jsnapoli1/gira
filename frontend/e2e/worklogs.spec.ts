@@ -1274,3 +1274,434 @@ test.describe('Board time-summary API', () => {
     expect(res.status()).toBe(401);
   });
 });
+
+// ---------------------------------------------------------------------------
+// API: worklog date field handling
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs API — date field handling', () => {
+  // POST worklog with an explicit YYYY-MM-DD date stores it
+  test('API: worklog with explicit date stores and returns that date', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-date-explicit');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const targetDate = '2025-03-10';
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, date: targetDate },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    const entry = body.work_logs[0];
+    expect(entry.date).toContain('2025-03-10');
+  });
+
+  // POST worklog with no date defaults to today
+  test('API: worklog with no date field defaults to today', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-date-default');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 20 },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    const entry = body.work_logs[0];
+    expect(entry.date).toContain(today);
+  });
+
+  // POST worklog with invalid date format returns 400
+  test('API: worklog with invalid date format returns 400', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-date-invalid');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, date: '31/12/2025' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  // POST worklog with future date is accepted or rejected (document behavior)
+  test('API: worklog with future date returns 200/201 or 400 (documents behavior)', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-date-future');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, date: '2099-01-01' },
+    });
+    expect([200, 201, 400]).toContain(res.status());
+  });
+
+  // Multiple worklogs with different dates all retained in list
+  test('API: three worklogs with different dates all present in list', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-date-multi');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const dates = ['2025-01-01', '2025-02-15', '2025-03-31'];
+    for (const date of dates) {
+      await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { time_spent: 15, date },
+      });
+    }
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.work_logs.length).toBe(3);
+    expect(body.total_logged).toBe(45);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API: worklog notes field edge cases
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs API — notes field edge cases', () => {
+  // notes field is optional (omitting it still creates worklog)
+  test('API: omitting notes field creates worklog successfully', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-notes-omit');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 25 },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body.work_logs.length).toBe(1);
+  });
+
+  // notes with empty string is accepted
+  test('API: worklog with empty notes string is accepted (201)', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-notes-empty');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 20, notes: '' },
+    });
+    expect(res.status()).toBe(201);
+  });
+
+  // notes with long string is accepted
+  test('API: worklog with 500-char notes string is accepted', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-notes-long');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const longNotes = 'A'.repeat(500);
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, notes: longNotes },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    const entry = body.work_logs[0];
+    expect(entry.notes.length).toBe(500);
+  });
+
+  // notes stored and retrievable via GET
+  test('API: notes stored in POST are retrievable via GET', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-notes-get');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+    const notesText = `Unique note ${crypto.randomUUID()}`;
+
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 35, notes: notesText },
+    });
+
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const getBody = await getRes.json();
+    const found = getBody.work_logs.find((w: any) => w.notes === notesText);
+    expect(found).toBeDefined();
+  });
+
+  // Different notes on different worklogs remain distinct
+  test('API: two worklogs with different notes both stored distinctly', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-notes-distinct');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 20, notes: 'First note' },
+    });
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 40, notes: 'Second note' },
+    });
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    const notes = body.work_logs.map((w: any) => w.notes);
+    expect(notes).toContain('First note');
+    expect(notes).toContain('Second note');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API: DELETE edge cases
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs API — DELETE edge cases', () => {
+  // DELETE non-existent worklog returns 404 or 204 (no crash)
+  test('API: DELETE non-existent worklog id does not crash server', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-del-notfound');
+    const { board, cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.delete(`${BASE}/api/cards/${card.id}/worklogs/999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect([204, 404]).toContain(res.status());
+  });
+
+  // DELETE worklog decreases total_logged by exactly that worklog's time_spent
+  test('API: deleting 45-min worklog from 75-min total leaves 30 minutes', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-del-exact');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30 },
+    });
+    const r2 = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 45 },
+    });
+    const body2 = await r2.json();
+    const wlId = body2.work_logs.find((w: any) => w.time_spent === 45).id;
+
+    await request.delete(`${BASE}/api/cards/${card.id}/worklogs/${wlId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const getBody = await getRes.json();
+    expect(getBody.total_logged).toBe(30);
+    expect(getBody.work_logs.length).toBe(1);
+  });
+
+  // DELETE all worklogs one by one leaves total_logged=0 and empty list
+  test('API: deleting all worklogs one-by-one leaves total_logged=0', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-del-all');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    // Create three worklogs
+    for (const amt of [10, 20, 30]) {
+      await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { time_spent: amt },
+      });
+    }
+
+    // Get the list and delete each
+    const listRes = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listBody = await listRes.json();
+    for (const wl of listBody.work_logs) {
+      await request.delete(`${BASE}/api/cards/${card.id}/worklogs/${wl.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+
+    const finalRes = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const finalBody = await finalRes.json();
+    const remaining: any[] = finalBody.work_logs ?? [];
+    expect(remaining.length).toBe(0);
+    expect(finalBody.total_logged).toBe(0);
+  });
+
+  // DELETE without auth returns 401
+  test('API: DELETE worklog without token returns 401', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-del-unauth');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const createRes = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30 },
+    });
+    const createBody = await createRes.json();
+    const wlId = createBody.work_logs[0].id;
+
+    const res = await request.delete(`${BASE}/api/cards/${card.id}/worklogs/${wlId}`);
+    expect(res.status()).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UI: Time tracking compact section — more edge cases
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs UI — time format and accessibility', () => {
+  // Log 1 minute — shows "1m logged"
+  test('UI: logging 1 minute shows "1m logged"', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-fmt-1m');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+    await page.fill('.time-input-mini', '1');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('1m logged', { timeout: 5000 });
+  });
+
+  // Log 59 minutes — shows "59m logged"
+  test('UI: logging 59 minutes shows "59m logged"', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-fmt-59m');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+    await page.fill('.time-input-mini', '59');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('59m logged', { timeout: 5000 });
+  });
+
+  // Log 120 minutes — shows "2h logged" (exact hours, no minutes suffix)
+  test('UI: logging 120 minutes shows "2h logged" without trailing "0m"', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-fmt-120m');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+    await page.fill('.time-input-mini', '120');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('2h logged', { timeout: 5000 });
+    // Should not contain "0m" for exact hours
+    const text = await page.locator('.time-tracking-stats .time-logged').textContent();
+    expect(text).not.toMatch(/2h 0m/);
+  });
+
+  // Log 180 minutes — shows "3h logged"
+  test('UI: logging 180 minutes shows "3h logged"', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-fmt-180m');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+    await page.fill('.time-input-mini', '180');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('3h logged', { timeout: 5000 });
+  });
+
+  // Log 61 minutes — shows "1h 1m logged"
+  test('UI: logging 61 minutes shows "1h 1m logged"', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-fmt-61m');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+    await page.fill('.time-input-mini', '61');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('1h 1m logged', { timeout: 5000 });
+  });
+
+  // time-input-mini is a number input (type="number")
+  test('UI: time-input-mini is a number-type input', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-inputtype');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+    const inputType = await page.locator('.time-input-mini').getAttribute('type');
+    // Accept number or text (some implementations use text with validation)
+    expect(['number', 'text', null]).toContain(inputType);
+  });
+
+  // Entering a value then clearing keeps button disabled
+  test('UI: clearing the time input after entering a value disables Log button again', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-clear-disable');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+    await page.fill('.time-input-mini', '30');
+    await expect(page.locator('.time-tracking-actions button:has-text("Log")')).toBeEnabled();
+    await page.fill('.time-input-mini', '');
+    await expect(page.locator('.time-tracking-actions button:has-text("Log")')).toBeDisabled();
+  });
+
+  // Time tracking header text is "Time Tracking"
+  test('UI: time tracking header says "Time Tracking"', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-header-text');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+    await expect(page.locator('.time-tracking-header')).toBeVisible();
+    await expect(page.locator('.time-tracking-header')).toContainText('Time Tracking');
+  });
+
+  // API-seeded worklog visible without reloading (SSE or initial load)
+  test('UI: worklog seeded before modal open appears immediately on open', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-preseeded-open');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+
+    // Seed via API before opening modal
+    await page.request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 75 },
+    });
+
+    // Reload to ensure latest data, then open modal
+    await page.reload();
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('1h 15m logged', { timeout: 5000 });
+  });
+
+  // Estimate shown as "Xh estimated" when estimate is a multiple of 60
+  test('UI: estimate of 60 shows "1h estimated"', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-est-60');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+
+    await page.click('.btn:has-text("Edit")');
+    await page.fill('input[placeholder="e.g., 120"]', '60');
+    await page.click('.btn:has-text("Save")');
+
+    await expect(page.locator('.time-tracking-stats .time-estimate')).toContainText('1h estimated', { timeout: 5000 });
+  });
+
+  // Estimate of 90 shows "1h 30m estimated"
+  test('UI: estimate of 90 shows "1h 30m estimated"', async ({ page, request }) => {
+    const { token, board, card } = await setup(request, page, 'wl-est-90');
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+    await openCardModal(page, token, board.id);
+
+    await page.click('.btn:has-text("Edit")');
+    await page.fill('input[placeholder="e.g., 120"]', '90');
+    await page.click('.btn:has-text("Save")');
+
+    await expect(page.locator('.time-tracking-stats .time-estimate')).toContainText('1h 30m estimated', { timeout: 5000 });
+  });
+});

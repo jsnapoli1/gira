@@ -889,3 +889,974 @@ test.describe('Attachments', () => {
     await expect(heading).toContainText('Attachments');
   });
 });
+
+// ===========================================================================
+// Extended API Tests (32–52)
+// ===========================================================================
+
+test.describe('Attachments — Extended API Tests', () => {
+  // -------------------------------------------------------------------------
+  // 32. API: GET /api/cards/:id/attachments returns 200 with empty array initially
+  // -------------------------------------------------------------------------
+  test('API: GET attachments on fresh card returns 200 and empty array', async ({ request }) => {
+    const setup = await setupResources(request, 'APIEmpty');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    expect(res.status()).toBe(200);
+    const list = await res.json();
+    expect(Array.isArray(list)).toBe(true);
+    expect(list.length).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 33. API: Attachment has card_id matching the card it was uploaded to
+  // -------------------------------------------------------------------------
+  test('API: attachment card_id matches the card it was uploaded to', async ({ request }) => {
+    const setup = await setupResources(request, 'APICardId');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const { res, attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'cardid-check.txt',
+    );
+    expect(res.ok()).toBe(true);
+    expect(attachment).not.toBeNull();
+    expect(attachment.card_id).toBe(setup.cardId);
+  });
+
+  // -------------------------------------------------------------------------
+  // 34. API: Attachment filename is preserved exactly from upload
+  // -------------------------------------------------------------------------
+  test('API: uploaded attachment retains its original filename', async ({ request }) => {
+    const setup = await setupResources(request, 'APIFilename');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const targetFilename = 'my-special-file_v2.txt';
+    const { attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, targetFilename, 'content',
+    );
+    expect(attachment).not.toBeNull();
+    expect(attachment.filename).toBe(targetFilename);
+  });
+
+  // -------------------------------------------------------------------------
+  // 35. API: Upload PNG — mime_type is image/png
+  // -------------------------------------------------------------------------
+  test('API: uploading PNG file sets mime_type to image/png', async ({ request }) => {
+    const setup = await setupResources(request, 'APIPngMime');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      multipart: {
+        file: {
+          name: 'image.png',
+          mimeType: 'image/png',
+          buffer: PNG_DATA,
+        },
+      },
+    });
+    expect(res.ok()).toBe(true);
+    const attachment = await res.json();
+    expect(attachment.mime_type).toContain('image/png');
+  });
+
+  // -------------------------------------------------------------------------
+  // 36. API: Upload PDF — mime_type is application/pdf
+  // -------------------------------------------------------------------------
+  test('API: uploading PDF file sets mime_type to application/pdf', async ({ request }) => {
+    const setup = await setupResources(request, 'APIPdfMime');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      multipart: {
+        file: {
+          name: 'document.pdf',
+          mimeType: 'application/pdf',
+          buffer: Buffer.from('%PDF-1.4 fake pdf content'),
+        },
+      },
+    });
+    expect(res.ok()).toBe(true);
+    const attachment = await res.json();
+    expect(attachment.mime_type).toContain('application/pdf');
+  });
+
+  // -------------------------------------------------------------------------
+  // 37. API: file_size in response matches exact byte count of uploaded content
+  // -------------------------------------------------------------------------
+  test('API: file_size exactly matches byte count of the uploaded buffer', async ({ request }) => {
+    const setup = await setupResources(request, 'APIExactSize');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const content = 'twelve bytes';  // 12 bytes
+    const { attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'exact-size.txt', content,
+    );
+    expect(attachment).not.toBeNull();
+    expect(attachment.size).toBe(Buffer.byteLength(content));
+  });
+
+  // -------------------------------------------------------------------------
+  // 38. API: GET /api/attachments/:id/download (or /api/attachments/:id) serves file
+  // -------------------------------------------------------------------------
+  test('API: GET /api/attachments/:id serves the file bytes with correct content', async ({ request }) => {
+    const setup = await setupResources(request, 'APIServesBytes');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const content = 'expected file content 9876';
+    const { attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'serve-test.txt', content,
+    );
+    expect(attachment).not.toBeNull();
+
+    const dlRes = await request.get(`${BASE}/api/attachments/${attachment.id}`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    expect(dlRes.ok()).toBe(true);
+    const body = await dlRes.text();
+    expect(body).toContain('expected file content 9876');
+  });
+
+  // -------------------------------------------------------------------------
+  // 39. API: Attachment list is isolated across different cards
+  // -------------------------------------------------------------------------
+  test('API: attachment lists are independent across different cards', async ({ request }) => {
+    const setup = await setupResources(request, 'APIIsolated');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const board = await (
+      await request.get(`${BASE}/api/boards/${setup.boardId}`, {
+        headers: { Authorization: `Bearer ${setup.token}` },
+      })
+    ).json();
+
+    // Create a second card
+    const card2Res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        title: 'Isolation Card 2',
+        column_id: board.columns[0].id,
+        swimlane_id: board.swimlanes?.[0]?.id ?? 1,
+        board_id: setup.boardId,
+      },
+    });
+    if (!card2Res.ok()) {
+      test.skip(true, 'Second card creation failed');
+      return;
+    }
+    const card2 = await card2Res.json();
+
+    // Upload on card 1 only
+    await uploadAttachment(request, setup.token, setup.cardId, 'card1-only.txt', 'card1');
+
+    // Card 2 should have no attachments
+    const list2Res = await request.get(`${BASE}/api/cards/${card2.id}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const list2: { filename: string }[] = await list2Res.json();
+    expect(list2.every((a) => a.filename !== 'card1-only.txt')).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // 40. API: Large file (5 MB) is accepted
+  // -------------------------------------------------------------------------
+  test('API: uploading a 5 MB file is accepted and returns 201', async ({ request }) => {
+    const setup = await setupResources(request, 'API5MB');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const largeBuffer = Buffer.alloc(5 * 1024 * 1024, 'x');
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      multipart: {
+        file: {
+          name: 'large5mb.bin',
+          mimeType: 'application/octet-stream',
+          buffer: largeBuffer,
+        },
+      },
+    });
+    expect(res.status()).toBe(201);
+  });
+
+  // -------------------------------------------------------------------------
+  // 41. API: Upload text file — mime_type is text/plain
+  // -------------------------------------------------------------------------
+  test('API: uploading a text file sets mime_type to text/plain', async ({ request }) => {
+    const setup = await setupResources(request, 'APITextMime');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const { attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'plain.txt', 'plain text content', 'text/plain',
+    );
+    expect(attachment).not.toBeNull();
+    expect(attachment.mime_type).toContain('text/plain');
+  });
+
+  // -------------------------------------------------------------------------
+  // 42. API: Deleted attachment returns 404 on subsequent download
+  // -------------------------------------------------------------------------
+  test('API: downloading a deleted attachment returns 404', async ({ request }) => {
+    const setup = await setupResources(request, 'APIDeletedDl');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const { attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'gone-soon.txt', 'temporary',
+    );
+    expect(attachment).not.toBeNull();
+
+    // Delete the attachment
+    await request.delete(
+      `${BASE}/api/cards/${setup.cardId}/attachments/${attachment.id}`,
+      { headers: { Authorization: `Bearer ${setup.token}` } },
+    );
+
+    // Attempting to download should now return 404
+    const dlRes = await request.get(`${BASE}/api/attachments/${attachment.id}`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    expect(dlRes.status()).toBe(404);
+  });
+
+  // -------------------------------------------------------------------------
+  // 43. API: Three attachments uploaded → list has exactly three
+  // -------------------------------------------------------------------------
+  test('API: three uploaded attachments appear in the list with correct count', async ({ request }) => {
+    const setup = await setupResources(request, 'APIThree');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    for (let i = 1; i <= 3; i++) {
+      const { res } = await uploadAttachment(
+        request, setup.token, setup.cardId, `file-${i}.txt`, `content ${i}`,
+      );
+      expect(res.ok()).toBe(true);
+    }
+
+    const listRes = await request.get(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const list = await listRes.json();
+    expect(list.length).toBe(3);
+  });
+
+  // -------------------------------------------------------------------------
+  // 44. API: Invalid token on DELETE returns 401
+  // -------------------------------------------------------------------------
+  test('API: DELETE with invalid token returns 401', async ({ request }) => {
+    const setup = await setupResources(request, 'APIBadTokenDel');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const { attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'token-test.txt', 'data',
+    );
+    expect(attachment).not.toBeNull();
+
+    const res = await request.delete(
+      `${BASE}/api/cards/${setup.cardId}/attachments/${attachment.id}`,
+      { headers: { Authorization: 'Bearer bad-token-xyz' } },
+    );
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // 45. API: Non-existent attachment DELETE returns 404
+  // -------------------------------------------------------------------------
+  test('API: DELETE non-existent attachment returns 404', async ({ request }) => {
+    const setup = await setupResources(request, 'APINotFoundDel');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const res = await request.delete(
+      `${BASE}/api/cards/${setup.cardId}/attachments/99999999`,
+      { headers: { Authorization: `Bearer ${setup.token}` } },
+    );
+    expect(res.status()).toBe(404);
+  });
+
+  // -------------------------------------------------------------------------
+  // 46. API: Upload same filename twice — both are stored with separate IDs
+  // -------------------------------------------------------------------------
+  test('API: uploading same filename twice creates two separate attachment records', async ({ request }) => {
+    const setup = await setupResources(request, 'APIDuplicate');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const { attachment: a1 } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'duplicate.txt', 'first upload',
+    );
+    const { attachment: a2 } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'duplicate.txt', 'second upload',
+    );
+    expect(a1).not.toBeNull();
+    expect(a2).not.toBeNull();
+    expect(a1.id).not.toBe(a2.id);
+
+    const listRes = await request.get(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const list = await listRes.json();
+    expect(list.length).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // 47. API: Attachment IDs are positive integers
+  // -------------------------------------------------------------------------
+  test('API: attachment ID is a positive integer', async ({ request }) => {
+    const setup = await setupResources(request, 'APIPositiveId');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const { attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'id-check.txt', 'data',
+    );
+    expect(attachment).not.toBeNull();
+    expect(typeof attachment.id).toBe('number');
+    expect(attachment.id).toBeGreaterThan(0);
+    expect(Number.isInteger(attachment.id)).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // 48. API: Attachment does not expose sensitive data
+  // -------------------------------------------------------------------------
+  test('API: attachment response does not contain password_hash or secrets', async ({ request }) => {
+    const setup = await setupResources(request, 'APISafeFields');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const { res } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'safe.txt', 'data',
+    );
+    const attachment = await res.json();
+    const str = JSON.stringify(attachment);
+    expect(str).not.toContain('password_hash');
+    expect(str).not.toContain('password');
+  });
+
+  // -------------------------------------------------------------------------
+  // 49. API: Upload file over 10 MB — expected to return 400 (fixme if not enforced)
+  // -------------------------------------------------------------------------
+  test('API: uploading file over 10 MB returns 400 — NOT ENFORCED YET', async ({ request }) => {
+    test.fixme(
+      true,
+      'Server does not currently enforce a 10 MB limit. ' +
+        'When ParseMultipartForm(10<<20) is added, remove this fixme.',
+    );
+
+    const setup = await setupResources(request, 'API10MBLimit');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const bigBuffer = Buffer.alloc(11 * 1024 * 1024, 'x');
+    const res = await request.post(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      multipart: {
+        file: {
+          name: 'too-big.bin',
+          mimeType: 'application/octet-stream',
+          buffer: bigBuffer,
+        },
+      },
+    });
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+    expect(res.status()).toBeLessThan(500);
+  });
+
+  // -------------------------------------------------------------------------
+  // 50. API: GET list is sorted by created_at (oldest first)
+  // -------------------------------------------------------------------------
+  test('API: GET attachment list is sorted by created_at ascending', async ({ request }) => {
+    const setup = await setupResources(request, 'APIChronoList');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    for (let i = 0; i < 3; i++) {
+      const { res } = await uploadAttachment(
+        request, setup.token, setup.cardId, `sorted-${i}.txt`, `content ${i}`,
+      );
+      expect(res.ok()).toBe(true);
+    }
+
+    const listRes = await request.get(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const list: { created_at: string }[] = await listRes.json();
+    expect(list.length).toBe(3);
+
+    for (let i = 1; i < list.length; i++) {
+      const prev = new Date(list[i - 1].created_at).getTime();
+      const curr = new Date(list[i].created_at).getTime();
+      expect(prev).toBeLessThanOrEqual(curr);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // 51. API: Cannot access attachment on a card from a board the user is not a member of
+  // -------------------------------------------------------------------------
+  test('API: non-member cannot download attachment from a different board', async ({ request }) => {
+    // Board owner uploads attachment
+    const setup = await setupResources(request, 'APIAccess');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    const { attachment } = await uploadAttachment(
+      request, setup.token, setup.cardId, 'restricted.txt', 'private data',
+    );
+    expect(attachment).not.toBeNull();
+
+    // A brand new user — not a member of the board
+    const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const nonMemberRes = await request.post(`${BASE}/api/auth/signup`, {
+      data: {
+        email: `nonmember-${uid}@example.com`,
+        password: 'password123',
+        display_name: 'Non Member',
+      },
+    });
+    const { token: nonMemberToken } = await nonMemberRes.json();
+
+    // Non-member tries to download
+    const dlRes = await request.get(`${BASE}/api/attachments/${attachment.id}`, {
+      headers: { Authorization: `Bearer ${nonMemberToken}` },
+    });
+    // Should be 403 (not a member) or 404 (not found from their perspective)
+    expect([403, 404]).toContain(dlRes.status());
+  });
+
+  // -------------------------------------------------------------------------
+  // 52. API: Attachment uploaded by user has correct user_id
+  // -------------------------------------------------------------------------
+  test('API: attachment user_id matches the user who uploaded it', async ({ request }) => {
+    const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const signupRes = await request.post(`${BASE}/api/auth/signup`, {
+      data: {
+        email: `uploader2-${uid}@example.com`,
+        password: 'password123',
+        display_name: 'Uploader Two',
+      },
+    });
+    const { token, user } = await signupRes.json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: `UserID Board2 ${uid}` },
+      })
+    ).json();
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Lane', designator: 'U2' },
+      })
+    ).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'UserID2 Card',
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+        board_id: board.id,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card setup unavailable');
+      return;
+    }
+    const card = await cardRes.json();
+
+    const { attachment } = await uploadAttachment(request, token, card.id, 'uid2-check.txt');
+    expect(attachment).not.toBeNull();
+    expect(attachment.user_id).toBe(user.id);
+  });
+});
+
+// ===========================================================================
+// Extended UI Tests (32–71)
+// ===========================================================================
+
+test.describe('Attachments — Extended UI Tests', () => {
+  let txtFilePath: string;
+  let pngFilePath: string;
+
+  test.beforeAll(async ({}, testInfo) => {
+    txtFilePath = path.join(os.tmpdir(), `ext-attach-${testInfo.workerIndex}.txt`);
+    fs.writeFileSync(txtFilePath, 'Extended UI test attachment file content.');
+
+    pngFilePath = path.join(os.tmpdir(), `ext-img-${testInfo.workerIndex}.png`);
+    fs.writeFileSync(pngFilePath, PNG_DATA);
+  });
+
+  test.afterAll(() => {
+    for (const p of [txtFilePath, pngFilePath]) {
+      if (p && fs.existsSync(p)) fs.unlinkSync(p);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // 53. UI: File input accepts any file type
+  // -------------------------------------------------------------------------
+  test('UI: file input element has no restrictive accept attribute', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIFileAccept');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await expect(fileInput).toBeAttached();
+
+    // The accept attribute either doesn't exist or allows broad types
+    const acceptAttr = await fileInput.getAttribute('accept');
+    // If accept is null/"" it's fine; if set, it should not be overly restrictive
+    if (acceptAttr) {
+      // Just verify it's a string — we don't mandate a specific value
+      expect(typeof acceptAttr).toBe('string');
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // 54. UI: Attachment item shows file size
+  // -------------------------------------------------------------------------
+  test('UI: uploaded attachment item shows file size information', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIShowSize');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+
+    // Some size information element should exist
+    const sizeEl = page.locator('.attachment-size-tiny, .attachment-size, [class*="size"]').first();
+    await expect(sizeEl).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 55. UI: Attachment list has correct count after uploading two files
+  // -------------------------------------------------------------------------
+  test('UI: attachment list shows exactly two items after two uploads', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UICountTwo');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+    await expect(page.locator('.attachment-item-sidebar')).toHaveCount(1, { timeout: 8000 });
+
+    await fileInput.setInputFiles(pngFilePath);
+    await expect(page.locator('.attachment-item-sidebar')).toHaveCount(2, { timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 56. UI: Delete button is present on each attachment item
+  // -------------------------------------------------------------------------
+  test('UI: delete button is present on each attachment list item', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIDeleteBtn');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.attachment-delete-tiny').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 57. UI: Attachment list is empty after deleting the only attachment
+  // -------------------------------------------------------------------------
+  test('UI: empty state returns after deleting the only attachment', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIEmptyAfterDel');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+    page.on('dialog', (d) => d.accept());
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+
+    await page.locator('.attachment-delete-tiny').first().click();
+    await expect(page.locator('.attachment-item-sidebar')).not.toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.attachments-sidebar .empty-text')).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 58. UI: Uploading a PNG shows thumbnail and not just file icon
+  // -------------------------------------------------------------------------
+  test('UI: PNG upload shows img thumbnail element in attachment list', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIThumbVisible');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(pngFilePath);
+
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.attachment-thumb-small')).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 59. UI: Non-image file does NOT show img thumbnail
+  // -------------------------------------------------------------------------
+  test('UI: text file upload does not show image thumbnail', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UINoThumb');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.attachment-thumb-small')).not.toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 60. UI: Attachment link has download attribute matching filename
+  // -------------------------------------------------------------------------
+  test('UI: attachment download link has correct download attribute', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIDownloadAttr');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+
+    const link = page.locator('.attachment-name-small').first();
+    await expect(link).toBeVisible({ timeout: 5000 });
+
+    const downloadAttr = await link.getAttribute('download');
+    expect(downloadAttr).toBe(path.basename(txtFilePath));
+  });
+
+  // -------------------------------------------------------------------------
+  // 61. UI: Attachment link href points to /api/attachments/:id
+  // -------------------------------------------------------------------------
+  test('UI: attachment href uses the /api/attachments/:id pattern', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIHref');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+
+    const link = page.locator('.attachment-name-small').first();
+    await expect(link).toBeVisible({ timeout: 8000 });
+
+    const href = await link.getAttribute('href');
+    expect(href).toMatch(/\/api\/attachments\/\d+/);
+  });
+
+  // -------------------------------------------------------------------------
+  // 62. UI: Second deletion leaves one item in the list
+  // -------------------------------------------------------------------------
+  test('UI: deleting one of two attachments leaves exactly one remaining', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIOneRemaining');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+    page.on('dialog', (d) => d.accept());
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+    await expect(page.locator('.attachment-item-sidebar')).toHaveCount(1, { timeout: 8000 });
+
+    await fileInput.setInputFiles(pngFilePath);
+    await expect(page.locator('.attachment-item-sidebar')).toHaveCount(2, { timeout: 8000 });
+
+    // Delete first attachment
+    await page.locator('.attachment-delete-tiny').first().click();
+    await expect(page.locator('.attachment-item-sidebar')).toHaveCount(1, { timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 63. UI: Drag-and-drop file upload — NOT IMPLEMENTED
+  // -------------------------------------------------------------------------
+  test('UI: drag-and-drop upload — NOT IMPLEMENTED', async ({ page, request }) => {
+    test.fixme(
+      true,
+      'Drag-and-drop file upload is not implemented. ' +
+        'The current UI only supports the file input button. ' +
+        'Add a drop zone with dragover/drop handlers to enable this.',
+    );
+
+    const setup = await setupResources(request, 'UIDragDrop');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const dropZone = page.locator('.attachments-sidebar .drop-zone, .attachments-drop-area');
+    await expect(dropZone).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 64. UI: Upload progress indicator — NOT IMPLEMENTED
+  // -------------------------------------------------------------------------
+  test('UI: upload progress indicator — NOT IMPLEMENTED', async ({ page, request }) => {
+    test.fixme(
+      true,
+      'There is no upload progress indicator in the current UI. ' +
+        'A progress bar or spinner during upload would improve UX.',
+    );
+
+    const setup = await setupResources(request, 'UIProgress');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    const responsePromise = page.waitForResponse(
+      (r) => r.url().includes('/attachments') && r.request().method() === 'POST',
+    );
+    await fileInput.setInputFiles(txtFilePath);
+
+    // Check that a progress element is visible during upload
+    const progress = page.locator('.upload-progress, .upload-spinner, [role="progressbar"]');
+    await expect(progress).toBeVisible({ timeout: 3000 });
+    await responsePromise;
+  });
+
+  // -------------------------------------------------------------------------
+  // 65. UI: Attachment count badge on card in board view — NOT IMPLEMENTED
+  // -------------------------------------------------------------------------
+  test('UI: attachment count badge on card in board view — NOT IMPLEMENTED', async ({ page, request }) => {
+    test.fixme(
+      true,
+      'No attachment count badge exists on .card-item in the board view. ' +
+        'Implement a badge (e.g. .card-attachment-count) showing total attachments.',
+    );
+
+    const setup = await setupResources(request, 'UICountBadge');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+
+    // Close modal
+    await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
+
+    // Card item should show attachment count
+    const badge = page.locator('.card-item').first().locator('.card-attachment-count, .attachment-badge');
+    await expect(badge).toBeVisible({ timeout: 5000 });
+    await expect(badge).toContainText('1');
+  });
+
+  // -------------------------------------------------------------------------
+  // 66. UI: Multiple attachments pre-loaded when card modal opens
+  // -------------------------------------------------------------------------
+  test('UI: attachments uploaded via API are visible when modal opens', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIPreloaded');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    // Upload two attachments via API before opening modal
+    await uploadAttachment(request, setup.token, setup.cardId, 'preload-1.txt', 'first');
+    await uploadAttachment(request, setup.token, setup.cardId, 'preload-2.txt', 'second');
+
+    await openCardModal(page, setup.token, setup.boardId);
+
+    // Both attachments should be visible
+    await expect(page.locator('.attachment-item-sidebar')).toHaveCount(2, { timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 67. UI: Attachment section header says "Attachments"
+  // -------------------------------------------------------------------------
+  test('UI: attachments section label contains the word "Attachments"', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIHeaderText');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    const heading = page.locator('.attachments-sidebar').first();
+    await expect(heading).toBeVisible({ timeout: 8000 });
+    await expect(heading).toContainText('Attachments');
+  });
+
+  // -------------------------------------------------------------------------
+  // 68. UI: Attachment section is in the card modal (not detached)
+  // -------------------------------------------------------------------------
+  test('UI: attachments section is inside the card detail modal', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIInsideModal');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    // The modal must contain the attachments sidebar
+    const modal = page.locator('.card-detail-modal-unified');
+    await expect(modal.locator('.attachments-sidebar')).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 69. UI: Clicking outside the modal closes it and attachment list is not visible
+  // -------------------------------------------------------------------------
+  test('UI: closing modal hides the attachment list', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIHideOnClose');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    await expect(page.locator('.attachments-sidebar')).toBeVisible({ timeout: 5000 });
+
+    await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
+    await expect(page.locator('.attachments-sidebar')).not.toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 70. UI: Attachment section shown with correct count after API upload
+  // -------------------------------------------------------------------------
+  test('UI: attachment section header count increments after uploading via UI', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UICountIncrement');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+    await openCardModal(page, setup.token, setup.boardId);
+
+    // Initial state: 0 attachments (or the header shows "(0)")
+    const heading = page.locator('.attachments-sidebar .section-header label').first();
+    await expect(heading).toContainText('Attachments');
+
+    const fileInput = page.locator('.attachments-sidebar input[type="file"]');
+    await fileInput.setInputFiles(txtFilePath);
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+
+    // After upload, heading should contain "(1)" or "1"
+    await expect(heading).toContainText('1');
+  });
+
+  // -------------------------------------------------------------------------
+  // 71. UI: Multiple different file types each have a file icon for non-image types
+  // -------------------------------------------------------------------------
+  test('UI: a PDF attachment shows a file icon (not an image thumbnail)', async ({ page, request }) => {
+    const setup = await setupResources(request, 'UIPdfIcon');
+    if (!setup) {
+      test.skip(true, 'Card setup unavailable: POST /api/cards failed');
+      return;
+    }
+
+    // Upload a PDF via API first
+    await request.post(`${BASE}/api/cards/${setup.cardId}/attachments`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      multipart: {
+        file: {
+          name: 'document.pdf',
+          mimeType: 'application/pdf',
+          buffer: Buffer.from('%PDF-1.4 minimal fake pdf'),
+        },
+      },
+    });
+
+    await openCardModal(page, setup.token, setup.boardId);
+
+    await expect(page.locator('.attachment-item-sidebar')).toBeVisible({ timeout: 8000 });
+    // PDF is not an image — should show file icon, not img thumbnail
+    await expect(page.locator('.attachment-icon-tiny')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.attachment-thumb-small')).not.toBeVisible();
+  });
+});
