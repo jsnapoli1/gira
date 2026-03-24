@@ -360,472 +360,6 @@ test.describe('Responsive Layout', () => {
     expect(gridCols.trim().split(/\s+/).length).toBe(1);
   });
 
-  // ---------------------------------------------------------------------------
-  // Login / Auth pages responsive
-  // ---------------------------------------------------------------------------
-  test.describe('Login and auth pages responsive', () => {
-    // 1. Login form usable at 390px width
-    test('login form usable at 390px width', async ({ page }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/login');
-      await expect(page.locator('input[type="email"], input[name="email"]')).toBeVisible({ timeout: 8000 });
-      await expect(page.locator('input[type="password"]')).toBeVisible();
-      await expect(page.locator('button[type="submit"], button:has-text("Login"), button:has-text("Sign in")')).toBeVisible();
-    });
-
-    // 2. Login form centered and visible at mobile
-    test('login form is centered and visible on mobile', async ({ page }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/login');
-      const form = page.locator('form, .login-form, .auth-form').first();
-      await expect(form).toBeVisible({ timeout: 8000 });
-      const box = await form.boundingBox();
-      if (box) {
-        // Form should not overflow the viewport
-        expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(400);
-      }
-    });
-
-    // 3. Signup form usable at 390px
-    test('signup form usable at 390px', async ({ page }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/signup');
-      await expect(page.locator('input[type="email"], input[name="email"]')).toBeVisible({ timeout: 8000 });
-      await expect(page.locator('input[type="password"]')).toBeVisible();
-      await expect(page.locator('button[type="submit"], button:has-text("Sign up"), button:has-text("Create")')).toBeVisible();
-    });
-
-    // 4. All signup fields visible at mobile
-    test('all signup fields visible at mobile 390px', async ({ page }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/signup');
-      // Email, password, and submit should all be visible without scrolling
-      const email = page.locator('input[type="email"], input[name="email"]').first();
-      const password = page.locator('input[type="password"]').first();
-      const submit = page.locator('button[type="submit"]').first();
-      await expect(email).toBeVisible({ timeout: 8000 });
-      await expect(password).toBeVisible();
-      await expect(submit).toBeVisible();
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Board list responsive
-  // ---------------------------------------------------------------------------
-  test.describe('Board list page responsive', () => {
-    // 5. Board list page loads at 390px
-    test('board list page loads at 390px', async ({ page, request }) => {
-      await setupUser({ page, request }, 'bl-mob');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/boards');
-      await expect(page.locator('.main-content, .page-content, .boards-page')).toBeVisible({ timeout: 10000 });
-    });
-
-    // 6. Board cards visible at mobile
-    test('board cards visible at mobile 390px', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bl-cards-mob');
-      await createBoard(request, token, `Mobile Board ${Date.now()}`);
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/boards');
-      await expect(page.locator('.board-card, .board-item, .board-list-item').first()).toBeVisible({ timeout: 10000 });
-    });
-
-    // 7. Create board button accessible at mobile
-    test('create board button accessible at mobile 390px', async ({ page, request }) => {
-      await setupUser({ page, request }, 'bl-crbtn-mob');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/boards');
-      await expect(page.locator('button:has-text("New Board"), button:has-text("Create"), button:has-text("+ Board"), .create-board-btn').first()).toBeVisible({ timeout: 10000 });
-    });
-
-    // 8. Board list at 768px shows properly
-    test('board list at 768px tablet portrait shows properly', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bl-tablet');
-      await createBoard(request, token, `Tablet Board ${Date.now()}`);
-      await page.setViewportSize({ width: 768, height: 1024 });
-      await page.goto('/boards');
-      await expect(page.locator('.main-content, .page-content, .boards-page')).toBeVisible({ timeout: 10000 });
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Board view responsive
-  // ---------------------------------------------------------------------------
-  test.describe('Board view responsive', () => {
-    // 9. Board view at 1440px shows columns side by side
-    test('board view at 1440px shows columns side by side', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bv-desktop');
-      const boardId = await createBoard(request, token, `Desktop Board ${Date.now()}`);
-      await createColumn(request, token, boardId, 'In Progress');
-      await createColumn(request, token, boardId, 'Done');
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto(`/boards/${boardId}`);
-      await expect(page.locator('.board-content')).toBeVisible({ timeout: 10000 });
-      // Multiple columns should each be visible
-      const columns = page.locator('.board-column, .column-header, .kanban-column');
-      await expect(columns.first()).toBeVisible({ timeout: 8000 });
-    });
-
-    // 10. Board view at 390px — columns scroll horizontally
-    test('board view at 390px allows horizontal scroll', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bv-mob-scroll');
-      const boardId = await createBoard(request, token, `Mobile Scroll Board ${Date.now()}`);
-      for (const name of ['Col B', 'Col C', 'Col D']) {
-        await createColumn(request, token, boardId, name);
-      }
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}`);
-      await expect(page.locator('.board-content')).toBeVisible({ timeout: 10000 });
-      const overflow = await page.locator('.board-content').evaluate(
-        (el) => getComputedStyle(el).overflowX
-      );
-      expect(['auto', 'scroll']).toContain(overflow);
-    });
-
-    // 11. Column header visible at mobile
-    test('column header visible at 390px mobile', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bv-colhdr-mob');
-      const boardId = await createBoard(request, token, `ColHdr Board ${Date.now()}`);
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}`);
-      await expect(page.locator('.board-content')).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('.column-header, .board-column-header').first()).toBeVisible({ timeout: 8000 });
-    });
-
-    // 12. Card items visible at mobile
-    test('card items visible at 390px after card is created', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bv-cards-mob');
-      const boardId = await createBoard(request, token, `Cards Mobile Board ${Date.now()}`);
-      const swimlaneId = await createSwimlane(request, token, boardId, 'Main');
-      const columnId = await getFirstColumn(request, token, boardId);
-      await createCard(request, token, boardId, swimlaneId, columnId, 'Mobile Visible Card');
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}`);
-      await page.locator('.view-btn:has-text("All Cards")').click();
-      await expect(page.locator('.card-item').filter({ hasText: 'Mobile Visible Card' })).toBeVisible({ timeout: 10000 });
-    });
-
-    // 13. Filter toggle accessible at mobile
-    test('filter toggle accessible at 390px mobile', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bv-filter-mob');
-      const boardId = await createBoard(request, token, `Filter Mobile Board ${Date.now()}`);
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}`);
-      await expect(page.locator('.board-content')).toBeVisible({ timeout: 10000 });
-      const filterBtn = page.locator('button:has-text("Filter"), .filter-toggle, .filter-btn, [aria-label*="filter" i]').first();
-      await expect(filterBtn).toBeVisible({ timeout: 8000 });
-    });
-
-    // 14. View tabs (Board/Backlog) visible at mobile
-    test('view tabs Board/Backlog visible at 390px mobile', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bv-tabs-mob');
-      const boardId = await createBoard(request, token, `Tabs Mobile Board ${Date.now()}`);
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}`);
-      await expect(page.locator('.view-btn, .board-view-tab').first()).toBeVisible({ timeout: 10000 });
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Settings page responsive
-  // ---------------------------------------------------------------------------
-  test.describe('Settings page responsive', () => {
-    // 15. Settings page loads at 390px
-    test('settings page loads at 390px mobile', async ({ page, request }) => {
-      await setupUser({ page, request }, 'set-mob-load');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/settings');
-      await expect(page.locator('.settings-page, .settings-container, main')).toBeVisible({ timeout: 10000 });
-    });
-
-    // 16. Settings sections stacked vertically on mobile
-    test('settings sections are stacked vertically on mobile', async ({ page, request }) => {
-      await setupUser({ page, request }, 'set-mob-stack');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/settings');
-      await expect(page.locator('.settings-page, .settings-container, main')).toBeVisible({ timeout: 10000 });
-      // The page should not overflow horizontally at this viewport
-      const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
-      expect(bodyWidth).toBeLessThanOrEqual(410);
-    });
-
-    // 17. Form inputs full-width on mobile
-    test('settings form inputs do not overflow at 390px', async ({ page, request }) => {
-      await setupUser({ page, request }, 'set-mob-inputs');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/settings');
-      await expect(page.locator('.settings-page, .settings-container, main')).toBeVisible({ timeout: 10000 });
-      const input = page.locator('input[type="text"], input[type="url"], input[type="password"]').first();
-      const hasInput = await input.isVisible().catch(() => false);
-      if (hasInput) {
-        const box = await input.boundingBox();
-        if (box) {
-          expect(box.x + box.width).toBeLessThanOrEqual(400);
-        }
-      }
-    });
-
-    // 18. Save button accessible on mobile
-    test('settings save button accessible on mobile 390px', async ({ page, request }) => {
-      await setupUser({ page, request }, 'set-mob-save');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/settings');
-      await expect(page.locator('.settings-page, .settings-container, main')).toBeVisible({ timeout: 10000 });
-      const saveBtn = page.locator('button[type="submit"], button:has-text("Save"), button:has-text("Update")').first();
-      const hasBtn = await saveBtn.isVisible({ timeout: 5000 }).catch(() => false);
-      if (hasBtn) {
-        const box = await saveBtn.boundingBox();
-        if (box) {
-          expect(box.x).toBeGreaterThanOrEqual(0);
-          expect(box.x + box.width).toBeLessThanOrEqual(400);
-        }
-      }
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Modal responsive
-  // ---------------------------------------------------------------------------
-  test.describe('Modal responsive', () => {
-    // 19. Card detail modal full-screen on mobile (already tested above; this variant uses 390px)
-    test('card detail modal covers full viewport width on 390px mobile', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'mod-full-mob');
-      const boardId = await createBoard(request, token, `Full Modal Board ${Date.now()}`);
-      const swimlaneId = await createSwimlane(request, token, boardId, 'Main');
-      const columnId = await getFirstColumn(request, token, boardId);
-      await createCard(request, token, boardId, swimlaneId, columnId, 'Full Screen Modal Card');
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}`);
-      await page.locator('.view-btn:has-text("All Cards")').click();
-      const card = page.locator('.card-item').filter({ hasText: 'Full Screen Modal Card' });
-      await expect(card).toBeVisible({ timeout: 10000 });
-      await card.click();
-      await expect(page.locator('.card-detail-modal, .card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
-      const width = await page.locator('.card-detail-modal, .card-detail-modal-unified').first().evaluate(
-        (el) => el.getBoundingClientRect().width
-      );
-      expect(width).toBeGreaterThanOrEqual(385);
-    });
-
-    // 20. Modal scrollable on mobile
-    test('card detail modal is scrollable on mobile', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'mod-scroll-mob');
-      const boardId = await createBoard(request, token, `Scroll Modal Board ${Date.now()}`);
-      const swimlaneId = await createSwimlane(request, token, boardId, 'Main');
-      const columnId = await getFirstColumn(request, token, boardId);
-      await createCard(request, token, boardId, swimlaneId, columnId, 'Scrollable Modal Card');
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}`);
-      await page.locator('.view-btn:has-text("All Cards")').click();
-      const card = page.locator('.card-item').filter({ hasText: 'Scrollable Modal Card' });
-      await expect(card).toBeVisible({ timeout: 10000 });
-      await card.click();
-      const modal = page.locator('.card-detail-modal, .card-detail-modal-unified').first();
-      await expect(modal).toBeVisible({ timeout: 8000 });
-      const overflowY = await modal.evaluate((el) => getComputedStyle(el).overflowY);
-      expect(['auto', 'scroll', 'overlay']).toContain(overflowY);
-    });
-
-    // 21. Close button accessible on modal on mobile
-    test('modal close button accessible on mobile', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'mod-close-mob');
-      const boardId = await createBoard(request, token, `Close Modal Board ${Date.now()}`);
-      const swimlaneId = await createSwimlane(request, token, boardId, 'Main');
-      const columnId = await getFirstColumn(request, token, boardId);
-      await createCard(request, token, boardId, swimlaneId, columnId, 'Close Button Card');
-      const sprintId = await createSprint(request, token, boardId, 'S1');
-      await startSprint(request, token, sprintId);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}`);
-      await page.locator('.view-btn:has-text("All Cards")').click();
-      const card = page.locator('.card-item').filter({ hasText: 'Close Button Card' });
-      await expect(card).toBeVisible({ timeout: 10000 });
-      await card.click();
-      await expect(page.locator('.card-detail-modal, .card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
-      const closeBtn = page.locator('.modal-close, button[aria-label*="close" i], button:has-text("×"), button:has-text("Close"), .close-btn').first();
-      await expect(closeBtn).toBeVisible({ timeout: 5000 });
-    });
-
-    // 22. Create board modal on mobile
-    test('create board modal is usable on mobile 390px', async ({ page, request }) => {
-      await setupUser({ page, request }, 'mod-create-mob');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/boards');
-      const createBtn = page.locator('button:has-text("New Board"), button:has-text("Create"), button:has-text("+ Board"), .create-board-btn').first();
-      await expect(createBtn).toBeVisible({ timeout: 10000 });
-      await createBtn.click();
-      const modal = page.locator('.modal, dialog, .create-board-modal').first();
-      await expect(modal).toBeVisible({ timeout: 5000 });
-      const box = await modal.boundingBox();
-      if (box) {
-        // Modal should not overflow the viewport width
-        expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(410);
-      }
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Navigation responsive
-  // ---------------------------------------------------------------------------
-  test.describe('Navigation responsive', () => {
-    // 23. Sidebar hidden at 390px
-    test('sidebar hidden at 390px mobile', async ({ page, request }) => {
-      await setupUser({ page, request }, 'nav-sidebar-mob');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/boards');
-      await expect(page.locator('.sidebar')).toBeHidden();
-    });
-
-    // 24. Hamburger menu button at mobile
-    test('hamburger menu button present at 390px mobile', async ({ page, request }) => {
-      await setupUser({ page, request }, 'nav-ham-mob');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/boards');
-      await expect(page.locator('.mobile-nav-toggle')).toBeVisible();
-    });
-
-    // 25. Navigation accessible via mobile menu
-    test('navigation links accessible via mobile hamburger menu', async ({ page, request }) => {
-      await setupUser({ page, request }, 'nav-links-mob');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/boards');
-      await page.click('.mobile-nav-toggle');
-      await expect(page.locator('.sidebar.mobile-open')).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('.sidebar.mobile-open .nav-item:has-text("Boards")')).toBeVisible();
-    });
-
-    // 26. Dashboard link accessible on mobile
-    test('dashboard link accessible via mobile menu', async ({ page, request }) => {
-      await setupUser({ page, request }, 'nav-dash-mob');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/boards');
-      await page.click('.mobile-nav-toggle');
-      await expect(page.locator('.sidebar.mobile-open')).toBeVisible({ timeout: 5000 });
-      const dashLink = page.locator('.sidebar.mobile-open .nav-item:has-text("Dashboard"), .sidebar.mobile-open a[href*="dashboard"]').first();
-      await expect(dashLink).toBeVisible({ timeout: 5000 });
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Dashboard responsive
-  // ---------------------------------------------------------------------------
-  test.describe('Dashboard responsive', () => {
-    // 27. Dashboard page at 390px
-    test('dashboard page loads at 390px mobile', async ({ page, request }) => {
-      await setupUser({ page, request }, 'dash-mob-load');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/dashboard');
-      await expect(page.locator('.dashboard-content, main, .page-content')).toBeVisible({ timeout: 10000 });
-    });
-
-    // 28. Dashboard stats visible on mobile
-    test('dashboard sections visible on mobile 390px', async ({ page, request }) => {
-      await setupUser({ page, request }, 'dash-mob-stats');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/dashboard');
-      await page.waitForSelector('.dashboard-content', { timeout: 10000 });
-      // At least one section heading should be visible
-      const headings = page.locator('h2, h3, .section-title, .dashboard-section-title');
-      await expect(headings.first()).toBeVisible({ timeout: 8000 });
-    });
-
-    // 29. Quick links accessible on mobile
-    test('quick links or action buttons accessible on mobile 390px', async ({ page, request }) => {
-      await setupUser({ page, request }, 'dash-mob-links');
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto('/dashboard');
-      await expect(page.locator('.dashboard-content, main')).toBeVisible({ timeout: 10000 });
-      // Body should not overflow at 390px
-      const scrollWidth = await page.evaluate(() => document.body.scrollWidth);
-      expect(scrollWidth).toBeLessThanOrEqual(410);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Board settings responsive
-  // ---------------------------------------------------------------------------
-  test.describe('Board settings responsive', () => {
-    // 30. Board settings at 390px
-    test('board settings page loads at 390px mobile', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bset-mob-load');
-      const boardId = await createBoard(request, token, `Settings Mobile Board ${Date.now()}`);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}/settings`);
-      await expect(page.locator('.settings-page, .board-settings, main')).toBeVisible({ timeout: 10000 });
-    });
-
-    // 31. Settings sections visible and scrollable
-    test('board settings sections visible and body not overflowing at 390px', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bset-mob-scroll');
-      const boardId = await createBoard(request, token, `Settings Scroll Board ${Date.now()}`);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}/settings`);
-      await expect(page.locator('.settings-page, .board-settings, main')).toBeVisible({ timeout: 10000 });
-      const scrollWidth = await page.evaluate(() => document.body.scrollWidth);
-      expect(scrollWidth).toBeLessThanOrEqual(410);
-    });
-
-    // 32. Add column form on mobile
-    test('add column form accessible on mobile 390px in board settings', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bset-mob-col');
-      const boardId = await createBoard(request, token, `ColForm Mobile Board ${Date.now()}`);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}/settings`);
-      await expect(page.locator('.settings-page, .board-settings, main')).toBeVisible({ timeout: 10000 });
-      const addColInput = page.locator('input[placeholder*="column" i], input[name*="column" i]').first();
-      const hasInput = await addColInput.isVisible({ timeout: 3000 }).catch(() => false);
-      if (hasInput) {
-        const box = await addColInput.boundingBox();
-        if (box) {
-          expect(box.x + box.width).toBeLessThanOrEqual(400);
-        }
-      }
-    });
-
-    // 33. Member list on mobile
-    test('board member list visible on mobile 390px in board settings', async ({ page, request }) => {
-      const { token } = await setupUser({ page, request }, 'bset-mob-members');
-      const boardId = await createBoard(request, token, `Members Mobile Board ${Date.now()}`);
-
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/boards/${boardId}/settings`);
-      await expect(page.locator('.settings-page, .board-settings, main')).toBeVisible({ timeout: 10000 });
-      // Member list section or heading should be findable
-      const memberSection = page.locator(':has-text("Member"), :has-text("member"), .members-section, .board-members').first();
-      await expect(memberSection).toBeVisible({ timeout: 8000 });
-    });
-  });
-
   // 11. Navigation links accessible at all viewports
   test.describe('Navigation accessible at every viewport size', () => {
     const viewports = [
@@ -891,5 +425,385 @@ test.describe('Responsive Layout', () => {
       await page.click('.sidebar.mobile-open .nav-item:has-text("Boards")');
       await expect(page).toHaveURL(/\/boards/, { timeout: 8000 });
     });
+  });
+
+  // 12. Mobile 375x667 — sidebar is fully hidden (not just icon-only)
+  test('mobile 375x667 — sidebar is fully hidden, hamburger is sole entry point', async ({ page, request }) => {
+    await setupUser({ page, request }, 'mob-hidden');
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/boards');
+
+    await expect(page.locator('.sidebar')).toBeHidden();
+    await expect(page.locator('.mobile-nav-toggle')).toBeVisible();
+  });
+
+  // 13. Landscape mobile (667x375) — app usable in landscape orientation
+  test('landscape mobile 667x375 — boards page loads with main content visible', async ({ page, request }) => {
+    await setupUser({ page, request }, 'mob-land');
+
+    await page.setViewportSize({ width: 667, height: 375 });
+    await page.goto('/boards');
+
+    await expect(page.locator('.main-content')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.mobile-nav-toggle')).toBeVisible();
+  });
+
+  // 14. Landscape mobile — hamburger opens nav overlay in landscape
+  test('landscape mobile 667x375 — hamburger opens sidebar overlay', async ({ page, request }) => {
+    await setupUser({ page, request }, 'mob-land2');
+
+    await page.setViewportSize({ width: 667, height: 375 });
+    await page.goto('/boards');
+
+    await page.click('.mobile-nav-toggle');
+    await expect(page.locator('.sidebar.mobile-open')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.mobile-sidebar-overlay')).toBeVisible();
+  });
+
+  // 15. Large desktop (1920x1080) — no horizontal overflow on boards page
+  test('large desktop 1920x1080 — boards page has no horizontal overflow', async ({ page, request }) => {
+    await setupUser({ page, request }, 'lgdesk');
+
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
+  });
+
+  // 16. Large desktop — sidebar visible and mobile toggle hidden
+  test('large desktop 1920x1080 — sidebar visible, mobile toggle hidden', async ({ page, request }) => {
+    await setupUser({ page, request }, 'lgdesk2');
+
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto('/boards');
+
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.mobile-nav-toggle')).toBeHidden();
+  });
+
+  // 17. Desktop collapsed sidebar — icons still navigable
+  test('desktop collapsed sidebar — nav icon buttons still visible', async ({ page, request }) => {
+    await setupUser({ page, request }, 'collapsed');
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/boards');
+    await page.waitForSelector('.sidebar', { timeout: 8000 });
+
+    // Collapse the sidebar via the toggle button
+    const collapseBtn = page.locator('.sidebar-toggle');
+    await expect(collapseBtn).toBeVisible({ timeout: 5000 });
+    await collapseBtn.click();
+
+    // Sidebar should still be visible (just narrower — icon-only mode)
+    await expect(page.locator('.sidebar')).toBeVisible();
+    // Nav items are present even when text labels are hidden
+    await expect(page.locator('.nav-item').first()).toBeVisible();
+  });
+
+  // 18. Tablet portrait — login form usable at 768x1024
+  test('login form is usable at tablet portrait 768x1024', async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.goto('/login');
+
+    const emailInput = page.locator('input[type="email"], input[name="email"]');
+    const passwordInput = page.locator('input[type="password"], input[name="password"]');
+    const submitBtn = page.locator('button[type="submit"]');
+
+    await expect(emailInput).toBeVisible({ timeout: 8000 });
+    await expect(passwordInput).toBeVisible();
+    await expect(submitBtn).toBeVisible();
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
+  });
+
+  // 19. Mobile — login form usable at 375x667
+  test('login form is usable at mobile 375x667', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/login');
+
+    const emailInput = page.locator('input[type="email"], input[name="email"]');
+    const passwordInput = page.locator('input[type="password"], input[name="password"]');
+    const submitBtn = page.locator('button[type="submit"]');
+
+    await expect(emailInput).toBeVisible({ timeout: 8000 });
+    await expect(passwordInput).toBeVisible();
+    await expect(submitBtn).toBeVisible();
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
+  });
+
+  // 20. Mobile — signup form usable at 375x667
+  test('signup form is usable at mobile 375x667', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/signup');
+
+    const emailInput = page.locator('input[type="email"], input[name="email"]');
+    const passwordInput = page.locator('input[type="password"], input[name="password"]').first();
+    const submitBtn = page.locator('button[type="submit"]');
+
+    await expect(emailInput).toBeVisible({ timeout: 8000 });
+    await expect(passwordInput).toBeVisible();
+    await expect(submitBtn).toBeVisible();
+  });
+
+  // 21. Board settings page usable at tablet 768x1024
+  test('board settings page is usable at tablet portrait 768x1024', async ({ page, request }) => {
+    const { token } = await setupUser({ page, request }, 'bsett');
+    const boardId = await createBoard(request, token, `Settings Tablet ${Date.now()}`);
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.goto(`/boards/${boardId}/settings`);
+
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.page-header h1')).toBeVisible();
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
+  });
+
+  // 22. Mobile sidebar overlay click closes sidebar
+  test('mobile overlay click closes sidebar at 375px width', async ({ page, request }) => {
+    await setupUser({ page, request }, 'overlay-close');
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/boards');
+
+    await page.click('.mobile-nav-toggle');
+    await expect(page.locator('.sidebar.mobile-open')).toBeVisible({ timeout: 5000 });
+
+    await page.locator('.mobile-sidebar-overlay').click({ position: { x: 340, y: 300 }, force: true });
+    await expect(page.locator('.sidebar.mobile-open')).toBeHidden({ timeout: 5000 });
+  });
+
+  // 23. Mobile sidebar auto-closes after navigation
+  test('mobile sidebar auto-closes after navigating to a new route', async ({ page, request }) => {
+    await setupUser({ page, request }, 'mob-auto-close');
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/boards');
+
+    await page.click('.mobile-nav-toggle');
+    await expect(page.locator('.sidebar.mobile-open')).toBeVisible({ timeout: 5000 });
+
+    await page.click('.sidebar.mobile-open .nav-item:has-text("Reports")');
+    await page.waitForURL(/\/reports/, { timeout: 8000 });
+
+    // Sidebar should be hidden after the route change (Layout.tsx closes it on pathname change)
+    await expect(page.locator('.sidebar.mobile-open')).toBeHidden({ timeout: 3000 });
+  });
+
+  // 24. Keyboard navigation — Tab cycles through sidebar nav items
+  test('Tab key cycles through sidebar nav items at desktop width', async ({ page, request }) => {
+    await setupUser({ page, request }, 'kbnav');
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/boards');
+    await page.waitForSelector('.sidebar', { timeout: 8000 });
+
+    // Focus the first nav item and tab through several items
+    const firstNavItem = page.locator('.nav-item').first();
+    await firstNavItem.focus();
+
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('Tab');
+    }
+
+    // After tabbing, focus must remain on a real element (no trap / dead end)
+    const focusedTag = await page.evaluate(() => document.activeElement?.tagName);
+    expect(focusedTag).toBeTruthy();
+  });
+
+  // 25. Keyboard navigation — Escape closes card detail modal
+  test('Escape key closes the card detail modal', async ({ page, request }) => {
+    const { token } = await setupUser({ page, request }, 'esc-modal');
+    const boardId = await createBoard(request, token, `Esc Modal Board ${Date.now()}`);
+    const swimlaneId = await createSwimlane(request, token, boardId, 'Main');
+    const columnId = await getFirstColumn(request, token, boardId);
+    await createCard(request, token, boardId, swimlaneId, columnId, 'Esc Close Card');
+    const sprintId = await createSprint(request, token, boardId, 'Sprint 1');
+    await startSprint(request, token, sprintId);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/boards/${boardId}`);
+
+    await page.locator('.view-btn:has-text("All Cards")').click();
+    await expect(page.locator('.card-item').filter({ hasText: 'Esc Close Card' })).toBeVisible({ timeout: 10000 });
+
+    await page.click('.card-item');
+    await expect(page.locator('.card-detail-modal')).toBeVisible({ timeout: 8000 });
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.card-detail-modal')).not.toBeVisible({ timeout: 5000 });
+  });
+
+  // 26. Keyboard navigation — Tab through login form in correct order
+  test('Tab order through login form is email then password then submit', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/login');
+
+    const emailInput = page.locator('input[type="email"], input[name="email"]');
+    await expect(emailInput).toBeVisible({ timeout: 8000 });
+
+    await emailInput.focus();
+    await page.keyboard.press('Tab');
+
+    // The focused element after Tab from email must be a password field or submit button
+    const focusedAfterEmail = await page.evaluate(() => {
+      const el = document.activeElement as HTMLInputElement;
+      return (el?.type || el?.tagName || '').toLowerCase();
+    });
+    const validNextFocusTypes = ['password', 'submit', 'button'];
+    expect(validNextFocusTypes.some((t) => focusedAfterEmail.includes(t))).toBe(true);
+  });
+
+  // 27. No keyboard trap in card modal — Escape works after tabbing around
+  test('no keyboard trap in card modal — Escape always closes it', async ({ page, request }) => {
+    const { token } = await setupUser({ page, request }, 'no-trap');
+    const boardId = await createBoard(request, token, `No Trap Board ${Date.now()}`);
+    const swimlaneId = await createSwimlane(request, token, boardId, 'Main');
+    const columnId = await getFirstColumn(request, token, boardId);
+    await createCard(request, token, boardId, swimlaneId, columnId, 'No Trap Card');
+    const sprintId = await createSprint(request, token, boardId, 'Sprint 1');
+    await startSprint(request, token, sprintId);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/boards/${boardId}`);
+
+    await page.locator('.view-btn:has-text("All Cards")').click();
+    await expect(page.locator('.card-item').filter({ hasText: 'No Trap Card' })).toBeVisible({ timeout: 10000 });
+
+    await page.click('.card-item');
+    await expect(page.locator('.card-detail-modal')).toBeVisible({ timeout: 8000 });
+
+    // Tab several times to move focus around inside the modal
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('Tab');
+    }
+
+    // Escape must still dismiss the modal even after focus moves
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.card-detail-modal')).not.toBeVisible({ timeout: 5000 });
+  });
+
+  // 28. Long board name does not cause horizontal overflow
+  test('very long board name does not break boards list layout', async ({ page, request }) => {
+    const { token } = await setupUser({ page, request }, 'longname');
+    const longName = 'This Is A Very Long Board Name That Could Potentially Cause Layout Issues On Smaller Viewports';
+    await createBoard(request, token, longName);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/boards');
+    await page.waitForSelector('.board-card', { timeout: 10000 });
+
+    await expect(page.locator('.board-card').filter({ hasText: longName })).toBeVisible();
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
+  });
+
+  // 29. Many columns do not break the board page at desktop width
+  test('board with 8 columns does not break desktop layout', async ({ page, request }) => {
+    const { token } = await setupUser({ page, request }, 'manycols');
+    const boardId = await createBoard(request, token, `Many Cols Board ${Date.now()}`);
+    for (const name of ['A', 'B', 'C', 'D', 'E', 'F', 'G']) {
+      await createColumn(request, token, boardId, name);
+    }
+    const sprintId = await createSprint(request, token, boardId, 'Sprint 1');
+    await startSprint(request, token, sprintId);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/boards/${boardId}`);
+
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 10000 });
+
+    // The page must have a positive body height (not collapsed to zero from a broken layout)
+    const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
+    expect(bodyHeight).toBeGreaterThan(0);
+  });
+
+  // 30. Many swimlane rows do not break the board page layout
+  test('board with multiple swimlanes renders without layout breakage', async ({ page, request }) => {
+    const { token } = await setupUser({ page, request }, 'manyswim');
+    const boardId = await createBoard(request, token, `Many Swim Board ${Date.now()}`);
+    for (let i = 1; i <= 4; i++) {
+      await createSwimlane(request, token, boardId, `Swimlane ${i}`);
+    }
+    const sprintId = await createSprint(request, token, boardId, 'Sprint 1');
+    await startSprint(request, token, sprintId);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/boards/${boardId}`);
+
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 10000 });
+
+    // All swimlane rows must be present in the DOM
+    const swimlaneRows = page.locator('.swimlane-row, .swimlane');
+    const count = await swimlaneRows.count();
+    expect(count).toBeGreaterThan(0);
+  });
+
+  // 31. Standard desktop 1280x800 — board-page and sidebar both visible
+  test('standard desktop 1280x800 — board-page and sidebar both visible', async ({ page, request }) => {
+    const { token } = await setupUser({ page, request }, 'std-desk');
+    const boardId = await createBoard(request, token, `Std Desk Board ${Date.now()}`);
+    const sprintId = await createSprint(request, token, boardId, 'Sprint 1');
+    await startSprint(request, token, sprintId);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/boards/${boardId}`);
+
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.mobile-nav-toggle')).toBeHidden();
+  });
+
+  // 32. Mobile board view allows horizontal scroll
+  test('board page allows horizontal scroll on mobile 375px', async ({ page, request }) => {
+    const { token } = await setupUser({ page, request }, 'mob-hscroll');
+    const boardId = await createBoard(request, token, `Mobile HScroll Board ${Date.now()}`);
+    for (const name of ['Col B', 'Col C', 'Col D']) {
+      await createColumn(request, token, boardId, name);
+    }
+    const sprintId = await createSprint(request, token, boardId, 'Sprint 1');
+    await startSprint(request, token, sprintId);
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto(`/boards/${boardId}`);
+
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 10000 });
+
+    const overflowX = await page.locator('.board-content').evaluate(
+      (el) => getComputedStyle(el).overflowX
+    );
+    expect(['auto', 'scroll']).toContain(overflowX);
+  });
+
+  // 33. Settings page at mobile — no horizontal overflow
+  test('settings page is readable on mobile 375x667 — no horizontal overflow', async ({ page, request }) => {
+    await setupUser({ page, request }, 'settings-mob');
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/settings');
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
+  });
+
+  // 34. Reports page at mobile — no horizontal overflow
+  test('reports page does not overflow horizontally on mobile 375x667', async ({ page, request }) => {
+    await setupUser({ page, request }, 'reports-mob');
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-page, .page-header', { timeout: 10000 });
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(overflow).toBe(false);
   });
 });
