@@ -237,9 +237,11 @@ export function BoardSettings() {
     if (!confirm('Are you sure you want to delete this label? It will be removed from all cards.')) return;
     try {
       await boardsApi.deleteLabel(board!.id, labelId);
-      loadLabels();
-    } catch (err) {
+      setLabels(prev => prev.filter(l => l.id !== labelId));
+      showToast('Label deleted', 'success');
+    } catch (err: any) {
       console.error('Failed to delete label:', err);
+      showToast(err.message || 'Failed to delete label', 'error');
     }
   };
 

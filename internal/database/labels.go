@@ -49,6 +49,9 @@ func (d *DB) GetBoardLabels(boardID int64) ([]models.Label, error) {
 }
 
 func (d *DB) DeleteLabel(id int64) error {
+	if _, err := d.Exec(`DELETE FROM card_labels WHERE label_id = ?`, id); err != nil {
+		return err
+	}
 	_, err := d.Exec(`DELETE FROM labels WHERE id = ?`, id)
 	return err
 }
