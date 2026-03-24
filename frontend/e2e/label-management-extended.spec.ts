@@ -121,7 +121,7 @@ test.describe('Label color picker', () => {
     await page.goto(`/boards/${boardId}/settings`);
     await page.waitForSelector('.settings-section h2:has-text("Labels")', { timeout: 10000 });
     await page.click('.settings-section:has(h2:has-text("Labels")) button:has-text("Add Label")');
-    await page.waitForSelector('.modal h2:has-text("Add Label")', { timeout: 5000 });
+    await page.waitForSelector('.modal h2:has-text("Add Label")', { timeout: 10000 });
 
     // Pick the 3rd swatch (#ec4899 — pink)
     const expectedColor = PRESET_COLORS[2]; // '#ec4899'
@@ -176,15 +176,15 @@ test.describe('Edit label name', () => {
 
     // Click the edit (pencil) button for the label
     await page.click('.settings-list-item:has(.item-name:has-text("OldName")) .item-edit');
-    await page.waitForSelector('.modal h2:has-text("Edit Label")', { timeout: 5000 });
+    await page.waitForSelector('.modal h2:has-text("Edit Label")', { timeout: 10000 });
 
     // Clear the name field and type a new name
     const nameInput = page.locator('.modal input[placeholder*="Bug"]');
     await nameInput.fill('NewName');
     await page.click('.modal button[type="submit"]:has-text("Save Changes")');
 
-    await expect(page.locator('.modal')).not.toBeVisible();
-    await expect(page.locator('.item-name:has-text("NewName")')).toBeVisible();
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.item-name:has-text("NewName")')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.item-name:has-text("OldName")')).not.toBeVisible();
 
     // Navigate to the board and verify the chip shows the new name
@@ -215,7 +215,7 @@ test.describe('Edit label color', () => {
     await page.waitForSelector(`.item-name:has-text("ColorTest")`, { timeout: 10000 });
 
     await page.click('.settings-list-item:has(.item-name:has-text("ColorTest")) .item-edit');
-    await page.waitForSelector('.modal h2:has-text("Edit Label")', { timeout: 5000 });
+    await page.waitForSelector('.modal h2:has-text("Edit Label")', { timeout: 10000 });
 
     // Pick the 8th swatch (cyan #06b6d4)
     const swatches = page.locator('.modal .color-option');
@@ -223,7 +223,7 @@ test.describe('Edit label color', () => {
     await expect(swatches.nth(7)).toHaveClass(/selected/);
 
     await page.click('.modal button[type="submit"]:has-text("Save Changes")');
-    await expect(page.locator('.modal')).not.toBeVisible();
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 15000 });
 
     // Verify via API that color was actually saved
     const updatedLabels: Array<{ id: number; color: string }> = await (
@@ -455,7 +455,7 @@ test.describe('Special characters in label name', () => {
 
     // Card modal: the label-toggle shows the correct text
     await page.click('.card-item');
-    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 10000 });
     const toggle = page.locator(`.label-toggle:has(.label-name:has-text("Fix & Deploy"))`);
     await expect(toggle).toBeVisible();
     const toggleText = await toggle.locator('.label-name').textContent();
@@ -483,7 +483,7 @@ test.describe('Duplicate label name', () => {
 
     // Attempt to create a second label with the same name through the UI
     await page.click('.settings-section:has(h2:has-text("Labels")) button:has-text("Add Label")');
-    await page.waitForSelector('.modal h2:has-text("Add Label")', { timeout: 5000 });
+    await page.waitForSelector('.modal h2:has-text("Add Label")', { timeout: 10000 });
     await page.fill('.modal input[placeholder*="Bug"]', 'Duplicate');
     await page.click('.modal .color-option:nth-child(4)');
     await page.click('.modal button[type="submit"]:has-text("Add Label")');

@@ -245,20 +245,30 @@ test.describe('Attachments Extended', () => {
 
     const fileInput = page.locator('.attachments-sidebar input[type="file"]');
 
-    // Initially 0
-    await expect(page.locator('.attachments-sidebar label').first()).toContainText(
+    // Initially 0 — the label reads "Attachments (0)"
+    await expect(page.locator('.attachments-sidebar .section-header label').first()).toContainText(
       'Attachments (0)',
     );
 
-    await fileInput.setInputFiles(txtFilePath1);
+    // Upload first file and wait for API response
+    const [res1] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/attachments') && r.request().method() === 'POST'),
+      fileInput.setInputFiles(txtFilePath1),
+    ]);
+    expect(res1.status()).toBe(201);
     await expect(page.locator('.attachment-item-sidebar')).toHaveCount(1, { timeout: 8000 });
-    await expect(page.locator('.attachments-sidebar label').first()).toContainText(
+    await expect(page.locator('.attachments-sidebar .section-header label').first()).toContainText(
       'Attachments (1)',
     );
 
-    await fileInput.setInputFiles(txtFilePath2);
+    // Upload second file and wait for API response
+    const [res2] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/attachments') && r.request().method() === 'POST'),
+      fileInput.setInputFiles(txtFilePath2),
+    ]);
+    expect(res2.status()).toBe(201);
     await expect(page.locator('.attachment-item-sidebar')).toHaveCount(2, { timeout: 8000 });
-    await expect(page.locator('.attachments-sidebar label').first()).toContainText(
+    await expect(page.locator('.attachments-sidebar .section-header label').first()).toContainText(
       'Attachments (2)',
     );
   });
@@ -353,7 +363,13 @@ test.describe('Attachments Extended', () => {
     fs.writeFileSync(longFilePath, 'Long filename test file content.');
 
     const fileInput = page.locator('.attachments-sidebar input[type="file"]');
-    await fileInput.setInputFiles(longFilePath);
+
+    // Wait for the upload response to confirm the file was saved
+    const [uploadRes] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/attachments') && r.request().method() === 'POST'),
+      fileInput.setInputFiles(longFilePath),
+    ]);
+    expect(uploadRes.status()).toBe(201);
 
     const nameEl = page.locator('.attachment-name-small').first();
     await expect(nameEl).toBeVisible({ timeout: 8000 });
@@ -381,7 +397,13 @@ test.describe('Attachments Extended', () => {
     await openCardModal(page, setup.token, setup.boardId);
 
     const fileInput = page.locator('.attachments-sidebar input[type="file"]');
-    await fileInput.setInputFiles(txtFilePath1);
+
+    // Wait for the upload API response before proceeding
+    const [uploadRes] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/attachments') && r.request().method() === 'POST'),
+      fileInput.setInputFiles(txtFilePath1),
+    ]);
+    expect(uploadRes.status()).toBe(201);
     await expect(page.locator('.attachment-name-small').first()).toContainText(
       path.basename(txtFilePath1),
       { timeout: 8000 },
@@ -389,6 +411,7 @@ test.describe('Attachments Extended', () => {
 
     // Close modal and navigate away
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
     await page.goto('/boards');
     await page.waitForURL('**/boards');
 
