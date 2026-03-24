@@ -30,6 +30,9 @@ func Load() (*Config, error) {
 	}
 
 	// Environment variables override config file (only if non-empty)
+	if p := os.Getenv("PORT"); p != "" {
+		fmt.Sscanf(p, "%d", &cfg.Port)
+	}
 	if giteaURL := os.Getenv("GITEA_URL"); giteaURL != "" {
 		cfg.GiteaURL = giteaURL
 	}

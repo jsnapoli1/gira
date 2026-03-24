@@ -1,0 +1,2 @@
+# Test auth state — contains ephemeral credentials, must not be committed
+test-results/.admin-auth.json

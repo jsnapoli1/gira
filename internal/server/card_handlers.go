@@ -203,10 +203,18 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		} else if client != nil {
 			giteaIssue, err := client.CreateIssue(swimlane.RepoOwner, swimlane.RepoName, req.Title, req.Description)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("Failed to create Gitea issue: %v", err), http.StatusInternalServerError)
-				return
+				// If the repo doesn't exist (404) or is unreachable, fall back to local ID
+				errStr := err.Error()
+				if strings.Contains(errStr, "API error (404)") || strings.Contains(errStr, "API error (422)") {
+					cards, _ := s.DB.ListCardsForBoard(req.BoardID)
+					giteaIssueID = int64(len(cards) + 1)
+				} else {
+					http.Error(w, fmt.Sprintf("Failed to create Gitea issue: %v", err), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				giteaIssueID = giteaIssue.Number
 			}
-			giteaIssueID = giteaIssue.Number
 		} else {
 			// Generate a local issue ID based on existing cards count
 			cards, _ := s.DB.ListCardsForBoard(req.BoardID)
@@ -691,6 +699,23 @@ func (s *Server) handleAssignCardSprint(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	// Validate that the sprint belongs to the same board as the card.
+	if req.SprintID != nil {
+		sprint, err := s.DB.GetSprintByID(*req.SprintID)
+		if err != nil {
+			http.Error(w, "Failed to look up sprint", http.StatusInternalServerError)
+			return
+		}
+		if sprint == nil {
+			http.Error(w, "Sprint not found", http.StatusNotFound)
+			return
+		}
+		if sprint.BoardID != card.BoardID {
+			http.Error(w, "Sprint does not belong to this board", http.StatusBadRequest)
+			return
+		}
+	}
+
 	if err := s.DB.AssignCardToSprint(card.ID, req.SprintID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

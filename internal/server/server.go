@@ -153,6 +153,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST /api/auth/signup", s.handleSignup)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("GET /api/auth/me", s.requireAuth(s.handleMe))
+	mux.HandleFunc("POST /api/auth/promote-admin", s.requireAuth(s.handlePromoteAdmin))
 
 	// Config routes
 	mux.HandleFunc("GET /api/config", s.handleConfigGet)

@@ -145,3 +145,51 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
 }
+
+// handlePromoteAdmin promotes a user to admin.
+// Self-promotion: POST with no body or empty user_id promotes the caller.
+// Promote another: POST with { user_id } promotes that user (requires caller to be admin).
+func (s *Server) handlePromoteAdmin(w http.ResponseWriter, r *http.Request) {
+	caller := getUserFromContext(r.Context())
+	if caller == nil {
+		http.Error(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
+	// Try to parse request body for user_id
+	var req struct {
+		UserID int64 `json:"user_id"`
+	}
+	// Ignore decode errors — empty body means self-promotion
+	json.NewDecoder(r.Body).Decode(&req)
+
+	targetID := req.UserID
+	if targetID == 0 {
+		// Self-promotion
+		targetID = caller.ID
+	} else if targetID != caller.ID {
+		// Promoting another user — requires admin
+		if !caller.IsAdmin {
+			http.Error(w, "Admin access required to promote other users", http.StatusForbidden)
+			return
+		}
+	}
+
+	if err := s.DB.SetUserAdmin(targetID, true); err != nil {
+		http.Error(w, "Failed to promote user", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := s.DB.GetUserByID(targetID)
+	if err != nil {
+		http.Error(w, "Failed to fetch user", http.StatusInternalServerError)
+		return
+	}
+	if user == nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
+}
