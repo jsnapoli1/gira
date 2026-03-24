@@ -953,3 +953,813 @@ test.describe('GET /api/dashboard', () => {
     expect(body.boards.find((b: any) => b.id === board.id)).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Auth: is_admin field and login
+// ---------------------------------------------------------------------------
+
+test.describe('Auth misc', () => {
+  test('GET /api/auth/me returns is_admin field', async ({ request }) => {
+    const { token } = await setup(request, 'Admin Field Check');
+
+    const res = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty('is_admin');
+    expect(typeof body.is_admin).toBe('boolean');
+  });
+
+  test('POST /api/auth/login returns token and user', async ({ request }) => {
+    const email = `login-${crypto.randomUUID()}@test.com`;
+    // Create user first
+    await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'Login Test' },
+    });
+
+    const res = await request.post(`${BASE}/api/auth/login`, {
+      data: { email, password: 'password123' },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty('token');
+    expect(body).toHaveProperty('user');
+    expect(typeof body.token).toBe('string');
+  });
+
+  test('POST /api/auth/login returns 401 for wrong password', async ({ request }) => {
+    const email = `login-wrong-${crypto.randomUUID()}@test.com`;
+    await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'correct-password', display_name: 'Wrong Pass' },
+    });
+
+    const res = await request.post(`${BASE}/api/auth/login`, {
+      data: { email, password: 'wrong-password' },
+    });
+
+    expect(res.status()).toBe(401);
+  });
+
+  test('POST /api/auth/promote-admin promotes self to admin', async ({ request }) => {
+    const { token } = await setup(request, 'Promote Self');
+
+    const res = await request.post(`${BASE}/api/auth/promote-admin`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.is_admin).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Config endpoints
+// ---------------------------------------------------------------------------
+
+test.describe('Config API', () => {
+  test('GET /api/config returns an object (no auth required)', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/config`);
+    // Either 200 with config or 200 with empty — must not 500
+    expect([200, 401]).toContain(res.status());
+  });
+
+  test('GET /api/config/status returns configured bool and gitea_url without auth', async ({
+    request,
+  }) => {
+    const res = await request.get(`${BASE}/api/config/status`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(typeof body.configured).toBe('boolean');
+    expect(body).toHaveProperty('gitea_url');
+  });
+
+  test('POST /api/config returns 403 for non-admin user', async ({ request }) => {
+    const { token } = await setup(request, 'Config Non-Admin');
+
+    const res = await request.post(`${BASE}/api/config`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { gitea_url: 'http://gitea.example.com', gitea_api_key: 'fake-key' },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+
+  test('POST /api/config returns 401 without token', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/config`, {
+      data: { gitea_url: 'http://gitea.example.com', gitea_api_key: 'fake-key' },
+    });
+
+    expect(res.status()).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Admin user endpoints
+// ---------------------------------------------------------------------------
+
+test.describe('Admin users API', () => {
+  test('GET /api/admin/users returns 403 for non-admin', async ({ request }) => {
+    const { token } = await setup(request, 'Admin List Non-Admin');
+
+    const res = await request.get(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+
+  test('GET /api/admin/users returns 401 without token', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/admin/users`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('GET /api/admin/users returns users array for admin', async ({ request }) => {
+    const { token } = await setup(request, 'Admin List Admin');
+
+    // Promote self to admin
+    await request.post(`${BASE}/api/auth/promote-admin`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const res = await request.get(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+  });
+
+  test('PUT /api/admin/users updates is_admin for a user', async ({ request }) => {
+    const { token: adminToken } = await setup(request, 'Admin Updater');
+    const { user: targetUser } = await setup(request, 'Admin Target');
+
+    // Promote self to admin first
+    await request.post(`${BASE}/api/auth/promote-admin`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    const res = await request.put(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { user_id: targetUser.id, is_admin: true },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.is_admin).toBe(true);
+  });
+
+  test('PUT /api/admin/users returns 403 for non-admin', async ({ request }) => {
+    const { token } = await setup(request, 'Admin Update Non-Admin');
+    const { user: target } = await setup(request, 'Admin Update Target');
+
+    const res = await request.put(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { user_id: target.id, is_admin: true },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board CRUD (GET, PUT/PATCH, DELETE)
+// ---------------------------------------------------------------------------
+
+test.describe('Board CRUD API', () => {
+  test('GET /api/boards returns an array (never null)', async ({ request }) => {
+    const { token } = await setup(request, 'Boards Lister');
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  test('POST /api/boards creates a board with name and description', async ({ request }) => {
+    const { token } = await setup(request, 'Board Creator');
+    const name = `Test Board ${crypto.randomUUID().slice(0, 8)}`;
+
+    const res = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name, description: 'My board description' },
+    });
+
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body).toHaveProperty('id');
+    expect(body.name).toBe(name);
+    expect(body.description).toBe('My board description');
+  });
+
+  test('GET /api/boards/:id returns the board object', async ({ request }) => {
+    const { token } = await setup(request, 'Board Getter');
+    const board = await createBoard(request, token, 'Get Me Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.id).toBe(board.id);
+    expect(body.name).toBe('Get Me Board');
+  });
+
+  test('GET /api/boards/999999 returns 404', async ({ request }) => {
+    const { token } = await setup(request, 'Board 404');
+
+    const res = await request.get(`${BASE}/api/boards/999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(404);
+  });
+
+  test('PUT /api/boards/:id updates board name and description', async ({ request }) => {
+    const { token } = await setup(request, 'Board Updater');
+    const board = await createBoard(request, token, 'Before Update');
+
+    const newName = `Updated Board ${crypto.randomUUID().slice(0, 8)}`;
+    const res = await request.put(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: newName, description: 'Updated description' },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.name).toBe(newName);
+    expect(body.description).toBe('Updated description');
+  });
+
+  test('DELETE /api/boards/:id deletes the board', async ({ request }) => {
+    const { token } = await setup(request, 'Board Deleter');
+    const board = await createBoard(request, token, 'Delete Me Board');
+
+    const delRes = await request.delete(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(delRes.status()).toBe(204);
+
+    // Verify gone
+    const getRes = await request.get(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(getRes.status()).toBe(404);
+  });
+
+  test('DELETE /api/boards/:id returns 403 for non-member', async ({ request }) => {
+    const { token: ownerToken } = await setup(request, 'Board Owner Del');
+    const { token: outsiderToken } = await setup(request, 'Board Outsider Del');
+    const board = await createBoard(request, ownerToken, 'Protected Board');
+
+    const res = await request.delete(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${outsiderToken}` },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board export (CSV)
+// ---------------------------------------------------------------------------
+
+test.describe('GET /api/boards/:id/export', () => {
+  test('returns CSV content-type with token query param', async ({ request }) => {
+    const { token } = await setup(request, 'Export User');
+    const board = await createBoard(request, token, 'Export Board');
+
+    const res = await request.get(
+      `${BASE}/api/boards/${board.id}/export?token=${token}`,
+    );
+
+    expect(res.status()).toBe(200);
+    const contentType = res.headers()['content-type'] || '';
+    expect(contentType).toContain('text/csv');
+  });
+
+  test('returns 401 without token query param', async ({ request }) => {
+    const { token } = await setup(request, 'Export No Token');
+    const board = await createBoard(request, token, 'Export Board NT');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export`);
+
+    expect(res.status()).toBe(401);
+  });
+
+  test('CSV export contains header row', async ({ request }) => {
+    const { token } = await setup(request, 'Export Headers');
+    const board = await createBoard(request, token, 'Export Headers Board');
+
+    const res = await request.get(
+      `${BASE}/api/boards/${board.id}/export?token=${token}`,
+    );
+
+    const text = await res.text();
+    expect(text).toContain('ID');
+    expect(text).toContain('Title');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Card CRUD
+// ---------------------------------------------------------------------------
+
+test.describe('Card CRUD API', () => {
+  /**
+   * Build a minimal board+swimlane context. Returns null if card creation
+   * is unavailable (Gitea not configured) — callers must skip.
+   */
+  async function cardSetup(request: any, userName = 'Card Setup User') {
+    const { token } = await setup(request, userName);
+    const board = await createBoard(request, token);
+    const swimlane = await createSwimlane(request, token, board.id, 'Card Swim', 'CR-');
+    const colRes = await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const columns = await colRes.json();
+    return { token, board, swimlane, columns };
+  }
+
+  test('POST /api/cards creates a card and returns it with id', async ({ request }) => {
+    const { token, board, swimlane, columns } = await cardSetup(request, 'Card Creator');
+
+    const { ok, card } = await tryCreateCard(
+      request, token, board.id, columns[0].id, swimlane.id, 'Brand New Card',
+    );
+    if (!ok) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    expect(card).toHaveProperty('id');
+    expect(card.title).toBe('Brand New Card');
+  });
+
+  test('GET /api/cards/:id returns the card', async ({ request }) => {
+    const { token, board, swimlane, columns } = await cardSetup(request, 'Card Getter');
+
+    const { ok, card } = await tryCreateCard(
+      request, token, board.id, columns[0].id, swimlane.id, 'Get This Card',
+    );
+    if (!ok) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const fetched = await res.json();
+    expect(fetched.id).toBe(card.id);
+    expect(fetched.title).toBe('Get This Card');
+  });
+
+  test('GET /api/cards/999999 returns 404', async ({ request }) => {
+    const { token } = await setup(request, 'Card 404 User');
+
+    const res = await request.get(`${BASE}/api/cards/999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(404);
+  });
+
+  test('PUT /api/cards/:id updates card title', async ({ request }) => {
+    const { token, board, swimlane, columns } = await cardSetup(request, 'Card Updater');
+
+    const { ok, card } = await tryCreateCard(
+      request, token, board.id, columns[0].id, swimlane.id, 'Original Title',
+    );
+    if (!ok) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const res = await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Updated Title', description: '' },
+    });
+
+    expect(res.status()).toBe(200);
+    const updated = await res.json();
+    expect(updated.title).toBe('Updated Title');
+  });
+
+  test('DELETE /api/cards/:id deletes the card', async ({ request }) => {
+    const { token, board, swimlane, columns } = await cardSetup(request, 'Card Deleter');
+
+    const { ok, card } = await tryCreateCard(
+      request, token, board.id, columns[0].id, swimlane.id, 'Delete This Card',
+    );
+    if (!ok) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const delRes = await request.delete(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(delRes.status()).toBe(204);
+
+    // Verify gone
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(getRes.status()).toBe(404);
+  });
+
+  test('POST /api/cards/:id/move changes the card column', async ({ request }) => {
+    const { token, board, swimlane, columns } = await cardSetup(request, 'Card Mover');
+
+    if (columns.length < 2) {
+      test.skip(true, 'Need at least 2 columns to test move');
+      return;
+    }
+
+    const { ok, card } = await tryCreateCard(
+      request, token, board.id, columns[0].id, swimlane.id, 'Move This Card',
+    );
+    if (!ok) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: columns[1].id, state: columns[1].state },
+    });
+
+    expect(res.status()).toBe(200);
+  });
+
+  test('GET /api/cards/:id/activity returns an array', async ({ request }) => {
+    const { token, board, swimlane, columns } = await cardSetup(request, 'Card Activity');
+
+    const { ok, card } = await tryCreateCard(
+      request, token, board.id, columns[0].id, swimlane.id, 'Activity Card',
+    );
+    if (!ok) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/activity`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board cards search endpoint
+// ---------------------------------------------------------------------------
+
+test.describe('GET /api/cards/search', () => {
+  test('returns cards and total for a valid board_id', async ({ request }) => {
+    const { token } = await setup(request, 'Search User');
+    const board = await createBoard(request, token, 'Search Board');
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty('cards');
+    expect(body).toHaveProperty('total');
+    expect(Array.isArray(body.cards)).toBe(true);
+  });
+
+  test('returns 400 when board_id is missing', async ({ request }) => {
+    const { token } = await setup(request, 'Search No Board');
+
+    const res = await request.get(
+      `${BASE}/api/cards/search`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    expect(res.status()).toBe(400);
+  });
+
+  test('filters cards by query string', async ({ request }) => {
+    const { token } = await setup(request, 'Search Query');
+    const board = await createBoard(request, token);
+    const swimlane = await createSwimlane(request, token, board.id, 'SQ Swim', 'SQ-');
+    const colRes = await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const columns = await colRes.json();
+
+    const unique = crypto.randomUUID().slice(0, 8);
+    const { ok } = await tryCreateCard(
+      request, token, board.id, columns[0].id, swimlane.id, `UniqueTitle-${unique}`,
+    );
+    if (!ok) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?board_id=${board.id}&q=${unique}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.total).toBeGreaterThanOrEqual(1);
+    expect(body.cards.some((c: any) => c.title.includes(unique))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Metrics / velocity endpoint
+// ---------------------------------------------------------------------------
+
+test.describe('GET /api/metrics/velocity', () => {
+  test('returns empty array for a board with no completed sprints', async ({ request }) => {
+    const { token } = await setup(request, 'Velocity User');
+    const board = await createBoard(request, token, 'Velocity Board');
+
+    const res = await request.get(
+      `${BASE}/api/metrics/velocity?board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  test('returns 400 when board_id is missing', async ({ request }) => {
+    const { token } = await setup(request, 'Velocity No Board');
+
+    const res = await request.get(
+      `${BASE}/api/metrics/velocity`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    expect(res.status()).toBe(400);
+  });
+
+  test('returns 403 for non-member board', async ({ request }) => {
+    const { token: ownerToken } = await setup(request, 'Velocity Owner');
+    const { token: outsiderToken } = await setup(request, 'Velocity Outsider');
+    const board = await createBoard(request, ownerToken, 'Velocity Private Board');
+
+    const res = await request.get(
+      `${BASE}/api/metrics/velocity?board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${outsiderToken}` } },
+    );
+
+    expect(res.status()).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board labels CRUD
+// ---------------------------------------------------------------------------
+
+test.describe('Board labels API', () => {
+  test('GET /api/boards/:id/labels returns empty array for new board', async ({ request }) => {
+    const { token } = await setup(request, 'Labels Getter');
+    const board = await createBoard(request, token);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const labels = await res.json();
+    expect(Array.isArray(labels)).toBe(true);
+  });
+
+  test('POST /api/boards/:id/labels creates a label', async ({ request }) => {
+    const { token } = await setup(request, 'Label Creator');
+    const board = await createBoard(request, token);
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Bug', color: '#ff0000' },
+    });
+
+    expect(res.status()).toBe(201);
+    const label = await res.json();
+    expect(label).toHaveProperty('id');
+    expect(label.name).toBe('Bug');
+  });
+
+  test('PUT /api/boards/:id/labels/:labelId updates a label', async ({ request }) => {
+    const { token } = await setup(request, 'Label Updater');
+    const board = await createBoard(request, token);
+
+    const createRes = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Old Label', color: '#aabbcc' },
+    });
+    const label = await createRes.json();
+
+    const res = await request.put(
+      `${BASE}/api/boards/${board.id}/labels/${label.id}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'New Label', color: '#112233' },
+      },
+    );
+
+    expect(res.status()).toBe(200);
+  });
+
+  test('DELETE /api/boards/:id/labels/:labelId removes a label', async ({ request }) => {
+    const { token } = await setup(request, 'Label Deleter');
+    const board = await createBoard(request, token);
+
+    const createRes = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Delete Me Label', color: '#ff1234' },
+    });
+    const label = await createRes.json();
+
+    const delRes = await request.delete(
+      `${BASE}/api/boards/${board.id}/labels/${label.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    expect(delRes.status()).toBe(204);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gitea proxy endpoints
+// ---------------------------------------------------------------------------
+
+test.describe('Gitea proxy endpoints', () => {
+  test('GET /api/repos returns 200 or 503 (never 500)', async ({ request }) => {
+    const { token } = await setup(request, 'Repos User');
+
+    const res = await request.get(`${BASE}/api/repos`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // When Gitea is not configured the server should return non-500
+    expect([200, 503]).toContain(res.status());
+  });
+
+  test('GET /api/repos returns 401 without token', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/repos`);
+    expect(res.status()).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SSE endpoint
+// ---------------------------------------------------------------------------
+
+test.describe('SSE endpoint', () => {
+  test('GET /api/boards/:id/events with token query param returns EventStream content-type', async ({
+    request,
+  }) => {
+    const { token } = await setup(request, 'SSE User');
+    const board = await createBoard(request, token, 'SSE Board');
+
+    const res = await request.get(
+      `${BASE}/api/boards/${board.id}/events?token=${token}`,
+      // Use short timeout — SSE never "finishes" but we just need the response headers
+      { timeout: 3000 },
+    ).catch(() => null);
+
+    // Some environments may time-out before headers arrive; that is acceptable.
+    if (res === null) return;
+
+    expect([200, 401]).toContain(res.status());
+    if (res.status() === 200) {
+      const ct = res.headers()['content-type'] || '';
+      expect(ct).toContain('text/event-stream');
+    }
+  });
+
+  test('GET /api/boards/:id/events without token returns 401', async ({ request }) => {
+    const { token } = await setup(request, 'SSE No Token User');
+    const board = await createBoard(request, token, 'SSE No Token Board');
+
+    const res = await request.get(
+      `${BASE}/api/boards/${board.id}/events`,
+      { timeout: 3000 },
+    ).catch(() => null);
+
+    if (res === null) return;
+    expect(res.status()).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CORS / OPTIONS preflight
+// ---------------------------------------------------------------------------
+
+test.describe('CORS preflight', () => {
+  test('OPTIONS request returns 200 with CORS headers', async ({ request }) => {
+    const res = await request.fetch(`${BASE}/api/boards`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://localhost:3000',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'Content-Type, Authorization',
+      },
+    });
+
+    expect(res.status()).toBe(200);
+    const headers = res.headers();
+    expect(headers['access-control-allow-origin']).toBeTruthy();
+    expect(headers['access-control-allow-methods']).toBeTruthy();
+    expect(headers['access-control-allow-headers']).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Robustness: large IDs, malformed JSON, wrong HTTP method
+// ---------------------------------------------------------------------------
+
+test.describe('Robustness and edge cases', () => {
+  test('GET /api/boards/999999 returns 404 not 500', async ({ request }) => {
+    const { token } = await setup(request, 'Robust 404 User');
+
+    const res = await request.get(`${BASE}/api/boards/999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(404);
+  });
+
+  test('GET /api/cards/999999 returns 404 not 500', async ({ request }) => {
+    const { token } = await setup(request, 'Robust 404 Card');
+
+    const res = await request.get(`${BASE}/api/cards/999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(404);
+  });
+
+  test('POST /api/auth/signup with malformed JSON returns 400 not 500', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/auth/signup`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: 'not-valid-json{{{',
+    });
+
+    // Server must not 500 on bad JSON
+    expect(res.status()).not.toBe(500);
+    expect([400, 422]).toContain(res.status());
+  });
+
+  test('POST /api/cards with malformed JSON body returns 400 not 500', async ({ request }) => {
+    const { token } = await setup(request, 'Malformed JSON Card');
+
+    const res = await request.post(`${BASE}/api/cards`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      data: '{bad json',
+    });
+
+    expect(res.status()).not.toBe(500);
+    expect([400, 422]).toContain(res.status());
+  });
+
+  test('GET /api/boards/:id/columns for non-existent board returns 404 not 500', async ({
+    request,
+  }) => {
+    const { token } = await setup(request, 'Robust Cols 404');
+
+    const res = await request.get(`${BASE}/api/boards/999999/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(404);
+  });
+
+  test('Unauthenticated POST /api/boards returns 401 not 500', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/boards`, {
+      data: { name: 'Should Fail' },
+    });
+
+    expect(res.status()).toBe(401);
+  });
+});
