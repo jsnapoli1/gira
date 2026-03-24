@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/jsnapoli/zira/internal/gitea"
 	"github.com/jsnapoli/zira/internal/github"
@@ -34,6 +35,12 @@ func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
 		}
 		repos, err := client.GetRepos()
 		if err != nil {
+			if strings.Contains(err.Error(), "read:user") {
+				// Token lacks read:user scope — return empty list so UI falls back to manual entry
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode([]gitea.Repository{})
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -48,6 +55,11 @@ func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {
 		customClient := gitea.NewClient(customURL, token, insecureTLS)
 		repos, err := customClient.GetRepos()
 		if err != nil {
+			if strings.Contains(err.Error(), "read:user") {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode([]gitea.Repository{})
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

@@ -124,6 +124,13 @@ func (c *Client) GetRepos() ([]Repository, error) {
 	return repos, nil
 }
 
+// TestConnection verifies the token is accepted by the Gitea instance using
+// an endpoint that does not require the read:user scope.
+func (c *Client) TestConnection() error {
+	_, err := c.doRequest("GET", "/repos/search?limit=1")
+	return err
+}
+
 func (c *Client) GetIssues(owner, repo string) ([]Issue, error) {
 	path := fmt.Sprintf("/repos/%s/%s/issues", owner, repo)
 	data, err := c.doRequest("GET", path)

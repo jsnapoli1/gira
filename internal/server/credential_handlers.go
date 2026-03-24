@@ -228,7 +228,7 @@ func (s *Server) handleTestCredential(w http.ResponseWriter, r *http.Request) {
 		insecureTLS := s.Config.GiteaInsecureTLS
 		s.configMu.RUnlock()
 		client := gitea.NewClient(req.ProviderURL, req.APIToken, insecureTLS)
-		_, testErr = client.GetRepos()
+		testErr = client.TestConnection()
 	case "github":
 		client := github.NewClient(req.APIToken)
 		_, testErr = client.GetRepos()
