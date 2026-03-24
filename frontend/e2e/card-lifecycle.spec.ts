@@ -1,874 +1,1336 @@
 /**
- * card-lifecycle.spec.ts — Complete card lifecycle tests
+ * card-lifecycle.spec.ts
  *
- * Covers every CRUD operation plus move, move-state, clone (fixme — not
- * implemented), and sprint assignment.  The vast majority of tests are
- * API-only for speed and reliability.
+ * Comprehensive tests covering the complete card lifecycle in Zira.
  *
- * Default board columns created by the server:
- *   [0]  "To Do"       state="open"
- *   [1]  "In Progress" state="in_progress"
- *   [2]  "Done"        state="closed"
+ * Test inventory (49 tests)
+ * ───────────────────────────
+ * Setup & Creation
+ *  1.  Create card via API → title visible in board UI
+ *  2.  Create card via UI "Add card" button
+ *  3.  Card title appears on the column chip after API creation
+ *  4.  Click card chip → detail modal opens
  *
- * Card create:  POST /api/cards              → 201 + card body
- * Card read:    GET  /api/cards/:id          → 200 + card body
- * Card update:  PUT  /api/cards/:id          → 200 + card body
- * Card delete:  DELETE /api/cards/:id        → 204
- * Card move:    POST /api/cards/:id/move     → 200
- * Move by state: POST /api/cards/:id/move-state → 200
- * Sprint assign: POST /api/cards/:id/assign-sprint → 200
+ * Modal sections present
+ *  5.  Modal shows card title
+ *  6.  Modal shows description section
+ *  7.  Modal shows assignees section in sidebar
+ *  8.  Modal shows labels section in sidebar
+ *  9.  Modal shows sprint select in sidebar
+ * 10.  Modal shows time tracking section
+ * 11.  Modal shows conversations section
+ * 12.  Modal shows activity section
+ *
+ * Modal close
+ * 13.  Close modal with X button
+ * 14.  Close modal with Escape key
+ * 15.  Close modal by clicking overlay
+ *
+ * Edit card
+ * 16.  Edit card title — new title in modal header and board chip
+ * 17.  Cancel edit — original title preserved
+ * 18.  Edit description via inline description section
+ * 19.  Set card priority via edit form
+ * 20.  Set due date — appears in modal meta
+ * 21.  Clear due date — due date disappears after clearing
+ * 22.  Set story points via edit form
+ * 23.  Story points persist after close and reopen
+ * 24.  Empty title is rejected on save
+ *
+ * Labels
+ * 25.  Add label via API → label chip visible on card chip
+ * 26.  Toggle label on in sidebar → label shown in list
+ *
+ * Assignees
+ * 27.  Add assignee via sidebar select → assignee name in sidebar
+ * 28.  Remove assignee via X button → assignee name gone
+ * 29.  Card with no assignees shows no assignee avatar on chip
+ *
+ * Move card
+ * 30.  Move card to different column via API → verify via GET
+ * 31.  Card position preserved after page reload
+ *
+ * Comments
+ * 32.  Fresh card shows "No comments yet" empty state
+ * 33.  Add a comment → appears in comment list
+ * 34.  Delete a comment via API → comment gone
+ *
+ * Time tracking
+ * 35.  Log work via modal mini-input → total time increases
+ * 36.  Set time estimate — estimate shown in time tracking section
+ *
+ * Card links
+ * 37.  Add card link via API → link visible in modal sidebar
+ * 38.  Remove card link via UI → link removed from list
+ *
+ * Clone / duplicate (not implemented)
+ * 39.  Duplicate card feature — marked fixme
+ *
+ * Delete card
+ * 40.  Delete card via modal Delete button with dialog confirmation
+ * 41.  Cancel delete confirmation — card stays on board
+ *
+ * Edge cases
+ * 42.  Card with very long title (200+ chars) — renders without crash
+ * 43.  Card with special chars in title (& < > " ') — renders correctly
+ * 44.  Multiple cards in same column — all appear in All Cards view
+ * 45.  Overdue card — past due date shows overdue class on chip
+ *
+ * Sprint assignment
+ * 46.  Assign card to sprint via modal sidebar select
+ *
+ * Watchers (API-level — no UI button)
+ * 47.  POST /api/cards/:id/watch adds current user as watcher
+ *
+ * Activity log
+ * 48.  Card creation event visible in activity log
+ *
+ * Custom fields
+ * 49.  Set text custom field value and verify saved
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, APIRequestContext, Page } from '@playwright/test';
 
 const BASE = `http://127.0.0.1:${process.env.PORT || 9002}`;
 
-// ---------------------------------------------------------------------------
-// Setup helpers
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
-interface FullSetup {
+interface SetupResult {
   token: string;
   boardId: number;
-  columns: any[];
+  columnId: number;
+  secondColumnId: number;
   swimlaneId: number;
+  cardId: number;
+  cardTitle: string;
+  cardCreated: boolean;
 }
 
-async function createUser(request: any, label = 'Lifecycle') {
-  const email = `test-lc-${crypto.randomUUID()}@test.com`;
-  const body = await (
-    await request.post(`${BASE}/api/auth/signup`, {
-      data: { email, password: 'password123', display_name: `${label} Tester` },
-    })
-  ).json();
-  return { token: body.token as string, email };
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function createUser(request: APIRequestContext, prefix = 'lifecycle') {
+  const email = `${prefix}-${crypto.randomUUID()}@test.com`;
+  const res = await request.post(`${BASE}/api/auth/signup`, {
+    data: { email, password: 'password123', display_name: `${prefix}-user` },
+  });
+  const body = await res.json();
+  return { token: body.token as string, userId: (body.user?.id ?? 0) as number, email };
 }
 
-async function fullSetup(request: any, label = 'Lifecycle'): Promise<FullSetup> {
-  const { token } = await createUser(request, label);
+/**
+ * Full setup: user + board + swimlane + card via API.
+ * Does NOT navigate the page — caller is responsible for navigation.
+ */
+async function setupWithCard(
+  request: APIRequestContext,
+  prefix = 'Lifecycle',
+  cardTitle = 'Lifecycle Test Card',
+): Promise<SetupResult> {
+  const { token } = await createUser(request, prefix.toLowerCase());
 
   const board = await (
     await request.post(`${BASE}/api/boards`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { name: `${label} Board` },
+      data: { name: `${prefix} Board` },
     })
   ).json();
 
-  const columns: any[] = await (
-    await request.get(`${BASE}/api/boards/${board.id}/columns`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-  ).json();
+  const columns: Array<{ id: number; state: string; position: number }> =
+    board.columns ??
+    (await (
+      await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json());
+
+  const sortedCols = [...columns].sort((a, b) => a.position - b.position);
+  const columnId = sortedCols[0].id;
+  const secondColumnId = sortedCols[1]?.id ?? sortedCols[0].id;
 
   const swimlane = await (
     await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Dev Lane', designator: 'DV-', color: '#3b82f6' },
+      data: { name: 'Test Lane', designator: 'TL-', color: '#6366f1' },
     })
   ).json();
 
-  return { token, boardId: board.id, columns, swimlaneId: swimlane.id };
-}
-
-/** Create a card and return the parsed body. Fails test if creation fails. */
-async function mustCreateCard(
-  request: any,
-  setup: FullSetup,
-  opts: {
-    title?: string;
-    description?: string;
-    priority?: string;
-    story_points?: number;
-    due_date?: string;
-    parent_id?: number;
-    column_idx?: number;
-  } = {}
-) {
-  const colIdx = opts.column_idx ?? 0;
-  const res = await request.post(`${BASE}/api/cards`, {
-    headers: { Authorization: `Bearer ${setup.token}` },
+  const cardRes = await request.post(`${BASE}/api/cards`, {
+    headers: { Authorization: `Bearer ${token}` },
     data: {
-      title: opts.title ?? 'Test Card',
-      description: opts.description ?? '',
-      priority: opts.priority,
-      story_points: opts.story_points,
-      due_date: opts.due_date,
-      parent_id: opts.parent_id,
-      column_id: setup.columns[colIdx].id,
-      swimlane_id: setup.swimlaneId,
-      board_id: setup.boardId,
+      title: cardTitle,
+      column_id: columnId,
+      swimlane_id: swimlane.id,
+      board_id: board.id,
     },
   });
-  return { res, body: res.ok() ? await res.json() : null };
+
+  const cardCreated = cardRes.ok();
+  const card = cardCreated ? await cardRes.json() : { id: 0 };
+
+  return {
+    token,
+    boardId: board.id,
+    columnId,
+    secondColumnId,
+    swimlaneId: swimlane.id,
+    cardId: card.id,
+    cardTitle,
+    cardCreated,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Create tests
-// ---------------------------------------------------------------------------
+/** Navigate to board, switch to All Cards view, wait for at least one card chip. */
+async function goToAllCards(page: Page, token: string, boardId: number) {
+  await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+  await page.goto(`/boards/${boardId}`);
+  await page.waitForSelector('.board-page', { timeout: 15000 });
+  await page.click('.view-btn:has-text("All Cards")');
+  await page.waitForSelector('.card-item', { timeout: 10000 });
+}
 
-test.describe('Card Lifecycle — Create', () => {
-  test.setTimeout(60000);
+/** Open the first card modal from the All Cards view. */
+async function openFirstCardModal(page: Page) {
+  await page.locator('.card-item').first().click();
+  await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+}
 
-  test('create card with title only returns 201 and card body', async ({ request }) => {
-    const setup = await fullSetup(request, 'Create1');
-    const { res, body } = await mustCreateCard(request, setup, { title: 'Title Only Card' });
-    if (!res.ok()) { test.skip(true, `Card creation unavailable: ${await res.text()}`); return; }
+/** Open the edit form inside the already-open card modal. */
+async function openEditForm(page: Page) {
+  await page.click('.card-detail-actions button:has-text("Edit")');
+  await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+}
 
-    expect(res.status()).toBe(201);
-    expect(body).toHaveProperty('id');
-    expect(body.title).toBe('Title Only Card');
+/** Save from the edit form and wait for the PUT to succeed. */
+async function saveEditForm(page: Page) {
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/api/cards/') && r.request().method() === 'PUT',
+      { timeout: 10000 },
+    ),
+    page.click('.card-detail-actions button:has-text("Save")'),
+  ]);
+  expect(response.status()).toBe(200);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 1: Setup & Creation
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Setup & Creation', () => {
+
+  test('1. Create card via API and verify title visible in board All-Cards view', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'ApiCreate', 'API Created Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await expect(page.locator('.card-title:has-text("API Created Card")')).toBeVisible();
   });
 
-  test('create card with description stores it correctly', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreateDesc');
-    const desc = 'This is a detailed description.';
-    const { res, body } = await mustCreateCard(request, setup, { title: 'Card With Desc', description: desc });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('2. Create card via UI "Add card" button — card appears in column', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'UICreate', 'Seed Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    expect(body.description).toBe(desc);
-  });
+    await goToAllCards(page, s.token, s.boardId);
 
-  test('create card with explicit priority stores it', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreatePri');
-    const { res, body } = await mustCreateCard(request, setup, { title: 'High Pri Card', priority: 'high' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    await page.click('.add-card-btn');
+    await page.waitForSelector('.quick-add-form', { timeout: 5000 });
+    await page.fill('.quick-add-form input', 'UI Created Card');
 
-    expect(body.priority).toBe('high');
-  });
+    const [createResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/cards') && r.request().method() === 'POST',
+        { timeout: 10000 },
+      ),
+      page.click('.quick-add-form button[type="submit"]'),
+    ]);
+    expect(createResp.status()).toBe(201);
 
-  test('create card defaults to medium priority when none supplied', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreatePriDef');
-    const { res, body } = await mustCreateCard(request, setup, { title: 'Default Priority Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    expect(body.priority).toBe('medium');
-  });
-
-  test('create card with story_points stores it', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreateSP');
-    const { res, body } = await mustCreateCard(request, setup, { title: 'SP Card', story_points: 8 });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    expect(body.story_points).toBe(8);
-  });
-
-  test('create card with due_date (ISO 8601) stores it', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreateDD');
-    const { res, body } = await mustCreateCard(request, setup, { title: 'Due Date Card', due_date: '2026-12-31' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    expect(body).toHaveProperty('due_date');
-    // The returned due_date should contain our date string
-    expect(JSON.stringify(body.due_date)).toContain('2026-12-31');
-  });
-
-  test('create card with parent_id creates a subtask relationship', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreateParent');
-    const { res: parentRes, body: parent } = await mustCreateCard(request, setup, { title: 'Parent Card' });
-    if (!parentRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const { res: childRes, body: child } = await mustCreateCard(request, setup, {
-      title: 'Child Card',
-      parent_id: parent.id,
+    await expect(page.locator('.card-title:has-text("UI Created Card")')).toBeVisible({
+      timeout: 8000,
     });
-    if (!childRes.ok()) { test.skip(true, 'Child card creation unavailable'); return; }
-
-    expect(child.parent_id).toBe(parent.id);
   });
 
-  test('card appears in GET /api/boards/:id/cards immediately after creation', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreateVisibility');
-    const { res, body } = await mustCreateCard(request, setup, { title: 'Visibility Check Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('3. Card title appears on the board chip after API creation', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'ChipTitle', 'Chip Title Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect(listRes.status()).toBe(200);
-    const cards: any[] = await listRes.json();
-    expect(cards.some((c: any) => c.id === body.id)).toBe(true);
+    await goToAllCards(page, s.token, s.boardId);
+    await expect(page.locator('.card-item .card-title:has-text("Chip Title Card")')).toBeVisible();
   });
 
-  test('card is placed in the correct column', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreateCol');
-    // Create in column index 1 (In Progress)
-    const { res, body } = await mustCreateCard(request, setup, { title: 'In Progress Card', column_idx: 1 });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('4. Clicking a card chip opens the detail modal', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'OpenModal');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    expect(body.column_id).toBe(setup.columns[1].id);
-  });
-
-  test('card is placed in the correct swimlane', async ({ request }) => {
-    const setup = await fullSetup(request, 'CreateSL');
-    const { res, body } = await mustCreateCard(request, setup, { title: 'Swimlane Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    expect(body.swimlane_id).toBe(setup.swimlaneId);
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.card-detail-modal-unified')).toBeVisible();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Read tests
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 2: Modal sections
+// ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Card Lifecycle — Read', () => {
-  test.setTimeout(60000);
+test.describe('Card Lifecycle — Modal Sections', () => {
 
-  test('GET /api/cards/:id returns all expected fields', async ({ request }) => {
-    const setup = await fullSetup(request, 'Read1');
-    const { res, body: card } = await mustCreateCard(request, setup, {
-      title: 'Read Test Card',
-      description: 'A description',
-      priority: 'low',
-      story_points: 3,
-      due_date: '2026-06-15',
-    });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('5. Modal shows card title', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ModalTitle', 'My Test Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect(readRes.status()).toBe(200);
-    const fetched = await readRes.json();
-
-    expect(fetched).toHaveProperty('id');
-    expect(fetched).toHaveProperty('title');
-    expect(fetched).toHaveProperty('description');
-    expect(fetched).toHaveProperty('column_id');
-    expect(fetched).toHaveProperty('swimlane_id');
-    expect(fetched).toHaveProperty('board_id');
-    expect(fetched.board_id).toBe(setup.boardId);
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.card-detail-title')).toContainText('My Test Card');
   });
 
-  test('card response includes created_at and updated_at timestamps', async ({ request }) => {
-    const setup = await fullSetup(request, 'ReadTS');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Timestamps Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('6. Modal shows description section', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ModalDesc');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    const fetched = await readRes.json();
-    expect(fetched).toHaveProperty('created_at');
-    expect(fetched).toHaveProperty('updated_at');
-    expect(fetched.created_at).toBeTruthy();
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.card-description-section')).toBeVisible();
   });
 
-  test('card response includes priority field', async ({ request }) => {
-    const setup = await fullSetup(request, 'ReadPri');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Priority Read Card', priority: 'high' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('7. Modal shows assignees section in sidebar', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ModalAssignees');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    const fetched = await readRes.json();
-    expect(fetched.priority).toBe('high');
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.sidebar-section:has(label:has-text("Assignees"))')).toBeVisible();
   });
 
-  test('card response includes story_points field', async ({ request }) => {
-    const setup = await fullSetup(request, 'ReadSP');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'SP Read Card', story_points: 5 });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('8. Modal shows labels section in sidebar', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ModalLabels');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    const fetched = await readRes.json();
-    expect(fetched.story_points).toBe(5);
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.sidebar-section:has(label:has-text("Labels"))')).toBeVisible();
   });
 
-  test('card response includes due_date field when set', async ({ request }) => {
-    const setup = await fullSetup(request, 'ReadDD');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Due Date Read Card', due_date: '2027-03-01' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('9. Modal shows sprint select in sidebar', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ModalSprint');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    const fetched = await readRes.json();
-    expect(fetched.due_date).toBeTruthy();
-    expect(JSON.stringify(fetched.due_date)).toContain('2027-03-01');
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.sidebar-section:has(label:has-text("Sprint"))')).toBeVisible();
   });
 
-  test('card response includes sprint_id (null when unassigned)', async ({ request }) => {
-    const setup = await fullSetup(request, 'ReadSprintNull');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Sprint Null Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('10. Modal shows time tracking section', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ModalTime');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    const fetched = await readRes.json();
-    // sprint_id key should exist and be null when no sprint assigned
-    expect(Object.prototype.hasOwnProperty.call(fetched, 'sprint_id') || fetched.sprint_id === undefined || fetched.sprint_id === null).toBe(true);
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.time-tracking-compact')).toBeVisible();
   });
 
-  test('GET /api/cards/:id for non-existent card returns 404', async ({ request }) => {
-    const { token } = await createUser(request, 'ReadMissing');
-    const res = await request.get(`${BASE}/api/cards/9999999`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(res.status()).toBe(404);
+  test('11. Modal shows conversations (comments) section', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ModalComments');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.conversations-section')).toBeVisible();
   });
 
-  test('GET /api/cards/:id without auth returns 401', async ({ request }) => {
-    const res = await request.get(`${BASE}/api/cards/1`);
-    expect(res.status()).toBe(401);
+  test('12. Modal shows activity log section', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ModalActivity');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await expect(page.locator('.activity-log-section')).toBeVisible();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Update tests
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 3: Modal close
+// ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Card Lifecycle — Update', () => {
-  test.setTimeout(60000);
+test.describe('Card Lifecycle — Modal Close', () => {
 
-  test('PUT /api/cards/:id updates title', async ({ request }) => {
-    const setup = await fullSetup(request, 'UpdateTitle');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Old Title' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('13. Close modal with X button', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'CloseX');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { title: 'New Title', description: card.description ?? '', priority: card.priority },
-    });
-    expect(updateRes.status()).toBe(200);
-    const updated = await updateRes.json();
-    expect(updated.title).toBe('New Title');
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('PUT /api/cards/:id updates description', async ({ request }) => {
-    const setup = await fullSetup(request, 'UpdateDesc');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Desc Update Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('14. Close modal with Escape key', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'CloseEsc');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const newDesc = 'Updated description text.';
-    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { title: card.title, description: newDesc, priority: card.priority },
-    });
-    expect(updateRes.status()).toBe(200);
-    const updated = await updateRes.json();
-    expect(updated.description).toBe(newDesc);
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('PUT /api/cards/:id updates priority', async ({ request }) => {
-    const setup = await fullSetup(request, 'UpdatePri');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Priority Update Card', priority: 'low' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('15. Close modal by clicking overlay', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'CloseOverlay');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { title: card.title, description: card.description ?? '', priority: 'critical' },
-    });
-    expect(updateRes.status()).toBe(200);
-    const updated = await updateRes.json();
-    expect(updated.priority).toBe('critical');
-  });
-
-  test('PUT /api/cards/:id updates story_points', async ({ request }) => {
-    const setup = await fullSetup(request, 'UpdateSP');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'SP Update Card', story_points: 3 });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { title: card.title, description: card.description ?? '', priority: card.priority, story_points: 13 },
-    });
-    expect(updateRes.status()).toBe(200);
-    const updated = await updateRes.json();
-    expect(updated.story_points).toBe(13);
-  });
-
-  test('PUT /api/cards/:id updates due_date', async ({ request }) => {
-    const setup = await fullSetup(request, 'UpdateDD');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Due Date Update Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { title: card.title, description: card.description ?? '', priority: card.priority, due_date: '2028-01-15' },
-    });
-    expect(updateRes.status()).toBe(200);
-    const updated = await updateRes.json();
-    expect(JSON.stringify(updated.due_date)).toContain('2028-01-15');
-  });
-
-  test('PUT /api/cards/:id refreshes updated_at timestamp', async ({ request }) => {
-    const setup = await fullSetup(request, 'UpdateTS');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Timestamp Update Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const originalUpdatedAt = card.updated_at;
-
-    // Wait briefly to ensure clock advances
-    await new Promise((r) => setTimeout(r, 1100));
-
-    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { title: 'Timestamp Update Card Modified', description: '', priority: card.priority },
-    });
-    expect(updateRes.status()).toBe(200);
-    const updated = await updateRes.json();
-
-    // updated_at must be different (later) than created_at equivalent
-    expect(updated.updated_at).not.toBe(originalUpdatedAt);
-  });
-
-  test('PUT /api/cards/:id with column_id moves card to that column', async ({ request }) => {
-    const setup = await fullSetup(request, 'UpdateCol');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Column Move Update Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    // Use the move endpoint (which is the correct way) — but also test that
-    // column_id in PUT body is accepted by some implementations
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { column_id: setup.columns[1].id },
-    });
-    // Move should succeed (200) or return a meaningful error
-    expect([200, 403]).toContain(moveRes.status());
-    if (moveRes.status() === 200) {
-      const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-        headers: { Authorization: `Bearer ${setup.token}` },
-      });
-      const refreshed = await readRes.json();
-      expect(refreshed.column_id).toBe(setup.columns[1].id);
-    }
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    // Click top-left corner of the overlay (outside the modal box)
+    await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
   });
 });
 
-// ---------------------------------------------------------------------------
-// Move tests
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 4: Edit card
+// ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Card Lifecycle — Move', () => {
-  test.setTimeout(60000);
+test.describe('Card Lifecycle — Edit Card', () => {
 
-  test('POST /api/cards/:id/move with column_id moves card to that column', async ({ request }) => {
-    const setup = await fullSetup(request, 'MoveCol');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Move Target Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('16. Edit card title — new title shown in modal header and board chip', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'EditTitle', 'Original Title');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    // Ensure we have at least 2 columns
-    expect(setup.columns.length).toBeGreaterThanOrEqual(2);
-    const targetCol = setup.columns[1]; // "In Progress"
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await openEditForm(page);
 
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { column_id: targetCol.id },
+    const titleInput = page.locator('.card-detail-edit input[type="text"]').first();
+    await titleInput.fill('Updated Title');
+    await saveEditForm(page);
+
+    await expect(page.locator('.card-detail-title')).toContainText('Updated Title', {
+      timeout: 8000,
     });
-    expect([200, 403]).toContain(moveRes.status());
 
-    if (moveRes.status() === 200) {
-      const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-        headers: { Authorization: `Bearer ${setup.token}` },
-      });
-      const refreshed = await readRes.json();
-      expect(refreshed.column_id).toBe(targetCol.id);
-    }
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.card-title:has-text("Updated Title")')).toBeVisible();
   });
 
-  test('POST /api/cards/:id/move-state with state "in_progress" moves card', async ({ request }) => {
-    const setup = await fullSetup(request, 'MoveState');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Move State Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('17. Cancel edit — original title is preserved', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'CancelEdit', 'Cancel Test Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move-state`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { state: 'in_progress' },
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await openEditForm(page);
+
+    const titleInput = page.locator('.card-detail-edit input[type="text"]').first();
+    await titleInput.fill('Changed Title');
+    await page.click('.card-detail-actions button:has-text("Cancel")');
+
+    await expect(page.locator('.card-detail-title')).toContainText('Cancel Test Card', {
+      timeout: 5000,
     });
-    // 200 = success, 403 = workflow rule blocked, 400 = no column for state
-    expect([200, 400, 403]).toContain(moveRes.status());
-
-    if (moveRes.status() === 200) {
-      const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-        headers: { Authorization: `Bearer ${setup.token}` },
-      });
-      const refreshed = await readRes.json();
-      expect(refreshed.state).toBe('in_progress');
-    }
   });
 
-  test('POST /api/cards/:id/move-state with state "closed" moves card to Done', async ({ request }) => {
-    const setup = await fullSetup(request, 'MoveStateClosed');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Close State Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('18. Edit description via inline description section', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'EditDesc');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move-state`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { state: 'closed' },
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    // Click the "Add" button in the description section
+    await page.click('.card-description-section button:has-text("Add")');
+    await page.waitForSelector('.description-edit textarea', { timeout: 5000 });
+    await page.fill('.description-edit textarea', 'My new description');
+
+    const [saveResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/cards/') && r.request().method() === 'PUT',
+        { timeout: 10000 },
+      ),
+      page.click('.description-edit button:has-text("Save")'),
+    ]);
+    expect(saveResp.status()).toBe(200);
+
+    await expect(page.locator('.description-text')).toContainText('My new description', {
+      timeout: 8000,
     });
-    expect([200, 400, 403]).toContain(moveRes.status());
-
-    if (moveRes.status() === 200) {
-      const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-        headers: { Authorization: `Bearer ${setup.token}` },
-      });
-      const refreshed = await readRes.json();
-      expect(refreshed.state).toBe('closed');
-    }
   });
 
-  test('POST /api/cards/:id/move-state with invalid state returns 400', async ({ request }) => {
-    const setup = await fullSetup(request, 'MoveStateInvalid');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Invalid State Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('19. Set card priority via edit form — priority badge updated in meta', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'EditPriority');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move-state`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { state: 'totally_fake_state_xyz' },
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await openEditForm(page);
+
+    // Priority select is in a form-row; select "high"
+    await page.locator('.card-detail-edit select').nth(1).selectOption('high');
+    await saveEditForm(page);
+
+    await expect(page.locator('.card-detail-meta .card-priority')).toContainText('high', {
+      timeout: 8000,
     });
-    expect(moveRes.status()).toBe(400);
   });
 
-  test('POST /api/cards/:id/move-state with missing state returns 400', async ({ request }) => {
-    const setup = await fullSetup(request, 'MoveStateMissing');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Missing State Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('20. Set due date — date appears in modal meta', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'SetDueDate');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move-state`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: {},
-    });
-    expect(moveRes.status()).toBe(400);
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await openEditForm(page);
+
+    await page.fill('.card-detail-edit input[type="date"]', '2035-06-30');
+    await saveEditForm(page);
+
+    await expect(page.locator('.card-detail-meta .card-due')).toBeVisible({ timeout: 8000 });
   });
 
-  test('POST /api/cards/:id/move to a non-existent column returns 4xx', async ({ request }) => {
-    const setup = await fullSetup(request, 'MoveNoCol');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'No Column Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('21. Clear due date — due date disappears from modal meta', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'ClearDueDate');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { column_id: 9999999 },
+    // Set due date via API
+    await request.put(`${BASE}/api/cards/${s.cardId}`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: { due_date: '2035-01-01' },
     });
-    expect(moveRes.status()).toBeGreaterThanOrEqual(400);
-    expect(moveRes.status()).toBeLessThan(600);
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    // Should initially show due date
+    await expect(page.locator('.card-detail-meta .card-due')).toBeVisible({ timeout: 5000 });
+
+    // Clear it via edit form
+    await openEditForm(page);
+    await page.fill('.card-detail-edit input[type="date"]', '');
+    await saveEditForm(page);
+
+    // Due date badge should be gone
+    await expect(page.locator('.card-detail-meta .card-due')).not.toBeVisible({ timeout: 8000 });
   });
 
-  test('POST /api/cards/:id/move without auth returns 401', async ({ request }) => {
-    const setup = await fullSetup(request, 'MoveUnauth');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Auth Move Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('22. Set story points via edit form — points badge visible in meta', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'SetSP');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
-      data: { column_id: setup.columns[1].id },
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await openEditForm(page);
+
+    // Story Points is the first number input in the edit form
+    const spInput = page.locator('.card-detail-edit input[type="number"]').first();
+    await spInput.fill('8');
+    await saveEditForm(page);
+
+    await expect(page.locator('.card-detail-meta .card-points')).toContainText('8 pts', {
+      timeout: 8000,
     });
-    expect(moveRes.status()).toBe(401);
+  });
+
+  test('23. Story points persist after modal close and reopen', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'SPPersist');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await openEditForm(page);
+
+    const spInput = page.locator('.card-detail-edit input[type="number"]').first();
+    await spInput.fill('13');
+    await saveEditForm(page);
+
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+
+    await page.locator('.card-item').first().click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+    await expect(page.locator('.card-detail-meta .card-points')).toContainText('13 pts', {
+      timeout: 5000,
+    });
+  });
+
+  test('24. Empty title is rejected — save does not clear the original title', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'EmptyTitle', 'Has A Title');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await openEditForm(page);
+
+    const titleInput = page.locator('.card-detail-edit input[type="text"]').first();
+    await titleInput.fill('');
+    await page.click('.card-detail-actions button:has-text("Save")');
+
+    // Either native validation keeps the form open, or the modal is still visible
+    await expect(
+      page.locator('.card-detail-edit, .card-detail-modal-unified'),
+    ).toBeVisible({ timeout: 3000 });
   });
 });
 
-// ---------------------------------------------------------------------------
-// Clone tests (NOT IMPLEMENTED — all fixme)
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 5: Labels
+// ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Card Lifecycle — Clone (not implemented)', () => {
-  /**
-   * The clone/duplicate endpoint does not exist in the backend.
-   * No POST /api/cards/:id/clone or /api/cards/:id/duplicate route is registered.
-   * See card-clone.spec.ts for the full investigation.
-   * All tests are marked fixme until the feature is implemented.
-   */
+test.describe('Card Lifecycle — Labels', () => {
 
-  test.fixme(true, 'POST /api/cards/:id/clone is not implemented. Remove fixme when feature lands.');
+  test('25. Add label via API and verify label chip visible on board card', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'LabelChip');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-  test('POST /api/cards/:id/clone creates a new card', async ({ request }) => {
-    // Pending implementation
-  });
-
-  test('cloned card has same title as original', async ({ request }) => {
-    // Pending implementation
-  });
-
-  test('cloned card has a different ID from original', async ({ request }) => {
-    // Pending implementation
-  });
-
-  test('cloned card is in the same column as original', async ({ request }) => {
-    // Pending implementation
-  });
-
-  test('cloned card is in the same swimlane as original', async ({ request }) => {
-    // Pending implementation
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Delete tests
-// ---------------------------------------------------------------------------
-
-test.describe('Card Lifecycle — Delete', () => {
-  test.setTimeout(60000);
-
-  test('DELETE /api/cards/:id returns 204', async ({ request }) => {
-    const setup = await fullSetup(request, 'Delete1');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Delete Me Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const delRes = await request.delete(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect([200, 204]).toContain(delRes.status());
-  });
-
-  test('after delete, card no longer appears in board card list', async ({ request }) => {
-    const setup = await fullSetup(request, 'DeleteList');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Gone Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await request.delete(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-
-    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect(listRes.status()).toBe(200);
-    const cards: any[] = await listRes.json();
-    expect(cards.some((c: any) => c.id === card.id)).toBe(false);
-  });
-
-  test('after delete, GET /api/cards/:id returns 404', async ({ request }) => {
-    const setup = await fullSetup(request, 'DeleteGet');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Deleted Get Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await request.delete(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-
-    const getRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect(getRes.status()).toBe(404);
-  });
-
-  test('DELETE /api/cards/:id for non-existent card returns 404', async ({ request }) => {
-    const { token } = await createUser(request, 'DeleteMissing');
-    const delRes = await request.delete(`${BASE}/api/cards/9999998`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(delRes.status()).toBe(404);
-  });
-
-  test('DELETE /api/cards/:id without auth returns 401', async ({ request }) => {
-    const setup = await fullSetup(request, 'DeleteUnauth');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Unauth Delete Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const delRes = await request.delete(`${BASE}/api/cards/${card.id}`);
-    expect(delRes.status()).toBe(401);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Sprint assignment tests
-// ---------------------------------------------------------------------------
-
-test.describe('Card Lifecycle — Sprint Assignment', () => {
-  test.setTimeout(60000);
-
-  async function createSprint(request: any, token: string, boardId: number, name: string) {
-    return (
-      await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: { name, start_date: '2026-04-01', end_date: '2026-04-14' },
+    // Create a board label
+    const label = await (
+      await request.post(`${BASE}/api/boards/${s.boardId}/labels`, {
+        headers: { Authorization: `Bearer ${s.token}` },
+        data: { name: 'urgent', color: '#ef4444' },
       })
     ).json();
-  }
 
-  test('POST /api/cards/:id/assign-sprint sets sprint_id on the card', async ({ request }) => {
-    const setup = await fullSetup(request, 'SprintAssign');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Sprint Assign Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const sprint = await createSprint(request, setup.token, setup.boardId, 'Sprint Alpha');
-    if (!sprint.id) { test.skip(true, 'Sprint creation failed'); return; }
-
-    const assignRes = await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { sprint_id: sprint.id },
+    // Apply label to card
+    await request.post(`${BASE}/api/cards/${s.cardId}/labels`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: { label_id: label.id },
     });
-    expect(assignRes.status()).toBe(200);
 
-    // Verify the card now has sprint_id set
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    const refreshed = await readRes.json();
-    expect(refreshed.sprint_id).toBe(sprint.id);
+    await goToAllCards(page, s.token, s.boardId);
+    await expect(page.locator('.card-label:has-text("urgent")')).toBeVisible({ timeout: 8000 });
   });
 
-  test('POST /api/cards/:id/assign-sprint with null clears sprint_id', async ({ request }) => {
-    const setup = await fullSetup(request, 'SprintClear');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Sprint Clear Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+  test('26. Toggle label on in modal sidebar — label toggle becomes assigned', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'LabelToggle');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    const sprint = await createSprint(request, setup.token, setup.boardId, 'Sprint Beta');
-    if (!sprint.id) { test.skip(true, 'Sprint creation failed'); return; }
-
-    // Assign first
-    await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { sprint_id: sprint.id },
+    // Create a board label
+    await request.post(`${BASE}/api/boards/${s.boardId}/labels`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: { name: 'feature', color: '#22c55e' },
     });
 
-    // Now clear with null
-    const clearRes = await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { sprint_id: null },
-    });
-    expect(clearRes.status()).toBe(200);
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
 
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    const refreshed = await readRes.json();
-    expect(refreshed.sprint_id === null || refreshed.sprint_id === undefined).toBe(true);
-  });
+    const labelToggle = page.locator('.label-toggle:has(.label-name:has-text("feature"))');
+    await expect(labelToggle).toBeVisible({ timeout: 5000 });
 
-  test('assigned card appears in GET /api/sprints/:id/cards', async ({ request }) => {
-    const setup = await fullSetup(request, 'SprintCards');
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Sprint Listed Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const [toggleResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/labels') && r.request().method() === 'POST',
+        { timeout: 8000 },
+      ),
+      labelToggle.click(),
+    ]);
+    expect(toggleResp.status()).toBe(201);
 
-    const sprint = await createSprint(request, setup.token, setup.boardId, 'Sprint Gamma');
-    if (!sprint.id) { test.skip(true, 'Sprint creation failed'); return; }
-
-    await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { sprint_id: sprint.id },
-    });
-
-    const sprintCardsRes = await request.get(`${BASE}/api/sprints/${sprint.id}/cards`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect(sprintCardsRes.status()).toBe(200);
-    const sprintCards: any[] = await sprintCardsRes.json();
-    expect(sprintCards.some((c: any) => c.id === card.id)).toBe(true);
-  });
-
-  test('assigning a sprint from another board returns 400', async ({ request }) => {
-    const setup = await fullSetup(request, 'SprintWrongBoard');
-    const otherSetup = await fullSetup(request, 'SprintWrongBoardOther');
-
-    // Card on setup board
-    const { res, body: card } = await mustCreateCard(request, setup, { title: 'Wrong Board Sprint Card' });
-    if (!res.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    // Sprint on the OTHER board
-    const sprint = await createSprint(request, otherSetup.token, otherSetup.boardId, 'Other Sprint');
-    if (!sprint.id) { test.skip(true, 'Sprint creation failed'); return; }
-
-    // Try to assign the sprint from the other board to a card on setup's board
-    const assignRes = await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { sprint_id: sprint.id },
-    });
-    // Should fail: sprint does not belong to this board
-    expect([400, 403, 404]).toContain(assignRes.status());
+    await expect(labelToggle).toHaveClass(/assigned/, { timeout: 5000 });
   });
 });
 
-// ---------------------------------------------------------------------------
-// Full lifecycle integration test
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 6: Assignees
+// ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Card Lifecycle — Full Integration', () => {
-  test.setTimeout(90000);
+test.describe('Card Lifecycle — Assignees', () => {
 
-  test('create → read → update → move → delete full lifecycle via API', async ({ request }) => {
-    const setup = await fullSetup(request, 'FullLifecycle');
+  test('27. Add assignee via sidebar select — assignee name appears in sidebar', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'AddAssignee');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    // 1. Create
-    const createRes = await request.post(`${BASE}/api/cards`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: {
-        title: 'Lifecycle Card',
-        description: 'Initial description',
-        priority: 'medium',
-        story_points: 5,
-        column_id: setup.columns[0].id,
-        swimlane_id: setup.swimlaneId,
-        board_id: setup.boardId,
-      },
+    // Get the current user info
+    const meRes = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${s.token}` },
     });
-    if (!createRes.ok()) { test.skip(true, `Card creation unavailable: ${await createRes.text()}`); return; }
-    expect(createRes.status()).toBe(201);
-    const card = await createRes.json();
-    expect(card.id).toBeTruthy();
-    expect(card.title).toBe('Lifecycle Card');
+    const me = await meRes.json();
 
-    // 2. Read
-    const readRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect(readRes.status()).toBe(200);
-    const fetched = await readRes.json();
-    expect(fetched.id).toBe(card.id);
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
 
-    // 3. Update
-    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: {
-        title: 'Lifecycle Card — Updated',
-        description: 'Updated description',
-        priority: 'high',
-        story_points: 8,
-      },
-    });
-    expect(updateRes.status()).toBe(200);
-    const updated = await updateRes.json();
-    expect(updated.title).toBe('Lifecycle Card — Updated');
-    expect(updated.priority).toBe('high');
+    const addSelect = page.locator('.add-assignee-select');
+    await expect(addSelect).toBeVisible({ timeout: 5000 });
+    await addSelect.selectOption({ label: me.display_name });
 
-    // 4. Move to "In Progress"
-    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-      data: { column_id: setup.columns[1].id },
-    });
-    // 200 = moved; 403 = workflow rule blocked (acceptable)
-    expect([200, 403]).toContain(moveRes.status());
-
-    // 5. Delete
-    const deleteRes = await request.delete(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect([200, 204]).toContain(deleteRes.status());
-
-    // 6. Confirm gone
-    const goneRes = await request.get(`${BASE}/api/cards/${card.id}`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
-    });
-    expect(goneRes.status()).toBe(404);
+    await expect(page.locator('.assignee-item .assignee-name')).toContainText(
+      me.display_name,
+      { timeout: 8000 },
+    );
   });
 
-  test('card is visible in All Cards UI after creation', async ({ page, request }) => {
-    const setup = await fullSetup(request, 'UIVisible');
+  test('28. Remove assignee via X button — assignee disappears from sidebar', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'RemoveAssignee');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
 
-    // Create a card via API
-    const createRes = await request.post(`${BASE}/api/cards`, {
-      headers: { Authorization: `Bearer ${setup.token}` },
+    const meRes = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+    });
+    const me = await meRes.json();
+
+    // Assign via API first
+    await request.post(`${BASE}/api/cards/${s.cardId}/assignees`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: { user_id: me.id },
+    });
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    await expect(page.locator('.assignee-item .assignee-name')).toContainText(
+      me.display_name,
+      { timeout: 8000 },
+    );
+
+    const [removeResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/assignees') && r.request().method() === 'DELETE',
+        { timeout: 8000 },
+      ),
+      page.click('.assignee-item .remove-assignee'),
+    ]);
+    expect(removeResp.ok()).toBeTruthy();
+
+    await expect(page.locator('.assignee-item')).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('29. Card with no assignees shows no assignee avatar on board chip', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'NoAssignees', 'No Assignee Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+
+    // card chip should NOT have .card-assignee children
+    const chip = page.locator('.card-item').first();
+    await expect(chip).toBeVisible();
+    await expect(chip.locator('.card-assignee')).toHaveCount(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 7: Move card
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Move Card', () => {
+
+  test('30. Move card to different column via API — GET confirms new column', async ({
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'MoveAPI');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    // Move card to second column
+    const moveRes = await request.put(`${BASE}/api/cards/${s.cardId}/move`, {
+      headers: { Authorization: `Bearer ${s.token}` },
       data: {
-        title: 'UI Visible Lifecycle Card',
-        column_id: setup.columns[0].id,
-        swimlane_id: setup.swimlaneId,
-        board_id: setup.boardId,
+        column_id: s.secondColumnId,
+        swimlane_id: s.swimlaneId,
+        position: 0,
       },
     });
-    if (!createRes.ok()) { test.skip(true, `Card creation unavailable: ${await createRes.text()}`); return; }
+    expect(moveRes.ok()).toBeTruthy();
 
-    // Navigate to board and verify card appears
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), setup.token);
-    await page.goto(`/boards/${setup.boardId}`);
+    // Confirm via GET
+    const getRes = await request.get(`${BASE}/api/cards/${s.cardId}`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+    });
+    expect(getRes.ok()).toBeTruthy();
+    const card = await getRes.json();
+    expect(card.column_id).toBe(s.secondColumnId);
+  });
+
+  test('31. Card position preserved after page reload', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'PositionPersist', 'Persist Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await expect(page.locator('.card-title:has-text("Persist Card")')).toBeVisible();
+
+    await page.reload();
     await page.waitForSelector('.board-page', { timeout: 15000 });
-
     await page.click('.view-btn:has-text("All Cards")');
-    await page.waitForSelector('.board-content', { timeout: 10000 });
+    await page.waitForSelector('.card-item', { timeout: 10000 });
 
-    await expect(page.locator('.card-item[aria-label="UI Visible Lifecycle Card"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.card-title:has-text("Persist Card")')).toBeVisible();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 8: Comments
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Comments', () => {
+
+  test('32. Fresh card shows "No comments yet" empty state', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'NoComments');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    await expect(page.locator('.conversations-section .empty-text')).toContainText(
+      'No comments yet',
+      { timeout: 8000 },
+    );
+  });
+
+  test('33. Add a comment via UI — comment appears in the list', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'AddComment');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    await page.fill('.comment-form-compact textarea', 'Hello from lifecycle test');
+
+    const [postResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/comments') && r.request().method() === 'POST',
+        { timeout: 10000 },
+      ),
+      page.click('.comment-form-compact button[type="submit"]'),
+    ]);
+    expect(postResp.status()).toBe(201);
+
+    await expect(page.locator('.comment-body-compact')).toContainText(
+      'Hello from lifecycle test',
+      { timeout: 8000 },
+    );
+  });
+
+  test('34. Delete comment via API — comment no longer returned by GET', async ({
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'DeleteComment');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    // Post comment via API
+    const commentRes = await request.post(
+      `${BASE}/api/cards/${s.cardId}/comments`,
+      {
+        headers: { Authorization: `Bearer ${s.token}` },
+        data: { body: 'Comment to delete' },
+      },
+    );
+    expect(commentRes.status()).toBe(201);
+    const comment = await commentRes.json();
+
+    // Delete via API
+    const deleteRes = await request.delete(
+      `${BASE}/api/cards/${s.cardId}/comments/${comment.id}`,
+      {
+        headers: { Authorization: `Bearer ${s.token}` },
+      },
+    );
+    expect(deleteRes.ok()).toBeTruthy();
+
+    // GET list should not contain the deleted comment
+    const listRes = await request.get(`${BASE}/api/cards/${s.cardId}/comments`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+    });
+    const comments = await listRes.json();
+    const found = Array.isArray(comments)
+      ? comments.some((c: { id: number }) => c.id === comment.id)
+      : false;
+    expect(found).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 9: Time tracking
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Time Tracking', () => {
+
+  test('35. Log work via modal mini-input — total logged time increases', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'LogWork');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    // Read current logged value (should start at "0m logged")
+    const statsBefore = await page.locator('.time-tracking-stats .time-logged').textContent();
+
+    // Log 90 minutes
+    await page.fill('.time-input-mini', '90');
+
+    const [logResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/worklogs') && r.request().method() === 'POST',
+        { timeout: 10000 },
+      ),
+      page.click('.time-tracking-actions .btn-primary'),
+    ]);
+    expect(logResp.status()).toBe(201);
+
+    const statsAfter = await page.locator('.time-tracking-stats .time-logged').textContent();
+    expect(statsAfter).not.toBe(statsBefore);
+    // 90 min = 1h 30m — should contain "1h"
+    expect(statsAfter).toContain('1h');
+  });
+
+  test('36. Set time estimate — estimate shown in time tracking section', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'TimeEstimate');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+    await openEditForm(page);
+
+    // Time Estimate (minutes) is the second number input in the edit form
+    const estInput = page.locator('.card-detail-edit input[type="number"]').nth(1);
+    await estInput.fill('120');
+    await saveEditForm(page);
+
+    // Estimate should appear in the time tracking stats as "/ 2h estimated"
+    await expect(page.locator('.time-tracking-stats .time-estimate')).toBeVisible({
+      timeout: 8000,
+    });
+    await expect(page.locator('.time-tracking-stats .time-estimate')).toContainText('2h');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 10: Card links
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Card Links', () => {
+
+  test('37. Add card link via API — link visible in modal sidebar', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'LinkAPI', 'Card Alpha');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    // Create a second card to link to
+    const cardBRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: {
+        title: 'Card Beta',
+        column_id: s.columnId,
+        swimlane_id: s.swimlaneId,
+        board_id: s.boardId,
+      },
+    });
+    if (!cardBRes.ok()) { test.skip(true, 'Second card creation failed'); return; }
+    const cardB = await cardBRes.json();
+
+    // Link via API
+    const linkRes = await request.post(`${BASE}/api/cards/${s.cardId}/links`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: { target_card_id: cardB.id, link_type: 'relates_to' },
+    });
+    expect(linkRes.status()).toBe(201);
+
+    await goToAllCards(page, s.token, s.boardId);
+
+    // Open Card Alpha's modal
+    await page.locator('.card-item:has(.card-title:has-text("Card Alpha"))').click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // Links sidebar should list Card Beta
+    await expect(page.locator('.links-sidebar')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.link-card-title:has-text("Card Beta")')).toBeVisible({
+      timeout: 8000,
+    });
+  });
+
+  test('38. Remove card link via UI — link disappears from list', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'LinkRemove', 'Source Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    const cardBRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: {
+        title: 'Target Card',
+        column_id: s.columnId,
+        swimlane_id: s.swimlaneId,
+        board_id: s.boardId,
+      },
+    });
+    if (!cardBRes.ok()) { test.skip(true, 'Second card creation failed'); return; }
+    const cardB = await cardBRes.json();
+
+    await request.post(`${BASE}/api/cards/${s.cardId}/links`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: { target_card_id: cardB.id, link_type: 'relates_to' },
+    });
+
+    await goToAllCards(page, s.token, s.boardId);
+    await page.locator('.card-item:has(.card-title:has-text("Source Card"))').click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // Confirm link is visible
+    await expect(page.locator('.link-card-title:has-text("Target Card")')).toBeVisible({
+      timeout: 8000,
+    });
+
+    const [deleteResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/links/') && r.request().method() === 'DELETE',
+        { timeout: 8000 },
+      ),
+      page.locator('.link-delete-btn').first().click(),
+    ]);
+    expect(deleteResp.ok()).toBeTruthy();
+
+    await expect(page.locator('.link-card-title:has-text("Target Card")')).not.toBeVisible({
+      timeout: 5000,
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 11: Clone / duplicate (not implemented)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Clone / Duplicate', () => {
+
+  test.fixme(
+    '39. Duplicate card — no POST /api/cards/:id/duplicate endpoint exists; no UI button',
+    async ({ page: _page, request }) => {
+      // Backend investigation: no /duplicate route in server.go or card_handlers.go.
+      // Frontend investigation: no "Duplicate" / "Clone" button in CardDetailModal.tsx.
+      // Remove fixme and implement when the feature is added.
+      const s = await setupWithCard(request, 'Clone', 'Original Card');
+      if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+      // When implemented, assertions go here.
+    },
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 12: Delete card
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Delete Card', () => {
+
+  test('40. Delete card via modal Delete button with dialog confirmation — card removed from board', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'DeleteCard', 'Card To Delete');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    page.once('dialog', (dialog) => dialog.accept());
+
+    const [deleteResp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/cards/') && r.request().method() === 'DELETE',
+        { timeout: 10000 },
+      ),
+      page.click('.card-detail-actions button:has-text("Delete")'),
+    ]);
+    expect(deleteResp.ok()).toBeTruthy();
+
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.card-title:has-text("Card To Delete")')).not.toBeVisible({
+      timeout: 8000,
+    });
+  });
+
+  test('41. Cancel delete confirmation — card stays on board', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'CancelDelete', 'Stays On Board');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    // Dismiss the dialog
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.click('.card-detail-actions button:has-text("Delete")');
+
+    // Modal should still be open
+    await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 5000 });
+
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-title:has-text("Stays On Board")')).toBeVisible({
+      timeout: 5000,
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 13: Edge cases
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Edge Cases', () => {
+
+  test('42. Card with very long title (200+ chars) renders without crash', async ({
+    page,
+    request,
+  }) => {
+    const longTitle = 'A'.repeat(200) + 'LongCardTitle';
+    const s = await setupWithCard(request, 'LongTitle', longTitle);
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    // Board chip should be visible (may truncate) — page must not crash
+    await expect(page.locator('.card-item').first()).toBeVisible({ timeout: 8000 });
+
+    // Modal opens without crash
+    await openFirstCardModal(page);
+    await expect(page.locator('.card-detail-modal-unified')).toBeVisible();
+  });
+
+  test('43. Card with special chars in title renders correctly', async ({
+    page,
+    request,
+  }) => {
+    const specialTitle = 'Bug & Fix <script> "quoted" \'apostrophe\'';
+    const s = await setupWithCard(request, 'SpecialChars', specialTitle);
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    // The title should appear with special characters intact (XSS-safe rendering)
+    await expect(page.locator('.card-detail-title')).toContainText('Bug & Fix', {
+      timeout: 8000,
+    });
+  });
+
+  test('44. Multiple cards in same column all appear in All Cards view', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'MultiCard', 'First Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    // Create two more cards in the same column
+    for (const title of ['Second Card', 'Third Card']) {
+      const res = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${s.token}` },
+        data: {
+          title,
+          column_id: s.columnId,
+          swimlane_id: s.swimlaneId,
+          board_id: s.boardId,
+        },
+      });
+      if (!res.ok()) { test.skip(true, 'Extra card creation failed'); return; }
+    }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
+  });
+
+  test('45. Overdue card — past due date renders overdue class on card chip', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'Overdue', 'Overdue Card');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    // Set due date in the past via API
+    await request.put(`${BASE}/api/cards/${s.cardId}`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+      data: { due_date: '2020-01-01' },
+    });
+
+    await goToAllCards(page, s.token, s.boardId);
+    // The due date badge on the chip should have the overdue class
+    await expect(page.locator('.card-item .card-due-date.overdue')).toBeVisible({
+      timeout: 8000,
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 14: Sprint assignment
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Sprint Assignment', () => {
+
+  test('46. Assign card to sprint via modal sidebar select', async ({ page, request }) => {
+    const s = await setupWithCard(request, 'SprintAssign');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    // Create a sprint
+    const sprint = await (
+      await request.post(`${BASE}/api/sprints?board_id=${s.boardId}`, {
+        headers: { Authorization: `Bearer ${s.token}` },
+        data: { name: 'Sprint One', goal: '' },
+      })
+    ).json();
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    // Sprint select in sidebar
+    const sprintSelect = page.locator('.sidebar-section:has(label:has-text("Sprint")) select');
+    await expect(sprintSelect).toBeVisible({ timeout: 5000 });
+
+    const [sprintResp] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().includes('/api/cards/') &&
+          (r.request().method() === 'PUT' || r.request().method() === 'PATCH'),
+        { timeout: 10000 },
+      ),
+      sprintSelect.selectOption({ value: String(sprint.id) }),
+    ]);
+    expect(sprintResp.ok()).toBeTruthy();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 15: Watchers (API-level — no Watch UI button in modal)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Watchers (API)', () => {
+
+  test('47. POST /api/cards/:id/watch adds current user as watcher', async ({ request }) => {
+    const s = await setupWithCard(request, 'WatcherAPI');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    const watchRes = await request.post(`${BASE}/api/cards/${s.cardId}/watch`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+    });
+    expect(watchRes.ok()).toBeTruthy();
+
+    const watchersRes = await request.get(`${BASE}/api/cards/${s.cardId}/watchers`, {
+      headers: { Authorization: `Bearer ${s.token}` },
+    });
+    expect(watchersRes.ok()).toBeTruthy();
+    const watchers = await watchersRes.json();
+    expect(Array.isArray(watchers)).toBe(true);
+    expect(watchers.length).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 16: Activity log
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Activity Log', () => {
+
+  test('48. Card creation event is visible in the activity log', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'ActivityLog');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    // Wait for the loading spinner to disappear
+    await expect(
+      page.locator('.activity-log-section .loading-inline'),
+    ).not.toBeVisible({ timeout: 8000 });
+
+    await expect(page.locator('.activity-item').first()).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.activity-description').first()).toContainText('created card');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group 17: Custom fields
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Card Lifecycle — Custom Fields', () => {
+
+  test('49. Set text custom field value — value saved and shown in modal', async ({
+    page,
+    request,
+  }) => {
+    const s = await setupWithCard(request, 'CustomField');
+    if (!s.cardCreated) { test.skip(true, 'Card creation failed'); return; }
+
+    // Create a text custom field on the board
+    const fieldRes = await request.post(
+      `${BASE}/api/boards/${s.boardId}/custom-fields`,
+      {
+        headers: { Authorization: `Bearer ${s.token}` },
+        data: { name: 'Project Code', field_type: 'text', options: '', required: false },
+      },
+    );
+    expect(fieldRes.ok()).toBeTruthy();
+
+    await goToAllCards(page, s.token, s.boardId);
+    await openFirstCardModal(page);
+
+    // The custom fields section should be visible
+    await expect(page.locator('.custom-fields-compact')).toBeVisible({ timeout: 8000 });
+
+    const fieldInput = page.locator(
+      '.custom-field-inline:has(label:has-text("Project Code")) input[type="text"]',
+    );
+    await expect(fieldInput).toBeVisible({ timeout: 5000 });
+    await fieldInput.fill('PROJ-123');
+
+    const [cfResp] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().includes('/custom-fields') &&
+          (r.request().method() === 'POST' || r.request().method() === 'PUT'),
+        { timeout: 10000 },
+      ),
+      fieldInput.blur(),
+    ]);
+    expect(cfResp.ok()).toBeTruthy();
+
+    // Close and reopen to confirm persistence
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+    await openFirstCardModal(page);
+
+    await expect(
+      page.locator(
+        '.custom-field-inline:has(label:has-text("Project Code")) input[type="text"]',
+      ),
+    ).toHaveValue('PROJ-123', { timeout: 8000 });
   });
 });

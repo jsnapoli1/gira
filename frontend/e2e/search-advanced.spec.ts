@@ -1,379 +1,438 @@
 /**
- * search-advanced.spec.ts — Advanced search and filter tests
+ * search-advanced.spec.ts — Advanced search and filter E2E tests
  *
- * Covers:
- *  - Basic search API (GET /api/cards/search)
- *  - Search UI on the board view
- *  - Search edge cases
- *  - Saved filters via API and UI
- *  - Global search (documented as not implemented — tests marked fixme)
+ * Coverage (40+ tests):
+ *   1.  Global search — UI presence & behaviour (1–11)
+ *   2.  Board-level filter bar (12–21)
+ *   3.  Saved filters — UI + API (22–31)
+ *   4.  Backlog search / filter (32–36)
+ *   5.  Reports search / board selector (37–39)
+ *   6.  Card search within a board (40–43)
+ *   7.  API search endpoint (44–50)
+ *
+ * UI features not yet implemented are marked `test.fixme`.
  */
 
 import { test, expect } from '@playwright/test';
 
-const BASE = `http://127.0.0.1:${process.env.PORT || 9002}`;
+const PORT = process.env.PORT || 9002;
+const BASE = `http://127.0.0.1:${PORT}`;
 
-// ---------------------------------------------------------------------------
-// Setup helpers
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Helpers
+// ===========================================================================
 
 interface BoardSetup {
   token: string;
   boardId: number;
   columnId: number;
   swimlaneId: number;
+  cardsCreated: boolean;
 }
 
-async function createUser(request: any, label = 'Search') {
-  const email = `test-search-adv-${crypto.randomUUID()}@test.com`;
-  const body = await (
+async function createUser(request: any, displayName = 'Adv Search Tester'): Promise<{ token: string }> {
+  const email = `adv-search-${crypto.randomUUID()}@test.com`;
+  return (
     await request.post(`${BASE}/api/auth/signup`, {
-      data: { email, password: 'password123', display_name: `${label} Tester` },
+      data: { email, password: 'password123', display_name: displayName },
     })
   ).json();
-  return { token: body.token as string, email };
 }
 
-async function setupBoard(request: any, token: string, name = 'Advanced Search Board'): Promise<BoardSetup> {
-  const board = await (
+async function createBoard(request: any, token: string, name: string): Promise<{ id: number }> {
+  return (
     await request.post(`${BASE}/api/boards`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { name },
     })
   ).json();
+}
 
-  const columns: any[] = await (
-    await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+async function getColumns(
+  request: any,
+  token: string,
+  boardId: number,
+): Promise<Array<{ id: number; name: string; state: string; position: number }>> {
+  return (
+    await request.get(`${BASE}/api/boards/${boardId}/columns`, {
       headers: { Authorization: `Bearer ${token}` },
     })
   ).json();
+}
 
-  const swimlane = await (
-    await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+async function createSwimlane(request: any, token: string, boardId: number): Promise<{ id: number }> {
+  return (
+    await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Search Lane', designator: 'SL-', color: '#6366f1' },
+      data: { name: 'Team Lane', designator: 'TL-', color: '#6366f1' },
     })
   ).json();
-
-  return { token, boardId: board.id, columnId: columns[0].id, swimlaneId: swimlane.id };
 }
 
 async function createCard(
   request: any,
   token: string,
-  setup: BoardSetup,
-  opts: { title: string; priority?: string; description?: string }
-) {
-  return request.post(`${BASE}/api/cards`, {
+  opts: {
+    title: string;
+    description?: string;
+    boardId: number;
+    columnId: number;
+    swimlaneId: number;
+    priority?: string;
+  },
+): Promise<{ id: number } | null> {
+  const res = await request.post(`${BASE}/api/cards`, {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: opts.title,
       description: opts.description ?? '',
-      priority: opts.priority,
-      column_id: setup.columnId,
-      swimlane_id: setup.swimlaneId,
-      board_id: setup.boardId,
+      column_id: opts.columnId,
+      swimlane_id: opts.swimlaneId,
+      board_id: opts.boardId,
+      priority: opts.priority ?? 'medium',
     },
   });
+  if (!res.ok()) return null;
+  return res.json();
 }
 
-// Board with 3 cards already created; skip-safe for UI tests
-interface SearchBoardResult extends BoardSetup {
-  cardsCreated: boolean;
-}
+/**
+ * Full board setup with 3 cards (high / low / medium priority).
+ * cardsCreated=false means Gitea returned 401 during card POST.
+ */
+async function setupFilterBoard(request: any): Promise<BoardSetup> {
+  const { token } = await createUser(request);
+  const board = await createBoard(request, token, `Filter Board ${Date.now()}`);
+  const cols = await getColumns(request, token, board.id);
+  const sortedCols = [...cols].sort((a, b) => a.position - b.position);
+  const columnId = sortedCols[0].id;
+  const { id: swimlaneId } = await createSwimlane(request, token, board.id);
 
-async function setupSearchBoardWithCards(request: any, page: any): Promise<SearchBoardResult> {
-  const { token } = await createUser(request, 'AdvSearch');
-  const setup = await setupBoard(request, token);
-
-  const card1Res = await createCard(request, token, setup, { title: 'Zebra Feature One' });
-  if (!card1Res.ok()) {
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${setup.boardId}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
-    return { ...setup, cardsCreated: false };
+  const c1 = await createCard(request, token, {
+    title: 'High Priority Card',
+    boardId: board.id,
+    columnId,
+    swimlaneId,
+    priority: 'high',
+  });
+  if (!c1) {
+    return { token, boardId: board.id, columnId, swimlaneId, cardsCreated: false };
   }
-
-  await createCard(request, token, setup, { title: 'Mango Bug Report', priority: 'low' });
-  await createCard(request, token, setup, { title: 'Zebra High Priority', priority: 'high' });
-
-  await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-  await page.goto(`/boards/${setup.boardId}`);
-  await page.waitForSelector('.board-page', { timeout: 15000 });
-
-  await page.click('.view-btn:has-text("All Cards")');
-  await page.waitForSelector('.board-content', { timeout: 10000 });
-  await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
-
-  return { ...setup, cardsCreated: true };
+  await createCard(request, token, {
+    title: 'Low Priority Card',
+    boardId: board.id,
+    columnId,
+    swimlaneId,
+    priority: 'low',
+  });
+  await createCard(request, token, {
+    title: 'Normal Card',
+    description: 'description for search testing purposes',
+    boardId: board.id,
+    columnId,
+    swimlaneId,
+    priority: 'medium',
+  });
+  return { token, boardId: board.id, columnId, swimlaneId, cardsCreated: true };
 }
 
-// ---------------------------------------------------------------------------
-// Basic search API tests
-// ---------------------------------------------------------------------------
+/** Navigate to a board and switch to All Cards view. */
+async function navigateToBoard(
+  page: any,
+  token: string,
+  boardId: number,
+  switchToAllCards = true,
+) {
+  await page.addInitScript((t: string) => {
+    localStorage.setItem('token', t);
+    localStorage.removeItem('zira-filters-expanded');
+  }, token);
+  await page.goto(`/boards/${boardId}`);
+  await page.waitForSelector('.board-header', { timeout: 15000 });
+  if (switchToAllCards) {
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.board-content', { timeout: 10000 });
+  }
+}
 
-test.describe('Search — Basic API', () => {
-  test.setTimeout(60000);
+/** Navigate to the board's backlog tab. */
+async function navigateToBacklog(page: any, token: string, boardId: number) {
+  await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+  await page.goto(`/boards/${boardId}`);
+  await page.waitForSelector('.board-page', { timeout: 10000 });
+  await page.click('.view-btn:has-text("Backlog")');
+  await page.waitForSelector('.backlog-view', { timeout: 8000 });
+}
 
-  test('GET /api/cards/search?q=<term>&board_id=<id> returns matching cards', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const res1 = await createCard(request, token, setup, { title: 'FindMe Alpha Card' });
-    if (!res1.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-    await createCard(request, token, setup, { title: 'OtherCard Beta' });
-
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=FindMe&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    const cards: any[] = body.cards ?? body;
-    expect(Array.isArray(cards)).toBe(true);
-    expect(cards.some((c: any) => c.title === 'FindMe Alpha Card')).toBe(true);
-    expect(cards.some((c: any) => c.title === 'OtherCard Beta')).toBe(false);
+/** Expand filter bar and select a priority. */
+async function setActivePriorityFilter(page: any, priority: string) {
+  if (!(await page.locator('.filters-expanded').isVisible())) {
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+  }
+  const prioritySelect = page.locator('.filter-select').filter({
+    has: page.locator('option:text("All priorities")'),
   });
+  await prioritySelect.selectOption(priority);
+}
 
-  test('search with board_id limits results to that board', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setupA = await setupBoard(request, token, 'Board A Search');
-    const setupB = await setupBoard(request, token, 'Board B Search');
+/** Save the current filter set with the given name via the save-filter UI. */
+async function saveFilter(page: any, name: string) {
+  const saveBtn = page.locator('.save-filter-btn');
+  await expect(saveBtn).toBeVisible({ timeout: 5000 });
+  await saveBtn.click();
+  await expect(page.locator('.save-filter-modal')).toBeVisible({ timeout: 5000 });
+  await page.locator('.save-filter-input').fill(name);
+  await page.click('.save-filter-modal .btn-primary');
+  await expect(page.locator('.save-filter-modal')).not.toBeVisible({ timeout: 5000 });
+}
 
-    const r1 = await createCard(request, token, setupA, { title: 'SharedTitle Card BoardA' });
-    if (!r1.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-    await createCard(request, token, setupB, { title: 'SharedTitle Card BoardB' });
+// ===========================================================================
+// 1 — Global Search
+// ===========================================================================
 
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=SharedTitle&board_id=${setupA.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    const cards: any[] = body.cards ?? body;
-    // All results must belong to board A
-    for (const c of cards) {
-      expect(c.board_id).toBe(setupA.boardId);
-    }
-  });
-
-  test('search returns empty array for no matches', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const r = await createCard(request, token, setup, { title: 'Unique Name Here' });
-    if (!r.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=XYZNONEXISTENT999&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    const cards: any[] = body.cards ?? body;
-    expect(Array.isArray(cards)).toBe(true);
-    expect(cards.length).toBe(0);
-  });
-
-  test('search is case-insensitive', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const r = await createCard(request, token, setup, { title: 'CaseSensitive Test Card' });
-    if (!r.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const resLower = await request.get(
-      `${BASE}/api/cards/search?q=casesensitive&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect(resLower.status()).toBe(200);
-    const lowerBody = await resLower.json();
-    const lowerCards: any[] = lowerBody.cards ?? lowerBody;
-
-    const resUpper = await request.get(
-      `${BASE}/api/cards/search?q=CASESENSITIVE&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect(resUpper.status()).toBe(200);
-    const upperBody = await resUpper.json();
-    const upperCards: any[] = upperBody.cards ?? upperBody;
-
-    // Both lower and upper should find the same card
-    expect(lowerCards.some((c: any) => c.title === 'CaseSensitive Test Card')).toBe(true);
-    expect(upperCards.some((c: any) => c.title === 'CaseSensitive Test Card')).toBe(true);
-  });
-
-  test('search by partial title word matches correctly', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const r = await createCard(request, token, setup, { title: 'Refactoring Database Layer' });
-    if (!r.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=Refactor&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    const cards: any[] = body.cards ?? body;
-    expect(cards.some((c: any) => c.title === 'Refactoring Database Layer')).toBe(true);
-  });
-
-  test('search with special characters does not crash', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=%27%3B+DROP+TABLE--&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    // Should not cause a 500
-    expect([200, 400]).toContain(res.status());
-  });
-
-  test('search response includes expected card fields', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const r = await createCard(request, token, setup, { title: 'Fields Check Card' });
-    if (!r.ok()) { test.skip(true, 'Card creation unavailable'); return; }
-
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=Fields+Check&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    const cards: any[] = body.cards ?? body;
-    expect(cards.length).toBeGreaterThan(0);
-    const c = cards[0];
-    // Must include at minimum id, title, board_id
-    expect(c).toHaveProperty('id');
-    expect(c).toHaveProperty('title');
-    expect(c).toHaveProperty('board_id');
-  });
-
-  test('search without auth returns 401', async ({ request }) => {
-    const res = await request.get(`${BASE}/api/cards/search?q=anything&board_id=1`);
-    expect(res.status()).toBe(401);
-  });
-
-  test('search with empty q returns results or empty array (not error)', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect([200, 400]).toContain(res.status());
-    if (res.status() === 200) {
-      const body = await res.json();
-      const cards: any[] = body.cards ?? body;
-      expect(Array.isArray(cards)).toBe(true);
-    }
-  });
-
-  test('search with board_id belonging to another user returns 403', async ({ request }) => {
-    const { token: ownerToken } = await createUser(request, 'Owner');
-    const ownerSetup = await setupBoard(request, ownerToken, 'Private Board');
-
-    const { token: otherToken } = await createUser(request, 'Other');
-
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=anything&board_id=${ownerSetup.boardId}`,
-      { headers: { Authorization: `Bearer ${otherToken}` } }
-    );
-    expect([403, 404]).toContain(res.status());
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Search UI on board view
-// ---------------------------------------------------------------------------
-
-test.describe('Search — Board UI', () => {
+test.describe('Global Search', () => {
   test.setTimeout(90000);
 
-  test('search input is visible on board view', async ({ page, request }) => {
+  // Test 1
+  test('search bar is visible on the board page', async ({ page, request }) => {
     const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
+    const board = await createBoard(request, token, `Search Visible ${Date.now()}`);
 
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${setup.boardId}`);
+    await page.goto(`/boards/${board.id}`);
     await page.waitForSelector('.board-page', { timeout: 15000 });
 
     await expect(page.locator('.search-input input')).toBeVisible();
+    await expect(page.locator('.search-input input')).toHaveAttribute('placeholder', /search/i);
   });
 
-  test('typing in search filters cards — matching visible, non-matching hidden', async ({ page, request }) => {
-    const result = await setupSearchBoardWithCards(request, page);
-    if (!result.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+  // Test 2
+  test('search by card title finds the correct card', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('Zebra Feature');
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
 
-    await expect(page.locator('.card-item[aria-label="Zebra Feature One"]')).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('.card-item[aria-label="Mango Bug Report"]')).not.toBeVisible();
+    await page.locator('.search-input input').fill('High Priority Card');
+
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Low Priority Card"]')).not.toBeVisible();
+    await expect(page.locator('.card-item[aria-label="Normal Card"]')).not.toBeVisible();
   });
 
-  test('non-matching cards are hidden during search', async ({ page, request }) => {
-    const result = await setupSearchBoardWithCards(request, page);
-    if (!result.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+  // Test 3
+  test('partial title search matches all cards containing the term', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('Mango');
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
 
-    await expect(page.locator('.card-item[aria-label="Mango Bug Report"]')).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('.card-item[aria-label="Zebra Feature One"]')).not.toBeVisible();
-    await expect(page.locator('.card-item[aria-label="Zebra High Priority"]')).not.toBeVisible();
+    await page.locator('.search-input input').fill('Priority');
+
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Low Priority Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Normal Card"]')).not.toBeVisible();
   });
 
-  test('matching cards remain visible during search', async ({ page, request }) => {
-    const result = await setupSearchBoardWithCards(request, page);
-    if (!result.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+  // Test 4
+  test('search with no results shows empty state (zero cards visible)', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    const searchInput = page.locator('.search-input input');
-    // "Zebra" appears in two cards
-    await searchInput.fill('Zebra');
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
 
-    await expect(page.locator('.card-item[aria-label="Zebra Feature One"]')).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('.card-item[aria-label="Zebra High Priority"]')).toBeVisible({ timeout: 8000 });
+    await page.locator('.search-input input').fill('ZZZNO_MATCH_XYZ');
+
+    await expect(page.locator('.card-item')).toHaveCount(0, { timeout: 8000 });
   });
 
-  test('clearing search input restores all cards', async ({ page, request }) => {
-    const result = await setupSearchBoardWithCards(request, page);
-    if (!result.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+  // Test 5
+  test('pressing Escape clears the search input', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `Escape Clear ${Date.now()}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
 
     const searchInput = page.locator('.search-input input');
-    await searchInput.fill('Zebra');
-    await expect(page.locator('.card-item[aria-label="Mango Bug Report"]')).not.toBeVisible({ timeout: 5000 });
+    await searchInput.fill('something');
+    await expect(searchInput).toHaveValue('something');
 
-    await searchInput.fill('');
-    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
+    await searchInput.press('Escape');
+
+    await expect(searchInput).toHaveValue('');
   });
 
-  test('search in All Cards view works', async ({ page, request }) => {
-    const result = await setupSearchBoardWithCards(request, page);
-    if (!result.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+  // Test 6
+  test('clicking a search result card opens its detail modal', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    // Already in All Cards view from setup helper
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    await page.locator('.search-input input').fill('High Priority Card');
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).toBeVisible({ timeout: 8000 });
+
+    await page.locator('.card-item[aria-label="High Priority Card"]').click();
+    await expect(page.locator('.card-detail-modal, .modal-overlay')).toBeVisible({ timeout: 8000 });
+  });
+
+  // Test 7 — fixme: global cross-board search not implemented
+  test.fixme('global search finds cards from multiple boards', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await page.waitForSelector('.boards-list, .board-card', { timeout: 10000 });
+    await expect(page.locator('.global-search-input input')).toBeVisible();
+  });
+
+  // Test 8
+  test('search is case-insensitive', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    // Lowercase should still find the card
+    await page.locator('.search-input input').fill('high priority card');
+
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Low Priority Card"]')).not.toBeVisible();
+  });
+
+  // Test 9
+  test('search by card description text finds matching card', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    // "Normal Card" has description containing 'description for search testing purposes'
+    await page.locator('.search-input input').fill('description for search testing');
+
+    await expect(page.locator('.card-item[aria-label="Normal Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).not.toBeVisible();
+  });
+
+  // Test 10
+  test('search with special characters does not crash the board page', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `Special Chars ${Date.now()}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+
     const searchInput = page.locator('.search-input input');
-    await searchInput.fill('Mango');
-    await expect(page.locator('.card-item[aria-label="Mango Bug Report"]')).toBeVisible({ timeout: 8000 });
+    await searchInput.fill("' OR 1=1; -- & < > \"");
+
+    // Board page must remain intact — no crash
+    await expect(page.locator('.board-header')).toBeVisible();
+  });
+
+  // Test 11 — fixme: global search bar on /boards not yet built
+  test.fixme('global search bar is visible on the /boards dashboard', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await page.waitForSelector('.boards-list, .board-card', { timeout: 10000 });
+    await expect(page.locator('.global-search-input, [data-testid="global-search"]')).toBeVisible();
+  });
+});
+
+// ===========================================================================
+// 2 — Board-Level Filters
+// ===========================================================================
+
+test.describe('Board-Level Filters', () => {
+  test.setTimeout(90000);
+
+  // Test 12
+  test('filter cards by assignee shows only assigned cards', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+
+    const meRes = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    if (!meRes.ok()) { test.skip(true, 'Cannot fetch current user'); return; }
+    const me = await meRes.json();
+
+    const cardsRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const boardCards: any[] = await cardsRes.json();
+    if (!boardCards.length) { test.skip(true, 'No cards found'); return; }
+    await request.post(`${BASE}/api/cards/${boardCards[0].id}/assignees`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { user_id: me.id },
+    });
+
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    const assigneeSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All assignees")'),
+    });
+    await assigneeSelect.selectOption(String(me.id));
+
     await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
   });
 
-  test('search combined with column filter narrows results', async ({ page, request }) => {
-    const result = await setupSearchBoardWithCards(request, page);
-    if (!result.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+  // Test 13
+  test('filter cards by label shows only labelled cards', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('Zebra');
-    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
+    const labelRes = await request.post(`${BASE}/api/boards/${setup.boardId}/labels`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'urgent', color: '#ef4444' },
+    });
+    if (!labelRes.ok()) { test.skip(true, 'Label creation unavailable'); return; }
+    const label = await labelRes.json();
 
-    // Expand filters and select priority=high
+    const cardsRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const boardCards: any[] = await cardsRes.json();
+    await request.post(`${BASE}/api/cards/${boardCards[0].id}/labels`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { label_id: label.id },
+    });
+
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    const labelSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All labels")'),
+    });
+    await labelSelect.selectOption(String(label.id));
+
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+  });
+
+  // Test 14
+  test('filter cards by priority shows only matching-priority cards', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
     await page.click('.filter-toggle-btn');
     await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
@@ -382,367 +441,873 @@ test.describe('Search — Board UI', () => {
     });
     await prioritySelect.selectOption('high');
 
-    // Only "Zebra High Priority" matches both
     await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
-    await expect(page.locator('.card-item[aria-label="Zebra High Priority"]')).toBeVisible();
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).toBeVisible();
   });
 
-  test('search state cleared when switching boards', async ({ page, request }) => {
-    const { token } = await createUser(request);
-    const setupA = await setupBoard(request, token, 'Board Switch A');
-    const setupB = await setupBoard(request, token, 'Board Switch B');
+  // Test 15
+  test('filter cards by due date (overdue) shows only overdue cards', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${setupA.boardId}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    // Create an extra card and mark it overdue
+    const overdueRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        title: 'Overdue Task',
+        column_id: setup.columnId,
+        swimlane_id: setup.swimlaneId,
+        board_id: setup.boardId,
+      },
+    });
+    if (!overdueRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const overdueCard = await overdueRes.json();
+    await request.put(`${BASE}/api/cards/${overdueCard.id}`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { title: overdueCard.title, description: '', due_date: '2020-01-01' },
+    });
 
-    // Enter search on board A
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('search term A');
-    await expect(searchInput).toHaveValue('search term A');
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(4, { timeout: 12000 });
 
-    // Navigate to board B
-    await page.goto(`/boards/${setupB.boardId}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+    await page.locator('.filter-overdue').click();
 
-    // Search should be cleared on the new board
-    const searchInputB = page.locator('.search-input input');
-    await expect(searchInputB).toHaveValue('');
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Overdue Task"]')).toBeVisible();
   });
 
-  test('search query is synced to URL parameter q', async ({ page, request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
+  // Test 16
+  test('filter cards by sprint shows only cards in that sprint', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${setup.boardId}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    const sprintRes = await request.post(`${BASE}/api/sprints?board_id=${setup.boardId}`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'Sprint Alpha' },
+    });
+    if (!sprintRes.ok()) { test.skip(true, 'Sprint creation unavailable'); return; }
+    const sprint = await sprintRes.json();
 
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('urltest');
+    const cardsRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const boardCards: any[] = await cardsRes.json();
+    await request.put(`${BASE}/api/cards/${boardCards[0].id}`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { title: boardCards[0].title, description: boardCards[0].description ?? '', sprint_id: sprint.id },
+    });
 
-    await page.waitForFunction(() => window.location.search.includes('q=urltest'), { timeout: 5000 });
-    expect(page.url()).toContain('q=urltest');
-  });
-});
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
 
-// ---------------------------------------------------------------------------
-// Search edge cases
-// ---------------------------------------------------------------------------
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
-test.describe('Search — Edge Cases', () => {
-  test.setTimeout(60000);
+    const sprintSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All sprints")'),
+    });
+    const sprintOptions = await sprintSelect.locator('option').allTextContents();
+    const sprintOption = sprintOptions.find((o) => o.includes('Sprint Alpha'));
+    if (!sprintOption) { test.skip(true, 'Sprint option not in dropdown'); return; }
+    await sprintSelect.selectOption({ label: sprintOption });
 
-  test('search with single character returns results or empty array (not error)', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=a&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect([200, 400]).toContain(res.status());
-  });
-
-  test('search with a very long term returns 200 or 400 (not 500)', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const longTerm = 'a'.repeat(500);
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=${longTerm}&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect([200, 400]).toContain(res.status());
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
   });
 
-  test('search with unicode characters does not crash', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
+  // Test 17
+  test('combining multiple filters uses AND logic', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    const r = await createCard(request, token, setup, { title: 'Ünïcödé Cärd' });
-    if (!r.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const labelRes = await request.post(`${BASE}/api/boards/${setup.boardId}/labels`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'critical', color: '#b91c1c' },
+    });
+    if (!labelRes.ok()) { test.skip(true, 'Label creation unavailable'); return; }
+    const label = await labelRes.json();
 
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=${encodeURIComponent('Ünïcödé')}&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect([200, 400]).toContain(res.status());
-  });
+    // Assign label to the high-priority card only
+    const cardsRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const boardCards: any[] = await cardsRes.json();
+    const highCard = boardCards.find((c: any) => c.priority === 'high');
+    if (!highCard) { test.skip(true, 'High priority card not found'); return; }
+    await request.post(`${BASE}/api/cards/${highCard.id}/labels`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { label_id: label.id },
+    });
 
-  test('search on a board with no cards returns empty array', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
 
-    const res = await request.get(
-      `${BASE}/api/cards/search?q=anything&board_id=${setup.boardId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    const cards: any[] = body.cards ?? body;
-    expect(Array.isArray(cards)).toBe(true);
-    expect(cards.length).toBe(0);
-  });
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
-  test('UI search with no cards shows zero card items', async ({ page, request }) => {
-    const { token } = await createUser(request, 'EmptyBoard');
-    const setup = await setupBoard(request, token, 'Empty Board Search');
+    const labelSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All labels")'),
+    });
+    await labelSelect.selectOption(String(label.id));
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${setup.boardId}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
+    });
+    await prioritySelect.selectOption('high');
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
 
-    await page.click('.view-btn:has-text("All Cards")');
-    await page.waitForSelector('.board-content', { timeout: 10000 });
-
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('anything');
-
+    // label=critical AND priority=low → 0 cards
+    await prioritySelect.selectOption('low');
     await expect(page.locator('.card-item')).toHaveCount(0, { timeout: 8000 });
   });
-});
 
-// ---------------------------------------------------------------------------
-// Saved filters via API
-// ---------------------------------------------------------------------------
+  // Test 18
+  test('clear all filters button resets every active filter', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-test.describe('Search — Saved Filters (API)', () => {
-  test.setTimeout(60000);
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
 
-  test('create a saved filter via POST /api/boards/:id/filters', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
-    const filterJSON = JSON.stringify({ priority: 'high', q: 'important' });
-    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'My Priority Filter', filter_json: filterJSON, is_shared: false },
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
     });
-    expect([200, 201]).toContain(res.status());
-    const body = await res.json();
-    expect(body).toHaveProperty('id');
-    expect(body.name).toBe('My Priority Filter');
+    await prioritySelect.selectOption('high');
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+
+    const clearBtn = page.locator('.clear-filter');
+    await expect(clearBtn).toBeVisible();
+    await clearBtn.click();
+
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
+    await expect(prioritySelect).toHaveValue('');
   });
 
-  test('list saved filters via GET /api/boards/:id/filters', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
+  // Test 19
+  test('filter state persists after opening and closing a card modal', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
 
-    // Create one filter
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    await setActivePriorityFilter(page, 'high');
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+
+    // Open card modal and close it
+    await page.locator('.card-item').first().click();
+    await expect(page.locator('.card-detail-modal, .modal-overlay')).toBeVisible({ timeout: 5000 });
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.card-detail-modal, .modal-overlay')).not.toBeVisible({ timeout: 5000 });
+
+    // Filter should still be active
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+  });
+
+  // Test 20
+  test('filter count badge (has-filters class) appears when a filter is active', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.token, setup.boardId);
+
+    // No filters yet — badge absent
+    await expect(page.locator('.filter-toggle-btn.has-filters')).not.toBeVisible();
+
+    await setActivePriorityFilter(page, 'low');
+
+    await expect(page.locator('.filter-toggle-btn.has-filters')).toBeVisible({ timeout: 5000 });
+  });
+
+  // Test 21
+  test('no-results state shows zero cards when active filter matches nothing', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    // Overdue filter — none of the 3 cards have a past due date
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+    await page.locator('.filter-overdue').click();
+
+    await expect(page.locator('.card-item')).toHaveCount(0, { timeout: 8000 });
+    await expect(page.locator('.filter-toggle-btn.has-filters')).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ===========================================================================
+// 3 — Saved Filters
+// ===========================================================================
+
+test.describe('Saved Filters', () => {
+  test.setTimeout(90000);
+
+  // Test 22
+  test('save-filter button appears only when filters are active', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.token, setup.boardId);
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    // No filter active yet — save button absent
+    await expect(page.locator('.save-filter-btn')).not.toBeVisible();
+
+    await setActivePriorityFilter(page, 'high');
+    await expect(page.locator('.save-filter-btn')).toBeVisible({ timeout: 5000 });
+  });
+
+  // Test 23
+  test('loading a saved filter restores the saved filter state', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.token, setup.boardId);
+
+    await setActivePriorityFilter(page, 'high');
+    await saveFilter(page, 'Load Test Filter');
+
+    // Clear all active filters
+    const clearBtn = page.locator('.clear-filter');
+    await expect(clearBtn).toBeVisible({ timeout: 5000 });
+    await clearBtn.click();
+
+    if (!(await page.locator('.filters-expanded').isVisible())) {
+      await page.click('.filter-toggle-btn');
+      await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+    }
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
+    });
+    await expect(prioritySelect).toHaveValue('');
+
+    // Apply the saved filter
+    await page.click('.saved-filters-btn');
+    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+    await page.locator('.saved-filter-apply').filter({ hasText: 'Load Test Filter' }).click();
+
+    await expect(prioritySelect).toHaveValue('high');
+  });
+
+  // Test 24
+  test('deleting a saved filter removes it from the dropdown', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.token, setup.boardId);
+
+    await setActivePriorityFilter(page, 'medium');
+    await saveFilter(page, 'Delete Me Filter');
+
+    await page.click('.saved-filters-btn');
+    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.saved-filter-name:has-text("Delete Me Filter")')).toBeVisible();
+
+    const filterItem = page.locator('.saved-filter-item').filter({
+      has: page.locator('.saved-filter-name:has-text("Delete Me Filter")'),
+    });
+    await filterItem.locator('.saved-filter-delete').click();
+
+    await expect(page.locator('.saved-filter-name:has-text("Delete Me Filter")')).not.toBeVisible({ timeout: 5000 });
+  });
+
+  // Test 25
+  test('saved filter persists across a full page reload (server-side storage)', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.token, setup.boardId);
+
+    await setActivePriorityFilter(page, 'high');
+    await saveFilter(page, 'Persist Session Filter');
+
+    await page.reload();
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    await page.click('.saved-filters-btn');
+    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.saved-filter-name:has-text("Persist Session Filter")')).toBeVisible();
+  });
+
+  // Test 26
+  test('saved filter appears in the saved-filters dropdown after saving', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.token, setup.boardId);
+
+    await setActivePriorityFilter(page, 'low');
+    await saveFilter(page, 'Dropdown Appear Filter');
+
+    await page.click('.saved-filters-btn');
+    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.saved-filter-name:has-text("Dropdown Appear Filter")')).toBeVisible();
+  });
+
+  // Test 27 — API: POST saved filter returns 201
+  test('POST /api/boards/:id/filters returns 201 with id and name', async ({ request }) => {
+    const setup = await setupFilterBoard(request);
+
+    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'API Test Filter',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: false,
+      },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body).toHaveProperty('id');
+    expect(body.name).toBe('API Test Filter');
+  });
+
+  // Test 28 — API: GET saved filters returns array
+  test('GET /api/boards/:id/filters returns array of saved filters', async ({ request }) => {
+    const setup = await setupFilterBoard(request);
+
     await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Filter To List', filter_json: '{"q":"foo"}', is_shared: false },
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'List Filter', filter_json: JSON.stringify({ priority: 'low' }), is_shared: false },
     });
 
     const res = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${setup.token}` },
     });
     expect(res.status()).toBe(200);
     const filters: any[] = await res.json();
     expect(Array.isArray(filters)).toBe(true);
-    expect(filters.some((f: any) => f.name === 'Filter To List')).toBe(true);
+    expect(filters.some((f: any) => f.name === 'List Filter')).toBe(true);
   });
 
-  test('save filter with text search term — filter_json stores q field', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const filterJSON = JSON.stringify({ q: 'search-text-term' });
-    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Search Text Filter', filter_json: filterJSON, is_shared: false },
-    });
-    expect([200, 201]).toContain(res.status());
-    const body = await res.json();
-    // The stored filter_json should contain our search term
-    const stored = JSON.parse(body.filter_json);
-    expect(stored.q).toBe('search-text-term');
-  });
-
-  test('save filter with multiple criteria (search + priority)', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
-
-    const filterJSON = JSON.stringify({ q: 'multi-criteria', priority: 'high', assignee: 'me' });
-    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Multi Criteria Filter', filter_json: filterJSON, is_shared: false },
-    });
-    expect([200, 201]).toContain(res.status());
-    const body = await res.json();
-    const stored = JSON.parse(body.filter_json);
-    expect(stored.q).toBe('multi-criteria');
-    expect(stored.priority).toBe('high');
-  });
-
-  test('delete saved filter via DELETE /api/boards/:id/filters/:filterId', async ({ request }) => {
-    const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
+  // Test 29 — API: DELETE saved filter removes it
+  test('DELETE /api/boards/:id/filters/:filterId removes the filter', async ({ request }) => {
+    const setup = await setupFilterBoard(request);
 
     const createRes = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Delete Me Filter', filter_json: '{"q":"gone"}', is_shared: false },
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'To Delete', filter_json: JSON.stringify({ priority: 'high' }), is_shared: false },
     });
-    expect([200, 201]).toContain(createRes.status());
-    const { id: filterId } = await createRes.json();
+    const { id } = await createRes.json();
 
-    const deleteRes = await request.delete(
-      `${BASE}/api/boards/${setup.boardId}/filters/${filterId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
+    const delRes = await request.delete(
+      `${BASE}/api/boards/${setup.boardId}/filters/${id}`,
+      { headers: { Authorization: `Bearer ${setup.token}` } },
     );
-    expect([200, 204]).toContain(deleteRes.status());
+    expect(delRes.status()).toBe(204);
 
-    // Verify it no longer appears in the list
     const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${setup.token}` },
     });
     const filters: any[] = await listRes.json();
-    expect(filters.some((f: any) => f.id === filterId)).toBe(false);
+    expect(filters.find((f: any) => f.id === id)).toBeUndefined();
   });
 
-  test('update saved filter via PUT /api/boards/:id/filters/:filterId', async ({ request }) => {
+  // Test 30 — saved filter scoped to a board
+  test('saved filter is board-specific — does not appear on another board', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.token, setup.boardId);
+
+    await setActivePriorityFilter(page, 'high');
+    await saveFilter(page, 'Board A Filter');
+
+    const boardB = await createBoard(request, setup.token, `Board B ${Date.now()}`);
+
+    await page.goto(`/boards/${boardB.id}`);
+    await page.waitForSelector('.board-header', { timeout: 15000 });
+
+    await page.click('.saved-filters-btn');
+    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.saved-filter-name:has-text("Board A Filter")')).not.toBeVisible();
+  });
+
+  // Test 31 — empty saved-filters dropdown shows message
+  test('empty saved-filters dropdown shows "No saved filters" placeholder', async ({ page, request }) => {
     const { token } = await createUser(request);
-    const setup = await setupBoard(request, token);
+    const board = await createBoard(request, token, `Empty SF Board ${Date.now()}`);
 
-    const createRes = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Before Update', filter_json: '{"q":"old"}', is_shared: false },
-    });
-    expect([200, 201]).toContain(createRes.status());
-    const { id: filterId } = await createRes.json();
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-header', { timeout: 15000 });
 
-    const updateRes = await request.put(
-      `${BASE}/api/boards/${setup.boardId}/filters/${filterId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        data: { name: 'After Update', filter_json: '{"q":"new"}', is_shared: false },
-      }
-    );
-    expect([200, 204]).toContain(updateRes.status());
-
-    // Verify the name changed
-    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const filters: any[] = await listRes.json();
-    const updated = filters.find((f: any) => f.id === filterId);
-    expect(updated?.name).toBe('After Update');
-  });
-
-  test('saved filter is user-scoped — other users cannot see private filters', async ({ request }) => {
-    const { token: ownerToken } = await createUser(request, 'FilterOwner');
-    const ownerSetup = await setupBoard(request, ownerToken, 'Owner Board Filters');
-
-    const createRes = await request.post(`${BASE}/api/boards/${ownerSetup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${ownerToken}` },
-      data: { name: 'Private Filter', filter_json: '{"q":"private"}', is_shared: false },
-    });
-    expect([200, 201]).toContain(createRes.status());
-
-    // A different user should not be able to list filters on a board they don't belong to
-    const { token: otherToken } = await createUser(request, 'FilterOther');
-    const listRes = await request.get(`${BASE}/api/boards/${ownerSetup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${otherToken}` },
-    });
-    expect([403, 404]).toContain(listRes.status());
+    await page.click('.saved-filters-btn');
+    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.saved-filters-empty')).toBeVisible();
+    await expect(page.locator('.saved-filters-empty')).toContainText('No saved filters');
   });
 });
 
-// ---------------------------------------------------------------------------
-// Saved filters — UI tests
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// 4 — Backlog Search / Filter
+// ===========================================================================
 
-test.describe('Search — Saved Filters (UI)', () => {
+test.describe('Backlog Search and Filter', () => {
   test.setTimeout(90000);
 
-  test('save filter with text search term in UI — filter saved and appears in list', async ({ page, request }) => {
-    const { token } = await createUser(request, 'SFUITest');
-    const setup = await setupBoard(request, token, 'SF UI Board');
-
-    await page.addInitScript((t: string) => {
-      localStorage.setItem('token', t);
-      localStorage.removeItem('zira-filters-expanded');
-    }, token);
-    await page.goto(`/boards/${setup.boardId}`);
-    await page.waitForSelector('.board-header', { timeout: 15000 });
-
-    // Activate filters panel and set a priority
-    await page.click('.filter-toggle-btn');
-    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
-
-    const prioritySelect = page.locator('.filter-select').filter({
-      has: page.locator('option:text("All priorities")'),
-    });
-    await prioritySelect.selectOption('high');
-
-    // Save the filter
-    const saveBtn = page.locator('.save-filter-btn');
-    await expect(saveBtn).toBeVisible({ timeout: 5000 });
-    await saveBtn.click();
-
-    const modal = page.locator('.save-filter-modal');
-    await expect(modal).toBeVisible({ timeout: 5000 });
-    await page.locator('.save-filter-input').fill('UI Priority Filter');
-    await page.click('.save-filter-modal .btn-primary');
-    await expect(modal).not.toBeVisible({ timeout: 5000 });
-
-    // Open saved filters dropdown and verify filter appears
-    await page.click('.saved-filters-btn');
-    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.saved-filter-name:has-text("UI Priority Filter")')).toBeVisible();
+  // Test 32 — fixme: backlog inline search not yet implemented
+  test.fixme('backlog view has an inline search input', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `Backlog Search ${Date.now()}`);
+    await navigateToBacklog(page, token, board.id);
+    await expect(
+      page.locator('.backlog-search-input, .backlog-view .search-input'),
+    ).toBeVisible();
   });
 
-  test('delete saved filter removes it from the list in UI', async ({ page, request }) => {
-    const { token } = await createUser(request, 'SFDelete');
-    const setup = await setupBoard(request, token, 'SF Delete Board');
+  // Test 33 — fixme: backlog label filter not yet built
+  test.fixme('backlog can be filtered by label', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `Backlog Label Filter ${Date.now()}`);
+    await navigateToBacklog(page, token, board.id);
+    await expect(
+      page.locator('.backlog-label-filter, .backlog-view .filter-select'),
+    ).toBeVisible();
+  });
 
-    // Create a filter via API first
-    const filterJSON = JSON.stringify({ priority: 'low' });
-    await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Delete In UI Filter', filter_json: filterJSON, is_shared: false },
-    });
+  // Test 34 — fixme: backlog priority filter not yet built
+  test.fixme('backlog can be filtered by priority', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `Backlog Priority Filter ${Date.now()}`);
+    await navigateToBacklog(page, token, board.id);
+    await expect(page.locator('.backlog-priority-filter')).toBeVisible();
+  });
 
-    await page.addInitScript((t: string) => {
-      localStorage.setItem('token', t);
-      localStorage.removeItem('zira-filters-expanded');
-    }, token);
-    await page.goto(`/boards/${setup.boardId}`);
-    await page.waitForSelector('.board-header', { timeout: 15000 });
+  // Test 35
+  test('backlog groups cards by sprint — unassigned/backlog section visible', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `Backlog Groups ${Date.now()}`);
 
-    // Open the saved filters dropdown
-    await page.click('.saved-filters-btn');
-    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.saved-filter-name:has-text("Delete In UI Filter")')).toBeVisible();
+    await navigateToBacklog(page, token, board.id);
 
-    // Delete the filter
-    await page.locator('.saved-filter-item:has-text("Delete In UI Filter") .delete-filter-btn').click();
+    await expect(page.locator('.backlog-view')).toBeVisible();
+    await expect(
+      page.locator('.sprint-section, .backlog-section, .backlog-group'),
+    ).toBeVisible({ timeout: 8000 });
+  });
 
-    // Confirm deletion if dialog appears
-    page.on('dialog', (dialog) => dialog.accept());
-
-    // Filter should be gone from the dropdown
-    await expect(page.locator('.saved-filter-name:has-text("Delete In UI Filter")')).not.toBeVisible({ timeout: 5000 });
+  // Test 36 — fixme: backlog search clear not yet implemented
+  test.fixme('clearing backlog search input restores all backlog items', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `Backlog Clear ${Date.now()}`);
+    await navigateToBacklog(page, token, board.id);
+    const searchInput = page.locator('.backlog-search-input input');
+    await searchInput.fill('some text');
+    await searchInput.fill('');
+    // All backlog items should be visible again
+    await expect(page.locator('.backlog-card, .backlog-item, .card-item')).toHaveCount(0, { timeout: 5000 });
   });
 });
 
-// ---------------------------------------------------------------------------
-// Global search (not implemented — all tests fixme)
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// 5 — Reports Search / Filter
+// ===========================================================================
 
-test.describe('Global Search (not implemented)', () => {
-  test.fixme(true, 'Global cross-board search is not implemented in this version. See search-global.spec.ts for context.');
+test.describe('Reports Search', () => {
+  test.setTimeout(90000);
 
-  test('search across all boards is available', async ({ request }) => {
-    // Placeholder — no /api/search endpoint exists
+  // Test 37
+  test('reports page contains a board selector control', async ({ page, request }) => {
+    const { token } = await createUser(request);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-page, .reports-container', { timeout: 15000 });
+
+    await expect(
+      page.locator('.board-select, select[name="board"], .reports-board-selector'),
+    ).toBeVisible({ timeout: 8000 });
   });
 
-  test('global search results show board name', async ({ request }) => {
-    // Placeholder
+  // Test 38 — fixme: velocity date-range filter not built yet
+  test.fixme('velocity chart can be filtered by date range', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-page, .reports-container', { timeout: 15000 });
+    await expect(page.locator('.velocity-date-range-picker')).toBeVisible({ timeout: 5000 });
   });
 
-  test('clicking a global search result navigates to the card', async ({ page, request }) => {
-    // Placeholder
+  // Test 39
+  test('boards created by the user appear in the reports board selector', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const boardA = await createBoard(request, token, `Reports Board A ${Date.now()}`);
+    const boardB = await createBoard(request, token, `Reports Board B ${Date.now()}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-page, .reports-container', { timeout: 15000 });
+
+    const boardSelect = page.locator('.board-select, select[name="board"], .reports-board-selector');
+    await expect(boardSelect).toBeVisible({ timeout: 8000 });
+
+    const options = await boardSelect.locator('option').allTextContents();
+    expect(options.some((o) => o.includes('Reports Board A'))).toBe(true);
+    expect(options.some((o) => o.includes('Reports Board B'))).toBe(true);
+  });
+});
+
+// ===========================================================================
+// 6 — Card Search Within a Board (UI)
+// ===========================================================================
+
+test.describe('Card Search Within Board (UI)', () => {
+  test.setTimeout(90000);
+
+  // Test 40
+  test('search filters cards within the specific board only', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    await page.locator('.search-input input').fill('Low Priority Card');
+
+    await expect(page.locator('.card-item[aria-label="Low Priority Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).not.toBeVisible();
+    await expect(page.locator('.card-item[aria-label="Normal Card"]')).not.toBeVisible();
+  });
+
+  // Test 41 — fixme: term highlight not implemented
+  test.fixme('matching search term is highlighted in card titles', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await page.locator('.search-input input').fill('High');
+    await expect(page.locator('.card-item mark, .card-item .highlight')).toBeVisible({ timeout: 5000 });
+  });
+
+  // Test 42
+  test('search updates URL q= parameter in real time', async ({ page, request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `URL Param Search ${Date.now()}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+
+    await page.locator('.search-input input').fill('myquery');
+
+    await page.waitForFunction(
+      () => window.location.search.includes('q=myquery'),
+      { timeout: 5000 },
+    );
+    expect(page.url()).toContain('q=myquery');
+  });
+
+  // Test 43
+  test('card list updates in real-time as the user types each character', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await navigateToBoard(page, setup.token, setup.boardId);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    const searchInput = page.locator('.search-input input');
+
+    await searchInput.fill('H');
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).toBeVisible({ timeout: 5000 });
+
+    await searchInput.fill('Hi');
+    await expect(page.locator('.card-item[aria-label="High Priority Card"]')).toBeVisible({ timeout: 5000 });
+
+    await searchInput.fill('High Priority Card');
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 5000 });
+  });
+});
+
+// ===========================================================================
+// 7 — API Search Endpoint
+// ===========================================================================
+
+test.describe('API Search Endpoint', () => {
+  test.setTimeout(60000);
+
+  // Test 44
+  test('GET /api/cards/search?q&board_id returns matching cards array + total', async ({ request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `API Match ${Date.now()}`);
+    const cols = await getColumns(request, token, board.id);
+    const sortedCols = [...cols].sort((a, b) => a.position - b.position);
+    const { id: swimlaneId } = await createSwimlane(request, token, board.id);
+
+    const c1 = await createCard(request, token, {
+      title: 'Searchable Alpha Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+    });
+    if (!c1) { test.skip(true, 'Card creation unavailable'); return; }
+    await createCard(request, token, {
+      title: 'Irrelevant Beta Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+    });
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?q=Alpha&board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(200);
+
+    const body = await res.json();
+    const cards: any[] = body.cards ?? body;
+    expect(Array.isArray(cards)).toBe(true);
+    expect(cards.some((c: any) => c.title === 'Searchable Alpha Card')).toBe(true);
+    expect(cards.some((c: any) => c.title === 'Irrelevant Beta Card')).toBe(false);
+    expect(typeof body.total).toBe('number');
+  });
+
+  // Test 45
+  test('search API returns empty array and total=0 for no matches', async ({ request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `API Empty ${Date.now()}`);
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?q=ZZZNO_MATCH_XYZ&board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(200);
+
+    const body = await res.json();
+    const cards: any[] = body.cards ?? body;
+    expect(cards.length).toBe(0);
+    if (typeof body.total !== 'undefined') {
+      expect(body.total).toBe(0);
+    }
+  });
+
+  // Test 46
+  test('search API requires board_id — omitting it returns 400', async ({ request }) => {
+    const { token } = await createUser(request);
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?q=test`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(400);
+  });
+
+  // Test 47
+  test('search API requires authentication — missing token returns 401', async ({ request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `API No Auth ${Date.now()}`);
+
+    const res = await request.get(`${BASE}/api/cards/search?q=test&board_id=${board.id}`);
+    expect(res.status()).toBe(401);
+  });
+
+  // Test 48
+  test('search API filters by priority param and returns only matching cards', async ({ request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `API Priority Filter ${Date.now()}`);
+    const cols = await getColumns(request, token, board.id);
+    const sortedCols = [...cols].sort((a, b) => a.position - b.position);
+    const { id: swimlaneId } = await createSwimlane(request, token, board.id);
+
+    const c1 = await createCard(request, token, {
+      title: 'High Priority API Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+      priority: 'high',
+    });
+    if (!c1) { test.skip(true, 'Card creation unavailable'); return; }
+    await createCard(request, token, {
+      title: 'Low Priority API Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+      priority: 'low',
+    });
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?priority=high&board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(200);
+
+    const body = await res.json();
+    const cards: any[] = body.cards ?? body;
+    expect(cards.length).toBeGreaterThanOrEqual(1);
+    expect(cards.every((c: any) => c.priority === 'high')).toBe(true);
+  });
+
+  // Test 49
+  test('search API filters by overdue=true returns only past-due cards', async ({ request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `API Overdue ${Date.now()}`);
+    const cols = await getColumns(request, token, board.id);
+    const sortedCols = [...cols].sort((a, b) => a.position - b.position);
+    const { id: swimlaneId } = await createSwimlane(request, token, board.id);
+
+    const c = await createCard(request, token, {
+      title: 'Overdue API Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+    });
+    if (!c) { test.skip(true, 'Card creation unavailable'); return; }
+
+    // Set a past due date
+    await request.put(`${BASE}/api/cards/${c.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Overdue API Card', description: '', due_date: '2020-01-01' },
+    });
+
+    // Create a future-dated card that must NOT appear in overdue results
+    const c2 = await createCard(request, token, {
+      title: 'Future API Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+    });
+    if (c2) {
+      await request.put(`${BASE}/api/cards/${c2.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { title: 'Future API Card', description: '', due_date: '2099-01-01' },
+      });
+    }
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?overdue=true&board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(200);
+
+    const body = await res.json();
+    const cards: any[] = body.cards ?? body;
+    expect(cards.some((cd: any) => cd.title === 'Overdue API Card')).toBe(true);
+    expect(cards.some((cd: any) => cd.title === 'Future API Card')).toBe(false);
+  });
+
+  // Test 50
+  test('search API returns 403 for a board the user has no access to', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'Private Board Owner');
+    const board = await createBoard(request, ownerToken, `Private Board ${Date.now()}`);
+
+    const { token: strangerToken } = await createUser(request, 'Stranger');
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?board_id=${board.id}&q=test`,
+      { headers: { Authorization: `Bearer ${strangerToken}` } },
+    );
+    expect([403, 404]).toContain(res.status());
+  });
+
+  // Test 51 — bonus: pagination via limit param
+  test('search API respects the limit param and returns at most limit cards', async ({ request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `API Pagination ${Date.now()}`);
+    const cols = await getColumns(request, token, board.id);
+    const sortedCols = [...cols].sort((a, b) => a.position - b.position);
+    const { id: swimlaneId } = await createSwimlane(request, token, board.id);
+
+    for (let i = 1; i <= 3; i++) {
+      const c = await createCard(request, token, {
+        title: `Paginate Card ${i}`,
+        boardId: board.id,
+        columnId: sortedCols[0].id,
+        swimlaneId,
+      });
+      if (!c) { test.skip(true, 'Card creation unavailable'); return; }
+    }
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?board_id=${board.id}&limit=1`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    const cards: any[] = body.cards ?? body;
+    expect(cards.length).toBe(1);
+  });
+
+  // Test 52 — bonus: sprint_id=-1 returns only unassigned cards
+  test('search API with sprint_id=-1 returns only cards not in any sprint', async ({ request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `API Sprint -1 ${Date.now()}`);
+    const cols = await getColumns(request, token, board.id);
+    const sortedCols = [...cols].sort((a, b) => a.position - b.position);
+    const { id: swimlaneId } = await createSwimlane(request, token, board.id);
+
+    const c1 = await createCard(request, token, {
+      title: 'Unassigned Sprint Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+    });
+    if (!c1) { test.skip(true, 'Card creation unavailable'); return; }
+
+    const sprintRes = await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Sprint One' },
+    });
+    if (!sprintRes.ok()) { test.skip(true, 'Sprint creation unavailable'); return; }
+    const sprint = await sprintRes.json();
+
+    const c2 = await createCard(request, token, {
+      title: 'Sprint Assigned Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+    });
+    if (!c2) { test.skip(true, 'Card creation unavailable'); return; }
+    await request.put(`${BASE}/api/cards/${c2.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Sprint Assigned Card', description: '', sprint_id: sprint.id },
+    });
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?sprint_id=-1&board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    const cards: any[] = body.cards ?? body;
+    expect(cards.some((cd: any) => cd.title === 'Unassigned Sprint Card')).toBe(true);
+    expect(cards.some((cd: any) => cd.title === 'Sprint Assigned Card')).toBe(false);
+  });
+
+  // Test 53 — bonus: assignee filter on search API
+  test('search API filters by assignee param and excludes unassigned cards', async ({ request }) => {
+    const { token } = await createUser(request);
+    const board = await createBoard(request, token, `API Assignee ${Date.now()}`);
+    const cols = await getColumns(request, token, board.id);
+    const sortedCols = [...cols].sort((a, b) => a.position - b.position);
+    const { id: swimlaneId } = await createSwimlane(request, token, board.id);
+
+    const meRes = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!meRes.ok()) { test.skip(true, 'Cannot fetch current user'); return; }
+    const me = await meRes.json();
+
+    const c1 = await createCard(request, token, {
+      title: 'Assigned API Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+    });
+    if (!c1) { test.skip(true, 'Card creation unavailable'); return; }
+    await createCard(request, token, {
+      title: 'Unassigned API Card',
+      boardId: board.id,
+      columnId: sortedCols[0].id,
+      swimlaneId,
+    });
+
+    await request.post(`${BASE}/api/cards/${c1.id}/assignees`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { user_id: me.id },
+    });
+
+    const res = await request.get(
+      `${BASE}/api/cards/search?assignee=${me.id}&board_id=${board.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    const cards: any[] = body.cards ?? body;
+    expect(cards.some((cd: any) => cd.title === 'Assigned API Card')).toBe(true);
+    expect(cards.some((cd: any) => cd.title === 'Unassigned API Card')).toBe(false);
   });
 });

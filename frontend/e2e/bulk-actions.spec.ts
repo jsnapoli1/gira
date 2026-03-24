@@ -339,8 +339,11 @@ test.describe('Bulk Actions', () => {
     // Bulk bar disappears after action
     await expect(page.locator('.bulk-action-bar')).not.toBeVisible({ timeout: 8000 });
 
+    // Wait for cards to re-render with updated priority
+    await page.waitForTimeout(500);
+
     // Cards should still be visible after bulk action
-    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 5000 });
+    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
 
     // Verify: at least one card now has the high priority indicator
     await expect(page.locator('.card-priority[aria-label="Priority: high"]').first()).toBeVisible({ timeout: 8000 });

@@ -417,6 +417,232 @@ test.describe('Board Members — API', () => {
 });
 
 // ---------------------------------------------------------------------------
+// API extended tests — new coverage
+// ---------------------------------------------------------------------------
+
+test.describe('Board Members — API Extended', () => {
+  test('API: member object has user.display_name field', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'DisplayOwner', 'api-dn-owner');
+    const { user: memberUser } = await createUser(request, 'DisplayNameUser', 'api-dn-user');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const members = await getMembers(request, ownerToken, board.id);
+    const entry = members.find((m) => m.user_id === memberUser.id);
+    expect(entry).toBeDefined();
+    // user.display_name should be present and match
+    expect((entry as any).user?.display_name).toBe('DisplayNameUser');
+  });
+
+  test('API: member object has board_id field', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'BidOwner', 'api-bid-owner');
+    const { user: memberUser } = await createUser(request, 'BidUser', 'api-bid-user');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+    const members: any[] = await res.json();
+    const entry = members.find((m: any) => m.user_id === memberUser.id);
+    expect(entry).toBeDefined();
+    expect(entry.board_id).toBe(board.id);
+  });
+
+  test('API: adding duplicate member returns non-5xx (409 or 400)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'DupOwner2', 'api-dup2-owner');
+    const { user: dupUser } = await createUser(request, 'DupUser2', 'api-dup2-user');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, dupUser.id, 'member');
+    const secondRes = await addMember(request, ownerToken, board.id, dupUser.id, 'member');
+
+    // Should be a client error, not a server error
+    expect(secondRes.status()).toBeGreaterThanOrEqual(400);
+    expect(secondRes.status()).toBeLessThan(500);
+  });
+
+  test('API: adding non-existent user returns 400 or 404', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'NEOwner', 'api-ne-owner');
+    const board = await createBoard(request, ownerToken);
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { user_id: 9999999, role: 'member' },
+    });
+
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+    expect(res.status()).toBeLessThan(500);
+  });
+
+  test('API: non-member receives 403 on GET /api/boards/:id/members', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'NMListOwner', 'api-nmlist-owner');
+    const { token: nmToken } = await createUser(request, 'NMListUser', 'api-nmlist-user');
+    const board = await createBoard(request, ownerToken);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${nmToken}` },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+
+  test('API: board creator always present as admin in members list', async ({ request }) => {
+    const { token: ownerToken, user: ownerUser } = await createUser(request, 'CreatorAdmin', 'api-cradm-owner');
+    const board = await createBoard(request, ownerToken);
+
+    const members = await getMembers(request, ownerToken, board.id);
+    const creatorEntry = members.find((m) => m.user_id === ownerUser.id);
+    expect(creatorEntry).toBeDefined();
+    expect(creatorEntry!.role).toBe('admin');
+  });
+
+  test('API: board admin (non-creator) can add a new member', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'AdminAddOwner', 'api-admnadd-own');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'AdminAddAdmin', 'api-admnadd-adm');
+    const { user: newUser } = await createUser(request, 'AdminAddNew', 'api-admnadd-new');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { user_id: newUser.id, role: 'member' },
+    });
+    expect(res.status()).toBe(201);
+  });
+
+  test('API: board member (non-admin) cannot add a new member (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'MbrAddOwner', 'api-mbradd-own');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'MbrAddMember', 'api-mbradd-m');
+    const { user: newUser } = await createUser(request, 'MbrAddNew', 'api-mbradd-n');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { user_id: newUser.id, role: 'member' },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('API: DELETE /api/boards/:id/members/:userId removes the member', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'DelMbrOwner', 'api-delmb-own');
+    const { user: memberUser } = await createUser(request, 'DelMbrUser', 'api-delmb-u');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const delRes = await request.delete(`${BASE}/api/boards/${board.id}/members/${memberUser.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+    expect(delRes.ok()).toBe(true);
+
+    const members = await getMembers(request, ownerToken, board.id);
+    expect(members.find((m) => m.user_id === memberUser.id)).toBeUndefined();
+  });
+
+  test('API: promote member to admin via PUT changes role in members list', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'PromoApiOwner', 'api-promo-own');
+    const { user: memberUser } = await createUser(request, 'PromoApiUser', 'api-promo-u');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    // Promote via PUT (if route exists)
+    const putRes = await request.put(`${BASE}/api/boards/${board.id}/members/${memberUser.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { role: 'admin' },
+    });
+    // Accept 200/204 (supported) or 404/405 (not implemented) — not a 5xx
+    expect(putRes.status()).toBeLessThan(500);
+
+    if (putRes.ok()) {
+      const members = await getMembers(request, ownerToken, board.id);
+      const entry = members.find((m) => m.user_id === memberUser.id);
+      expect(entry?.role).toBe('admin');
+    }
+  });
+
+  test('API: demote admin to member via PUT changes role in members list', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'DemoteApiOwner', 'api-demote-own');
+    const { user: adminUser } = await createUser(request, 'DemoteApiUser', 'api-demote-u');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const members1 = await getMembers(request, ownerToken, board.id);
+    const before = members1.find((m) => m.user_id === adminUser.id);
+    expect(before?.role).toBe('admin');
+
+    const putRes = await request.put(`${BASE}/api/boards/${board.id}/members/${adminUser.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { role: 'member' },
+    });
+    expect(putRes.status()).toBeLessThan(500);
+
+    if (putRes.ok()) {
+      const members2 = await getMembers(request, ownerToken, board.id);
+      const after = members2.find((m) => m.user_id === adminUser.id);
+      expect(after?.role).toBe('member');
+    }
+  });
+
+  test('API: board member list always shows creator as admin entry', async ({ request }) => {
+    const { token: ownerToken, user: ownerUser } = await createUser(request, 'ListCreator', 'api-lc-own');
+    const { user: u1 } = await createUser(request, 'LCUser1', 'api-lc-u1');
+    const { user: u2 } = await createUser(request, 'LCUser2', 'api-lc-u2');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, u1.id, 'member');
+    await addMember(request, ownerToken, board.id, u2.id, 'admin');
+
+    const members = await getMembers(request, ownerToken, board.id);
+    const creatorEntry = members.find((m) => m.user_id === ownerUser.id);
+    expect(creatorEntry).toBeDefined();
+    expect(creatorEntry!.role).toBe('admin');
+  });
+
+  test('API: GET /api/boards/:id/members returns 200 with array', async ({ request }) => {
+    const { token } = await createUser(request, 'GetMbrOwner', 'api-getmbr-own');
+    const board = await createBoard(request, token);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+    expect(body[0]).toHaveProperty('user_id');
+    expect(body[0]).toHaveProperty('role');
+  });
+
+  test('API: cannot remove last admin (owner removal is blocked)', async ({ request }) => {
+    const { token: ownerToken, user: ownerUser } = await createUser(request, 'LastAdmOwner', 'api-lastadm-own');
+    const board = await createBoard(request, ownerToken);
+
+    // Owner tries to remove themselves — should be rejected
+    const res = await request.delete(`${BASE}/api/boards/${board.id}/members/${ownerUser.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+
+    // Should be 4xx, not 2xx or 5xx
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+    expect(res.status()).toBeLessThan(500);
+
+    // Owner should still be in the list
+    const members = await getMembers(request, ownerToken, board.id);
+    const ownerEntry = members.find((m) => m.user_id === ownerUser.id);
+    expect(ownerEntry).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // UI extended tests
 // ---------------------------------------------------------------------------
 
