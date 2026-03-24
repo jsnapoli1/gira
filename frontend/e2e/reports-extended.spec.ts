@@ -134,7 +134,7 @@ test.describe('Reports Extended', () => {
     const token = await createUser(request);
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await expect(page.locator('.page-header h1')).toContainText('Reports');
     await expect(page.locator('.reports-filters select').first()).toBeVisible();
@@ -150,7 +150,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Selector Test Board' });
 
@@ -161,7 +161,7 @@ test.describe('Reports Extended', () => {
     const token = await createUser(request, 'No Board User');
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await expect(page.locator('.loading')).not.toBeVisible({ timeout: 10000 });
     await expect(page.locator('.empty-state')).toBeVisible({ timeout: 8000 });
@@ -174,7 +174,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'No Sprint Board' });
 
@@ -198,7 +198,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Sprint Selector Board' });
 
@@ -217,7 +217,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Sprint Label Board' });
     const sprintSelect = page.locator('.reports-filters select').nth(1);
@@ -243,7 +243,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Multi Sprint Charts Board' });
     await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
@@ -276,7 +276,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Metrics Board' });
     await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
@@ -303,7 +303,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Metric Render Board' });
     await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
@@ -333,7 +333,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Velocity Chart Board' });
     await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
@@ -359,7 +359,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Dual Velocity Board' });
     await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
@@ -388,7 +388,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Burndown SVG Board' });
     await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
@@ -416,7 +416,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'TT Layout Board' });
     await expect(page.locator('.time-tracking-section')).toBeVisible({ timeout: 10000 });
@@ -439,7 +439,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     await page.locator('.reports-filters select').first().selectOption({ label: 'Progress Bar Board' });
     await expect(page.locator('.time-tracking-section')).toBeVisible({ timeout: 10000 });
@@ -470,7 +470,7 @@ test.describe('Reports Extended', () => {
 
     await injectToken(page, token);
     await page.goto('/reports');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
 
     // Select Board Alpha — should show metrics
     await page.locator('.reports-filters select').first().selectOption({ label: 'Board Alpha' });
