@@ -102,6 +102,39 @@ func (d *DB) GetCardByID(id int64) (*models.Card, error) {
 	card.Labels = []models.Label{}
 	card.Assignees = []models.User{}
 
+	// Fetch assignees
+	assigneeRows, err := d.Query(
+		`SELECT u.id, u.email, u.display_name, u.avatar_url
+		 FROM card_assignees ca
+		 JOIN users u ON ca.user_id = u.id
+		 WHERE ca.card_id = ?`, id)
+	if err == nil {
+		defer assigneeRows.Close()
+		for assigneeRows.Next() {
+			var user models.User
+			if err := assigneeRows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.AvatarURL); err == nil {
+				card.Assignees = append(card.Assignees, user)
+			}
+		}
+	}
+
+	// Fetch labels
+	labelRows, err := d.Query(
+		`SELECT l.id, l.name, l.color
+		 FROM card_labels cl
+		 JOIN labels l ON cl.label_id = l.id
+		 WHERE cl.card_id = ?
+		 ORDER BY l.name`, id)
+	if err == nil {
+		defer labelRows.Close()
+		for labelRows.Next() {
+			var label models.Label
+			if err := labelRows.Scan(&label.ID, &label.Name, &label.Color); err == nil {
+				card.Labels = append(card.Labels, label)
+			}
+		}
+	}
+
 	return &card, nil
 }
 
