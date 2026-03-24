@@ -220,19 +220,45 @@ test.describe('Sprints', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 7. Board view shows empty state when no sprint is active
+  // 7. Board view shows empty columns grid when only a planning sprint exists
   // -------------------------------------------------------------------------
-  test('board view shows empty state when no sprint is active', async ({ page, request }) => {
-    const { token } = await createUser(request, 'Empty Board Tester');
-    const { boardId } = await setupBoard(request, token, 'Empty Active Sprint Board');
-    // Create sprint but do NOT start it
+  test('board view shows empty columns grid when sprint is in planning status', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await createUser(request, 'Planning Board Tester');
+    const { boardId } = await setupBoard(request, token, 'Planning Sprint Board');
+    // Create sprint but do NOT start it — status stays "planning"
     await createSprint(request, token, boardId, 'Planning Sprint');
 
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${boardId}`);
     await page.waitForSelector('.board-page', { timeout: 10000 });
 
-    // Board view with no active sprint → empty state
+    // Board resolves the planning sprint as activeSprint, shows the badge and empty columns grid.
+    // The .active-sprint-badge should be present with the planning sprint name.
+    await expect(page.locator('.active-sprint-badge')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.active-sprint-badge')).toContainText('Planning Sprint');
+    // Column grid (board-grid) is rendered — not the empty-swimlanes fallback
+    await expect(page.locator('.board-grid')).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 7b. Board view shows empty state when there are no sprints at all
+  // -------------------------------------------------------------------------
+  test('board view shows empty state when board has swimlanes but no sprints', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await createUser(request, 'Empty Board Tester');
+    const { boardId } = await setupBoard(request, token, 'Empty Board No Sprints');
+    // Do NOT create any sprint
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+
+    // No sprints + swimlanes present → empty-swimlanes state shown
     await expect(page.locator('.empty-swimlanes')).toBeVisible({ timeout: 8000 });
   });
 
