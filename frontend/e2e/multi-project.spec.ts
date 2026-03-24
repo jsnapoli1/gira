@@ -76,13 +76,14 @@ async function openBoard(page: any, token: string, boardId: number) {
 }
 
 /**
- * Create a swimlane via API, reload the page, and wait until the swimlane name
- * appears in the filter dropdown (confirms the board has fetched fresh data).
+ * Create a swimlane via API, reload the page, and wait until the board has
+ * re-fetched its data (confirmed by checking the swimlane name is in the DOM).
  *
- * The filter bar must be expanded for the <select> elements to be in the DOM.
- * openBoard() injects zira-filters-expanded=true via addInitScript which
- * persists across page.reload(). We additionally ensure the filter is expanded
- * by checking the .filters-expanded element before looking for the option.
+ * Strategy: after reload we check that the swimlane name appears in the
+ * swimlane filter <select>. Because zira-filters-expanded is set to 'true'
+ * via addInitScript (in openBoard), the filter bar should be present in the
+ * DOM on reload. If it is not yet visible (e.g. React hasn't mounted), we
+ * wait for it explicitly before polling the option.
  */
 async function addSwimlane(
   page: any,
@@ -102,21 +103,20 @@ async function addSwimlane(
   await page.reload();
   await expect(page.locator('.board-page')).toBeVisible({ timeout: 15000 });
 
-  // Ensure filter bar is expanded. If it was collapsed (e.g. due to reload
-  // state reset), click the toggle to expand it.
-  const filtersExpanded = page.locator('.filters-expanded');
-  const isExpanded = await filtersExpanded.isVisible().catch(() => false);
-  if (!isExpanded) {
-    await page.locator('.filter-toggle-btn').click();
-    await expect(filtersExpanded).toBeVisible({ timeout: 5000 });
-  }
+  // Wait for the filter bar to appear. The addInitScript (from openBoard) sets
+  // zira-filters-expanded=true, so .filters-expanded should render after mount.
+  await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 10000 });
 
   // Wait for the swimlane option to appear in the swimlane filter <select>.
-  // The swimlane <select> is identified by having "All swimlanes" as its first option.
-  // Use Playwright's built-in retry for reliability.
-  await expect(
-    page.locator('.filter-select option').filter({ hasText: name }),
-  ).toBeAttached({ timeout: 15000 });
+  // The swimlane filter is identified by its "All swimlanes" default option.
+  // We use first() because there is exactly one swimlane <select> on the page.
+  const swimlaneSelect = page
+    .locator('.filter-select')
+    .filter({ has: page.locator('option:text-is("All swimlanes")') })
+    .first();
+  await expect(swimlaneSelect.locator(`option`).filter({ hasText: name })).toBeAttached({
+    timeout: 15000,
+  });
 
   return swimlane;
 }

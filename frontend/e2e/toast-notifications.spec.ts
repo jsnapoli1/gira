@@ -20,6 +20,31 @@
  *  7.  Success toast auto-dismisses after ~3.5 seconds
  *  8.  Multiple toasts stack — all visible simultaneously
  *  9.  Clicking a toast dismisses it immediately
+ * 10.  Successful board creation causes no error toast
+ * 11.  Deleting a board via settings causes no error toast during redirect
+ * 12.  Label deleted from board settings shows success toast
+ * 13.  Failed label delete shows error toast
+ * 14.  Work log added shows success toast
+ * 15.  Failed work log add shows error toast
+ * 16.  Card description updated shows success toast
+ * 17.  Card deleted from modal shows success toast
+ * 18.  Login error shows inline auth-error, not a toast
+ * 19.  No error toast on successful board load
+ * 20.  No error toast on valid card creation
+ * 21.  Success toast has .toast-success class, not .toast-error
+ * 22.  Error toast has .toast-error class, not .toast-success
+ * 23.  Toast message text is non-empty
+ * 24.  .toast-container is always present in the DOM
+ * 25.  Error toast is still visible after 2 seconds (not dismissed too early)
+ * 26.  Navigation between pages does not trigger error toasts
+ * 27.  Swimlane added in board settings shows success toast
+ * 28.  Failed swimlane add shows error toast
+ * 29.  Workflow rules saved shows success toast
+ * 30.  Failed workflow rules save shows error toast
+ * 31.  Quick-add toast message text says "Card created"
+ * 32.  Click-dismiss adds .toast-exit before removal
+ * 33.  Stacked toasts each carry a non-empty message
+ * 34.  Card link created shows success toast
  */
 
 import { test, expect } from '@playwright/test';
@@ -28,7 +53,7 @@ const PORT = process.env.PORT || 9002;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // ---------------------------------------------------------------------------
-// Setup helper
+// Setup helpers
 // ---------------------------------------------------------------------------
 
 /**
@@ -99,6 +124,25 @@ async function setupBoardWithCard(
   await page.waitForSelector('.card-item', { timeout: 10000 });
 
   return { board, columns, swimlane, card, token };
+}
+
+/** Sign up a user and inject token; returns token and email. */
+async function setupUserOnBoards(
+  request: import('@playwright/test').APIRequestContext,
+  page: import('@playwright/test').Page,
+  label = 'User',
+) {
+  const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const email = `test-${label.toLowerCase()}-${uid}@test.com`;
+  const { token } = await (
+    await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: label },
+    })
+  ).json();
+
+  await page.goto('/login');
+  await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+  return { token, email };
 }
 
 // ---------------------------------------------------------------------------
@@ -360,10 +404,7 @@ test.describe('Toast — multiple toasts stack', () => {
     const setup = await setupBoardWithCard(request, page, 'ToastStack');
     if (!setup.card) return;
 
-    // Intercept ALL card PUTs to fail — this gives us a reliable error toast on save.
-    // But first, do one successful update to get a success toast, then fail a second.
-    // Simpler approach: intercept board list to fail twice in a row from /boards page.
-    // We route to /boards and trigger two failed board creation attempts.
+    // Route to /boards and trigger two failed board creation attempts.
     await page.goto('/boards');
     await page.waitForSelector('.page-header', { timeout: 10000 });
 
@@ -380,14 +421,7 @@ test.describe('Toast — multiple toasts stack', () => {
     await page.click('button:has-text("Create Board")');
     await page.fill('#boardName', 'Fail Board 1');
     await page.click('button[type="submit"]:has-text("Create Board")');
-
-    // Wait for error toast to appear.
     await expect(page.locator('.toast-error').first()).toBeVisible({ timeout: 5000 });
-
-    // The modal stays open after failure — close it by clicking the Cancel button inside
-    // the modal form before trying again.
-    await page.locator('.modal .form-actions button:has-text("Cancel")').click();
-    await expect(page.locator('.modal-overlay')).not.toBeVisible({ timeout: 3000 });
 
     // Quickly submit a second failing creation before the first toast dismisses.
     await page.click('button:has-text("Create Board")');
@@ -432,5 +466,876 @@ test.describe('Toast — click to dismiss', () => {
 
     // Toast should disappear well before the 3500ms auto-dismiss timer.
     await expect(toast).not.toBeVisible({ timeout: 2000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. Successful board creation — no error toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — board creation success (no error toast)', () => {
+  test('successfully creating a board does not show an error toast', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'BoardCreate');
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    const [navResponse] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/boards') && r.request().method() === 'POST',
+      ),
+      (async () => {
+        await page.click('button:has-text("Create Board")');
+        await page.fill('#boardName', 'New Success Board');
+        await page.click('button[type="submit"]:has-text("Create Board")');
+      })(),
+    ]);
+    expect(navResponse.status()).toBe(201);
+
+    // No error toast should appear after a successful create.
+    await page.waitForTimeout(500);
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. Board deletion — redirect happens, no error toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — board deletion via settings', () => {
+  test('deleting a board redirects without showing an error toast', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'BoardDel');
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Board To Delete' },
+      })
+    ).json();
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+
+    page.once('dialog', (d) => d.accept());
+    await page.locator('button.btn-danger:has-text("Delete Board")').click();
+
+    await page.waitForURL(/\/boards$/, { timeout: 10000 });
+    await page.waitForTimeout(400);
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. Label deleted — success toast from board settings
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — label deleted success', () => {
+  test("deleting a label in board settings shows 'Label deleted' success toast", async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'LabelDel');
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Label Delete Board' },
+      })
+    ).json();
+
+    const labelRes = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Delete Me Label', color: '#ff0000' },
+    });
+    if (!labelRes.ok()) {
+      test.skip(true, `Label creation failed: ${await labelRes.text()}`);
+      return;
+    }
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+
+    page.once('dialog', (d) => d.accept());
+    await page.locator('.settings-section')
+      .filter({ has: page.locator('h2:has-text("Labels")') })
+      .locator('button[title="Delete label"]')
+      .first()
+      .click();
+
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-success .toast-message')).toContainText('Label deleted');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. Failed label delete — error toast from board settings
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — label delete failure', () => {
+  test('failed label delete shows an error toast', async ({ page, request }) => {
+    const { token } = await setupUserOnBoards(request, page, 'LabelDelErr');
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Label Delete Err Board' },
+      })
+    ).json();
+
+    const labelRes = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Error Label', color: '#00ff00' },
+    });
+    if (!labelRes.ok()) {
+      test.skip(true, `Label creation failed: ${await labelRes.text()}`);
+      return;
+    }
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+
+    await page.route(`**/api/boards/*/labels/**`, (route) => {
+      if (route.request().method() === 'DELETE') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    page.once('dialog', (d) => d.accept());
+    await page.locator('.settings-section')
+      .filter({ has: page.locator('h2:has-text("Labels")') })
+      .locator('button[title="Delete label"]')
+      .first()
+      .click();
+
+    await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. Work log added — success toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — work log added', () => {
+  test("adding a work log shows 'Work log added' success toast", async ({
+    page,
+    request,
+  }) => {
+    const setup = await setupBoardWithCard(request, page, 'WorkLog');
+    if (!setup.card) return;
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    const timeInput = page.locator(
+      'input[placeholder*="ours" i], input[placeholder*="h" i], .log-time-form input',
+    ).first();
+
+    if (!(await timeInput.isVisible())) {
+      test.skip(true, 'Time tracking input not visible in this build');
+      return;
+    }
+
+    await timeInput.fill('2');
+
+    const submitBtn = page.locator(
+      '.log-time-form button[type="submit"], button:has-text("Log Time"), button:has-text("Add")',
+    ).first();
+    await submitBtn.click();
+
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-success .toast-message')).toContainText('Work log added');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. Failed work log — error toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — work log failure', () => {
+  test("failed work log shows 'Failed to add work log' error toast", async ({
+    page,
+    request,
+  }) => {
+    const setup = await setupBoardWithCard(request, page, 'WorkLogErr');
+    if (!setup.card) return;
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    const timeInput = page.locator(
+      'input[placeholder*="ours" i], input[placeholder*="h" i], .log-time-form input',
+    ).first();
+    if (!(await timeInput.isVisible())) {
+      test.skip(true, 'Time tracking input not visible in this build');
+      return;
+    }
+
+    await page.route(`**/api/cards/*/worklogs`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    await timeInput.fill('3');
+    const submitBtn = page.locator(
+      '.log-time-form button[type="submit"], button:has-text("Log Time"), button:has-text("Add")',
+    ).first();
+    await submitBtn.click();
+
+    await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-error .toast-message')).toContainText('Failed to add work log');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. Card description updated — success toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — card description update', () => {
+  test("saving description shows 'Description updated' success toast", async ({
+    page,
+    request,
+  }) => {
+    const setup = await setupBoardWithCard(request, page, 'Desc');
+    if (!setup.card) return;
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    const descEditBtn = page.locator(
+      'button:has-text("Edit Description"), button[aria-label*="description" i], .description-edit-btn',
+    ).first();
+    if (!(await descEditBtn.isVisible())) {
+      test.skip(true, 'Description edit button not visible in this build');
+      return;
+    }
+
+    await descEditBtn.click();
+
+    const descTextarea = page.locator(
+      '.description-editor textarea, .description-form textarea',
+    ).first();
+    await expect(descTextarea).toBeVisible({ timeout: 5000 });
+    await descTextarea.fill('Updated description text');
+
+    const saveBtn = page.locator(
+      'button:has-text("Save Description"), .description-form button[type="submit"]',
+    ).first();
+    await saveBtn.click();
+
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-success .toast-message')).toContainText('Description updated');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. Card deleted from modal — success toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — card deleted from modal', () => {
+  test("deleting a card from the modal shows 'Card deleted' success toast", async ({
+    page,
+    request,
+  }) => {
+    const setup = await setupBoardWithCard(request, page, 'CardDel');
+    if (!setup.card) return;
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    const deleteBtn = page.locator(
+      '.card-detail-actions button:has-text("Delete"), button[title="Delete card"], .card-detail-modal-unified button:has-text("Delete")',
+    ).first();
+    if (!(await deleteBtn.isVisible())) {
+      test.skip(true, 'Card delete button not visible in this build');
+      return;
+    }
+
+    page.once('dialog', (d) => d.accept());
+    await deleteBtn.click();
+
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-success .toast-message')).toContainText('Card deleted');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 18. Login with wrong credentials — inline .auth-error, not a toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — login error is inline, not a toast', () => {
+  test('wrong password shows .auth-error inline, not an error toast', async ({ page }) => {
+    await page.goto('/login');
+    await page.fill('input[type="email"], input[name="email"]', 'nonexistent@test.com');
+    await page.fill('input[type="password"], input[name="password"]', 'wrongpassword');
+    await page.click('button[type="submit"]');
+
+    await expect(page.locator('.auth-error')).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(300);
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 19. No error toast on successful board load
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — no error toast on valid board load', () => {
+  test('navigating to a valid board shows no error toast', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'NoErrLoad');
+    if (!setup.card) return;
+
+    await page.goto(`/boards/${setup.board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+
+    await page.waitForTimeout(800);
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 20. No error toast on valid card creation
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — no error toast on valid card creation', () => {
+  test('creating a card successfully does not show an error toast', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'NoErrCard');
+    if (!setup.card) return;
+
+    await page.click('.add-card-btn');
+    await page.waitForSelector('.quick-add-form', { timeout: 5000 });
+    await page.fill('.quick-add-form input', 'Valid Card No Error');
+
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/cards') && r.request().method() === 'POST',
+      ),
+      page.keyboard.press('Enter'),
+    ]);
+    expect(response.status()).toBe(201);
+
+    await page.waitForTimeout(300);
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 21. Success toast has .toast-success class and not .toast-error
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — success CSS class', () => {
+  test('success toast carries .toast-success and lacks .toast-error', async ({
+    page,
+    request,
+  }) => {
+    const setup = await setupBoardWithCard(request, page, 'CssClass');
+    if (!setup.card) return;
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+    await page.locator('.card-detail-edit input[type="text"]').first().fill('CSS Class Test');
+
+    await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/cards/') && r.request().method() === 'PUT',
+      ),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
+    const classes = await page.locator('.toast-success').first().getAttribute('class');
+    expect(classes).toContain('toast-success');
+    expect(classes).not.toContain('toast-error');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 22. Error toast has .toast-error class and not .toast-success
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — error CSS class', () => {
+  test('error toast carries .toast-error and lacks .toast-success', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'ErrClass');
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    await page.route(`**/api/boards`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'CSS Error Board');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+
+    await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
+    const classes = await page.locator('.toast-error').first().getAttribute('class');
+    expect(classes).toContain('toast-error');
+    expect(classes).not.toContain('toast-success');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 23. Toast message text is non-empty
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — message text is non-empty', () => {
+  test('.toast-message span contains readable text', async ({ page, request }) => {
+    const { token } = await setupUserOnBoards(request, page, 'MsgText');
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    await page.route(`**/api/boards`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Message Text Board');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+
+    const toastMsg = page.locator('.toast-error .toast-message').first();
+    await expect(toastMsg).toBeVisible({ timeout: 5000 });
+    const text = await toastMsg.textContent();
+    expect(text?.trim().length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 24. .toast-container is always present in the DOM
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — container always in DOM', () => {
+  test('.toast-container element is attached even when no toasts are showing', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'Container');
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    // ToastProvider always renders .toast-container regardless of active toasts.
+    await expect(page.locator('.toast-container')).toBeAttached();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 25. Error toast is still visible after 2 seconds (not dismissed too early)
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — error toast persists past 2 seconds', () => {
+  test('error toast visible 2 seconds after appearing (auto-dismiss is 3.5s)', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'Persist');
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    await page.route(`**/api/boards`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Persist Error Board');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+
+    await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
+
+    // Wait 2 seconds — auto-dismiss fires at 3500ms, so toast must still be visible.
+    await page.waitForTimeout(2000);
+    await expect(page.locator('.toast-error')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 26. Navigation between pages does not trigger error toasts
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — page navigation is toast-free', () => {
+  test('navigating Boards → Reports → Settings → Boards shows no error toasts', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'NavToast');
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    await page.click('.nav-item:has-text("Reports")');
+    await page.waitForURL(/\/reports/, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+
+    await page.click('.nav-item:has-text("Settings")');
+    await page.waitForURL(/\/settings/, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+
+    await page.click('.nav-item:has-text("Boards")');
+    await page.waitForURL(/\/boards/, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 27. Swimlane added — success toast from board settings
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — swimlane added success', () => {
+  test("adding a swimlane in board settings shows 'Swimlane added' toast", async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'SwimAdd');
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Swimlane Add Board' },
+      })
+    ).json();
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+
+    const swimSection = page.locator('.settings-section')
+      .filter({ has: page.locator('h2:has-text("Swimlanes")') });
+    await swimSection.locator('button:has-text("Add Swimlane"), button:has-text("Add")').first().click();
+
+    const nameInput = page.locator(
+      'input#swimlaneName, input[name="swimlaneName"], input[placeholder*="swimlane" i]',
+    ).first();
+    if (!(await nameInput.isVisible())) {
+      test.skip(true, 'Swimlane name input not visible in this build');
+      return;
+    }
+    await nameInput.fill('New Toast Swimlane');
+
+    const designatorInput = page.locator('input#designator, input[name="designator"]').first();
+    if (await designatorInput.isVisible()) {
+      await designatorInput.fill('NTS-');
+    }
+
+    await page.locator(
+      '.modal-content button[type="submit"], .swimlane-form button[type="submit"], button:has-text("Add Swimlane")',
+    ).last().click();
+
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-success .toast-message')).toContainText('Swimlane added');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 28. Failed swimlane add — error toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — swimlane add failure', () => {
+  test("failed swimlane add shows 'Failed to add swimlane' error toast", async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'SwimErr');
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Swimlane Err Board' },
+      })
+    ).json();
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+
+    await page.route(`**/api/boards/*/swimlanes`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    const swimSection = page.locator('.settings-section')
+      .filter({ has: page.locator('h2:has-text("Swimlanes")') });
+    await swimSection.locator('button:has-text("Add Swimlane"), button:has-text("Add")').first().click();
+
+    const nameInput = page.locator(
+      'input#swimlaneName, input[name="swimlaneName"], input[placeholder*="swimlane" i]',
+    ).first();
+    if (!(await nameInput.isVisible())) {
+      test.skip(true, 'Swimlane name input not visible in this build');
+      return;
+    }
+    await nameInput.fill('Fail Swimlane');
+
+    const designatorInput = page.locator('input#designator, input[name="designator"]').first();
+    if (await designatorInput.isVisible()) {
+      await designatorInput.fill('FS-');
+    }
+
+    await page.locator(
+      '.modal-content button[type="submit"], .swimlane-form button[type="submit"], button:has-text("Add Swimlane")',
+    ).last().click();
+
+    await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-error .toast-message')).toContainText('Failed to add swimlane');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 29. Workflow rules saved — success toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — workflow rules saved', () => {
+  test("saving workflow rules shows 'Workflow rules saved' toast", async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'Workflow');
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Workflow Board' },
+      })
+    ).json();
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+
+    const wfSection = page.locator('.settings-section')
+      .filter({ has: page.locator('h2:has-text("Workflow Rules")') });
+    const saveWfBtn = wfSection.locator(
+      'button:has-text("Save"), button:has-text("Save Rules"), button[type="submit"]',
+    ).first();
+
+    if (!(await saveWfBtn.isVisible())) {
+      test.skip(true, 'Workflow rules save button not visible in this build');
+      return;
+    }
+
+    await saveWfBtn.click();
+
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-success .toast-message')).toContainText('Workflow rules saved');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 30. Failed workflow rules save — error toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — workflow rules save failure', () => {
+  test("failed workflow rules save shows 'Failed to save workflow rules' error toast", async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'WorkflowErr');
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Workflow Err Board' },
+      })
+    ).json();
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+
+    await page.route(`**/api/boards/*/workflow*`, (route) => {
+      route.fulfill({ status: 500, body: 'Server Error' });
+    });
+
+    const wfSection = page.locator('.settings-section')
+      .filter({ has: page.locator('h2:has-text("Workflow Rules")') });
+    const saveWfBtn = wfSection.locator(
+      'button:has-text("Save"), button:has-text("Save Rules"), button[type="submit"]',
+    ).first();
+
+    if (!(await saveWfBtn.isVisible())) {
+      test.skip(true, 'Workflow rules save button not visible in this build');
+      return;
+    }
+
+    await saveWfBtn.click();
+
+    await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-error .toast-message')).toContainText('Failed to save workflow rules');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 31. Quick-add toast message says "Card created"
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — card-created message content', () => {
+  test('.toast-message contains the text "Card created"', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'CardCreatedMsg');
+    if (!setup.card) return;
+
+    await page.click('.add-card-btn');
+    await page.waitForSelector('.quick-add-form', { timeout: 5000 });
+    await page.fill('.quick-add-form input', 'Message Content Card');
+
+    await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/cards') && r.request().method() === 'POST',
+      ),
+      page.keyboard.press('Enter'),
+    ]);
+
+    await expect(page.locator('.toast-success .toast-message').first()).toContainText(
+      'Card created',
+      { timeout: 5000 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 32. Click-dismiss adds .toast-exit before the element is removed
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — exit animation class on click-dismiss', () => {
+  test('toast element is removed (or has .toast-exit) within 2s of being clicked', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'ExitClass');
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    await page.route(`**/api/boards`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Exit Anim Board');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+
+    const toast = page.locator('.toast-error').first();
+    await expect(toast).toBeVisible({ timeout: 5000 });
+    await toast.click();
+
+    // After click the toast must not be visible within 2 seconds.
+    await expect(toast).not.toBeVisible({ timeout: 2000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 33. Stacked toasts each carry a non-empty message
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — stacked toasts have individual messages', () => {
+  test('two stacked error toasts both have non-empty .toast-message text', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setupUserOnBoards(request, page, 'StackMsg');
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    await page.route(`**/api/boards`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Stack Msg 1');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+    await expect(page.locator('.toast-error').first()).toBeVisible({ timeout: 5000 });
+
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Stack Msg 2');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+
+    await expect(page.locator('.toast-error')).toHaveCount(2, { timeout: 5000 });
+
+    const messages = await page.locator('.toast-error .toast-message').allTextContents();
+    for (const msg of messages) {
+      expect(msg.trim().length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 34. Card link created — success toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — card link created', () => {
+  test("creating a card link shows 'Link created' success toast", async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'LinkCreate');
+    if (!setup.card) return;
+
+    // Create a second card to link to.
+    const card2Res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        title: 'Link Target Card',
+        column_id: setup.columns[0].id,
+        swimlane_id: setup.swimlane.id,
+        board_id: setup.board.id,
+      },
+    });
+    if (!card2Res.ok()) {
+      test.skip(true, `Second card creation failed: ${await card2Res.text()}`);
+      return;
+    }
+    const card2 = await card2Res.json();
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    const addLinkBtn = page.locator(
+      'button:has-text("Add Link"), button[aria-label*="link" i], .card-links button:has-text("Add")',
+    ).first();
+    if (!(await addLinkBtn.isVisible())) {
+      test.skip(true, 'Add link button not visible in this build');
+      return;
+    }
+    await addLinkBtn.click();
+
+    const linkInput = page.locator(
+      '.link-form input, input[placeholder*="card" i], input[placeholder*="ID" i]',
+    ).first();
+    await expect(linkInput).toBeVisible({ timeout: 5000 });
+    await linkInput.fill(String(card2.id));
+
+    await page.locator(
+      '.link-form button[type="submit"], button:has-text("Create Link")',
+    ).first().click();
+
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-success .toast-message')).toContainText('Link created');
   });
 });

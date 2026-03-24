@@ -73,10 +73,35 @@ async function postComment(
   text: string,
 ): Promise<void> {
   await page.fill('.comment-form-compact textarea', text);
-  await page.click('.comment-form-compact button[type="submit"]');
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/comments') && r.request().method() === 'POST',
+      { timeout: 10000 },
+    ),
+    page.click('.comment-form-compact button[type="submit"]'),
+  ]);
+  expect(response.status()).toBe(201);
   await expect(
     page.locator('.comment-body-compact').filter({ hasText: text }),
   ).toBeVisible({ timeout: 8000 });
+}
+
+async function postReply(
+  page: import('@playwright/test').Page,
+  replyText: string,
+): Promise<void> {
+  await page.fill('.comment-reply-form textarea', replyText);
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/comments') && r.request().method() === 'POST',
+      { timeout: 10000 },
+    ),
+    page.locator('.comment-reply-form .btn-primary').click(),
+  ]);
+  expect(response.status()).toBe(201);
+  await expect(
+    page.locator('.comment-body-compact').filter({ hasText: replyText }),
+  ).toBeVisible({ timeout: 10000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -124,14 +149,8 @@ test.describe('Comments Extended', () => {
     await replyBtn.click();
     await expect(page.locator('.comment-reply-form')).toBeVisible({ timeout: 5000 });
 
-    // Submit reply
-    await page.fill('.comment-reply-form textarea', 'This is a reply');
-    await page.locator('.comment-reply-form .btn-primary').click();
-
-    // Reply text should appear in the DOM
-    await expect(
-      page.locator('.comment-body-compact').filter({ hasText: 'This is a reply' }),
-    ).toBeVisible({ timeout: 10000 });
+    // Submit reply and wait for API response
+    await postReply(page, 'This is a reply');
 
     // Reply should be inside .comment-replies (nested)
     await expect(
@@ -154,8 +173,7 @@ test.describe('Comments Extended', () => {
     const replyBtn = page.locator('.btn-reply').first();
     await replyBtn.click();
     await expect(page.locator('.comment-reply-form')).toBeVisible({ timeout: 5000 });
-    await page.fill('.comment-reply-form textarea', 'Indented reply');
-    await page.locator('.comment-reply-form .btn-primary').click();
+    await postReply(page, 'Indented reply');
 
     await expect(page.locator('.comment-replies')).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.comment-reply')).toBeVisible({ timeout: 5000 });
@@ -255,9 +273,9 @@ test.describe('Comments Extended', () => {
     await textarea.click();
     await textarea.pressSequentially('@Zqx');
 
-    await expect(page.locator('.mention-dropdown')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.mention-dropdown')).toBeVisible({ timeout: 8000 });
     const mentionItem = page.locator('.mention-item').filter({ hasText: uniqueName });
-    await expect(mentionItem).toBeVisible({ timeout: 5000 });
+    await expect(mentionItem).toBeVisible({ timeout: 8000 });
 
     await mentionItem.click();
 

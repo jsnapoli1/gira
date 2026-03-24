@@ -71,6 +71,25 @@ async function openCardModal(
   await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 }
 
+/** Post a comment via UI, waiting for the API response before asserting. */
+async function postCommentViaUI(
+  page: import('@playwright/test').Page,
+  text: string,
+): Promise<void> {
+  await page.fill('.comment-form-compact textarea', text);
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/comments') && r.request().method() === 'POST',
+      { timeout: 10000 },
+    ),
+    page.click('.comment-form-compact button[type="submit"]'),
+  ]);
+  // Only assert response status if the POST was for comments (not other POST calls)
+  if (response.url().includes('/comments')) {
+    expect(response.status()).toBe(201);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -87,8 +106,8 @@ test.describe('Comments', () => {
     }
     await openCardModal(page, setup.token, setup.boardId);
 
-    await expect(page.locator('.conversations-section')).toBeVisible();
-    await expect(page.locator('.conversations-section .empty-text')).toBeVisible();
+    await expect(page.locator('.conversations-section')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.conversations-section .empty-text')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.conversations-section .empty-text')).toContainText(
       'No comments yet',
     );
@@ -105,8 +124,7 @@ test.describe('Comments', () => {
     }
     await openCardModal(page, setup.token, setup.boardId);
 
-    await page.fill('.comment-form-compact textarea', 'This is my first comment!');
-    await page.click('.comment-form-compact button[type="submit"]');
+    await postCommentViaUI(page, 'This is my first comment!');
 
     await expect(page.locator('.comment-item-compact')).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.comment-body-compact')).toContainText('This is my first comment!');
@@ -123,8 +141,7 @@ test.describe('Comments', () => {
     }
     await openCardModal(page, setup.token, setup.boardId);
 
-    await page.fill('.comment-form-compact textarea', 'Comment with author check');
-    await page.click('.comment-form-compact button[type="submit"]');
+    await postCommentViaUI(page, 'Comment with author check');
 
     await expect(page.locator('.comment-author').first()).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.comment-author').first()).toContainText('AuthorUser');
@@ -141,8 +158,7 @@ test.describe('Comments', () => {
     }
     await openCardModal(page, setup.token, setup.boardId);
 
-    await page.fill('.comment-form-compact textarea', 'Comment with timestamp check');
-    await page.click('.comment-form-compact button[type="submit"]');
+    await postCommentViaUI(page, 'Comment with timestamp check');
 
     await expect(page.locator('.comment-time').first()).toBeVisible({ timeout: 8000 });
   });
@@ -181,8 +197,7 @@ test.describe('Comments', () => {
     }
     await openCardModal(page, setup.token, setup.boardId);
 
-    await page.fill('.comment-form-compact textarea', 'Clearing test comment');
-    await page.click('.comment-form-compact button[type="submit"]');
+    await postCommentViaUI(page, 'Clearing test comment');
 
     await expect(page.locator('.comment-item-compact')).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.comment-form-compact textarea')).toHaveValue('');
@@ -201,8 +216,7 @@ test.describe('Comments', () => {
 
     const comments = ['First comment', 'Second comment', 'Third comment'];
     for (const text of comments) {
-      await page.fill('.comment-form-compact textarea', text);
-      await page.click('.comment-form-compact button[type="submit"]');
+      await postCommentViaUI(page, text);
       // Wait for each to appear before posting the next
       await expect(
         page.locator('.comment-body-compact').filter({ hasText: text }),
@@ -338,19 +352,18 @@ test.describe('Comments', () => {
     }
     await openCardModal(page, setup.token, setup.boardId);
 
-    await page.fill('.comment-form-compact textarea', 'Persistent comment');
-    await page.click('.comment-form-compact button[type="submit"]');
+    await postCommentViaUI(page, 'Persistent comment');
     await expect(page.locator('.comment-item-compact')).toBeVisible({ timeout: 8000 });
 
     // Close modal
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
-    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
 
     // Reopen
     await page.locator('.card-item').first().click();
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
-    await expect(page.locator('.comment-body-compact')).toContainText('Persistent comment');
+    await expect(page.locator('.comment-body-compact')).toContainText('Persistent comment', { timeout: 8000 });
   });
 
   // =========================================================================

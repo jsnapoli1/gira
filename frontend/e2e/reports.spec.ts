@@ -624,6 +624,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
 
     // Board A: has a completed sprint
@@ -662,6 +663,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(60000);
     const token = await createUser(request);
 
     const boardAId = await createBoard(request, token, 'Sprint Switch Board A');

@@ -84,7 +84,14 @@ async function postComment(
   text: string,
 ): Promise<void> {
   await page.fill('.comment-form-compact textarea', text);
-  await page.click('.comment-form-compact button[type="submit"]');
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/comments') && r.request().method() === 'POST',
+      { timeout: 10000 },
+    ),
+    page.click('.comment-form-compact button[type="submit"]'),
+  ]);
+  expect(response.status()).toBe(201);
   await expect(
     page.locator('.comment-body-compact').filter({ hasText: text }),
   ).toBeVisible({ timeout: 8000 });
@@ -100,7 +107,14 @@ async function postReply(
   await replyBtn.click();
   await expect(page.locator('.comment-reply-form')).toBeVisible({ timeout: 5000 });
   await page.fill('.comment-reply-form textarea', replyText);
-  await page.locator('.comment-reply-form .btn-primary').click();
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/comments') && r.request().method() === 'POST',
+      { timeout: 10000 },
+    ),
+    page.locator('.comment-reply-form .btn-primary').click(),
+  ]);
+  expect(response.status()).toBe(201);
   await expect(
     page.locator('.comment-body-compact').filter({ hasText: replyText }),
   ).toBeVisible({ timeout: 10000 });
@@ -395,12 +409,7 @@ test.describe('Card Comments — Full Lifecycle', () => {
 
     const replyTexts = ['Reply Alpha', 'Reply Beta', 'Reply Gamma'];
     for (const replyText of replyTexts) {
-      const replyBtn = page.locator('.btn-reply').first();
-      await expect(replyBtn).toBeVisible({ timeout: 5000 });
-      await replyBtn.click();
-      await expect(page.locator('.comment-reply-form')).toBeVisible({ timeout: 5000 });
-      await page.fill('.comment-reply-form textarea', replyText);
-      await page.locator('.comment-reply-form .btn-primary').click();
+      await postReply(page, 0, replyText);
       await expect(
         page.locator('.comment-replies .comment-body-compact').filter({ hasText: replyText }),
       ).toBeVisible({ timeout: 10000 });

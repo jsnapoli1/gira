@@ -218,11 +218,11 @@ test.describe('Independent user isolation', () => {
     ]);
     expect(resA.status()).toBe(200);
     expect(resB.status()).toBe(200);
-    // Both responses are independent arrays; we can verify they parse correctly.
+    // API returns { notifications: [], unread_count: 0 } — not a bare array.
     const notifA = await resA.json();
     const notifB = await resB.json();
-    expect(Array.isArray(notifA)).toBe(true);
-    expect(Array.isArray(notifB)).toBe(true);
+    expect(Array.isArray(notifA.notifications)).toBe(true);
+    expect(Array.isArray(notifB.notifications)).toBe(true);
   });
 
 });
