@@ -365,3 +365,315 @@ test.describe('Settings page — admin-only features', () => {
 //
 // Account deletion in particular should be marked fixme as a dangerous
 // destructive operation that must be guarded carefully.
+
+// ---------------------------------------------------------------------------
+// User profile — API contract (GET /api/auth/me)
+// ---------------------------------------------------------------------------
+
+test.describe('User profile — API', () => {
+
+  test('GET /api/auth/me returns user with display_name and email', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-api-me-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Me Test User', email);
+
+    const res = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty('display_name', 'Me Test User');
+    expect(body).toHaveProperty('email', email);
+  });
+
+  test('GET /api/auth/me does not return password_hash', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-api-nohash-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'No Hash User', email);
+
+    const res = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const body = await res.json();
+    expect(body.password_hash).toBeUndefined();
+  });
+
+  test('GET /api/auth/me returns is_admin field', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-api-admin-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Admin Field User', email);
+
+    const res = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body).toHaveProperty('is_admin');
+    expect(typeof body.is_admin).toBe('boolean');
+  });
+
+  test('GET /api/auth/me returns 401 without token', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/auth/me`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('GET /api/auth/me returns 401 with invalid token', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: 'Bearer this.is.notvalid' },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test('signup returns user with correct display_name', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-signup-dn-${ts}@example.com`;
+    const res = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'Signup Display' },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.user.display_name).toBe('Signup Display');
+  });
+
+  test('signup returns user with correct email', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-signup-em-${ts}@example.com`;
+    const res = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'Email Check User' },
+    });
+
+    const body = await res.json();
+    expect(body.user.email).toBe(email);
+  });
+
+  test('login returns same user as signup', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-login-same-${ts}@example.com`;
+    const signupRes = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'securePass!1', display_name: 'Login Same User' },
+    });
+    const signupBody = await signupRes.json();
+
+    const loginRes = await request.post(`${BASE}/api/auth/login`, {
+      data: { email, password: 'securePass!1' },
+    });
+    const loginBody = await loginRes.json();
+
+    expect(loginBody.user.id).toBe(signupBody.user.id);
+    expect(loginBody.user.display_name).toBe('Login Same User');
+    expect(loginBody.user.email).toBe(email);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// User profile — display in Settings page (additional)
+// ---------------------------------------------------------------------------
+
+test.describe('Settings page — profile display (additional)', () => {
+
+  test('profile section shows current email as read-only text', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-email-ro-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Email RO User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    // Email is shown in the profile-info paragraph (read-only display)
+    await expect(page.locator('.profile-info p')).toContainText(email);
+    // It must NOT be an editable input in the current implementation
+    const emailInput = page.locator('input[type="email"], input[name="email"]');
+    await expect(emailInput).toHaveCount(0);
+  });
+
+  test('avatar placeholder initial is uppercase', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-upper-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'zelda springs', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    // First character uppercased: 'Z'
+    await expect(page.locator('.avatar-placeholder')).toContainText('Z');
+  });
+
+  test('profile section does not expose password field', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-nopw-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'No PW Visible', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    // There should be no password input in the profile card
+    const pwInput = page.locator('.profile-card input[type="password"]');
+    await expect(pwInput).toHaveCount(0);
+  });
+
+  test('settings page profile card is present', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-profile-card-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Profile Card User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.profile-card')).toBeVisible();
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// User profile — update display name and password (future features, fixme)
+// ---------------------------------------------------------------------------
+
+test.describe('User profile — update (future features)', () => {
+
+  test.fixme('PUT /api/users/me updates display_name and returns updated user', async ({ request }) => {
+    // PUT /api/users/me does not currently exist.  This test documents the
+    // expected contract once the endpoint is implemented.
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-upd-dn-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Before Update', email);
+
+    const res = await request.put(`${BASE}/api/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { display_name: 'After Update' },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.display_name).toBe('After Update');
+  });
+
+  test.fixme('update display name via settings page UI reflects change in sidebar', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-ui-dn-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Old Name UI', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    // Find display name input and update it
+    const dnInput = page.locator('input[name="display_name"], input[placeholder*="display name" i]');
+    await expect(dnInput).toBeVisible({ timeout: 8000 });
+    await dnInput.fill('New Name UI');
+    await page.locator('button:has-text("Save"), button[type="submit"]').first().click();
+
+    // Sidebar or header should reflect the new name
+    const sidebar = page.locator('.sidebar, .nav-user, .user-name');
+    await expect(sidebar).toContainText('New Name UI', { timeout: 8000 });
+  });
+
+  test.fixme('update display name via settings page UI reflects in profile section', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-ui-dn2-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Before Name', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    const dnInput = page.locator('input[name="display_name"], input[placeholder*="display name" i]');
+    await expect(dnInput).toBeVisible({ timeout: 8000 });
+    await dnInput.fill('After Name');
+    await page.locator('button:has-text("Save"), button[type="submit"]').first().click();
+
+    await expect(page.locator('.profile-info h3')).toContainText('After Name', { timeout: 8000 });
+  });
+
+  test.fixme('display name with special characters is stored and displayed correctly', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-special-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Jane & Doe <Test>', email);
+
+    // Verify GET /api/auth/me echoes back the special-character display name
+    const res = await (await fetch(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })).json();
+    // The display name must survive round-trip through the API unchanged.
+    expect(res.display_name).toBe('Jane & Doe <Test>');
+  });
+
+  test.fixme('change password via settings UI works and allows re-login', async ({ page, request }) => {
+    // Password change UI does not currently exist.
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-pw-change-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'PW Change User', email, 'oldPassword1!');
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    // Fill in change-password form
+    await page.fill('input[name="current_password"]', 'oldPassword1!');
+    await page.fill('input[name="new_password"]', 'newPassword2@');
+    await page.fill('input[name="confirm_password"]', 'newPassword2@');
+    await page.locator('button:has-text("Change Password")').click();
+    await expect(page.locator('.status-badge.success')).toBeVisible({ timeout: 8000 });
+
+    // Confirm new password works for login
+    const loginRes = await request.post(`${BASE}/api/auth/login`, {
+      data: { email, password: 'newPassword2@' },
+    });
+    expect(loginRes.status()).toBe(200);
+  });
+
+  test.fixme('API: password change with wrong current password returns 400', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-pw-wrong-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'PW Wrong User', email, 'correctPass1!');
+
+    const res = await request.put(`${BASE}/api/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { current_password: 'wrongPass!', new_password: 'newPass2@' },
+    });
+
+    expect(res.status()).toBe(400);
+  });
+
+  test.fixme('display name update persists after logout and re-login', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-persist-dn-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Persist Before', email);
+
+    // Update display name via API
+    await request.put(`${BASE}/api/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { display_name: 'Persist After' },
+    });
+
+    // Login again to get fresh token
+    const loginRes = await request.post(`${BASE}/api/auth/login`, {
+      data: { email, password: 'password123' },
+    });
+    const { token: freshToken } = await loginRes.json();
+
+    // Load the settings page with the fresh token
+    await injectToken(page, freshToken);
+    await page.goto('/settings');
+    await expect(page.locator('.profile-info h3')).toContainText('Persist After');
+  });
+
+  test.fixme('display name min/max length validation on settings form', async ({ page, request }) => {
+    // A display name of 1+ characters must be accepted; an empty one rejected.
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-dn-len-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Length Test User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    const dnInput = page.locator('input[name="display_name"], input[placeholder*="display name" i]');
+    await expect(dnInput).toBeVisible({ timeout: 8000 });
+
+    // Clear input and submit with empty value — must show error
+    await dnInput.fill('');
+    await page.locator('button:has-text("Save"), button[type="submit"]').first().click();
+    const errorMsg = page.locator('.error-message, .field-error, [role="alert"]');
+    await expect(errorMsg).toBeVisible({ timeout: 5000 });
+  });
+
+});
