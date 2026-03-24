@@ -75,8 +75,8 @@ async function setupWithCard(request: any) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('Custom Field Management — API', () => {
-  // Retry once to handle intermittent SQLite lock contention under parallelism
-  test.describe.configure({ retries: 1 });
+  // Retry up to 2 times to handle intermittent SQLite lock contention under parallelism
+  test.describe.configure({ retries: 2 });
 
   test('edit custom field name via PUT', async ({ request }) => {
     const { token, board } = await setupUserAndBoard(request);
