@@ -60,6 +60,54 @@ async function setupBoardWithCard(request: any, page: any, label = 'Watchers') {
   return { board, card, columns, swimlane, token, user };
 }
 
+/**
+ * Create a minimal board+card via API only (no page navigation).
+ */
+async function setupBoardWithCardAPI(request: any, label = 'WatcherAPI') {
+  const email = `test-watcher-api-${crypto.randomUUID()}@test.com`;
+  const signupRes = await request.post(`${BASE}/api/auth/signup`, {
+    data: { email, password: 'password123', display_name: `${label} User` },
+  });
+  const { token } = await signupRes.json();
+
+  const meRes = await request.get(`${BASE}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const user = await meRes.json();
+
+  const board = await (
+    await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: `${label} Board` },
+    })
+  ).json();
+
+  const columns: any[] = await (
+    await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  ).json();
+
+  const swimlane = await (
+    await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'L-' },
+    })
+  ).json();
+
+  const cardRes = await request.post(`${BASE}/api/cards`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: `${label} Card`,
+      column_id: columns[0].id,
+      swimlane_id: swimlane.id,
+      board_id: board.id,
+    },
+  });
+
+  return { token, user, board, columns, swimlane, cardRes };
+}
+
 // ---------------------------------------------------------------------------
 // NOTE: The watchers feature backend is fully implemented:
 //   GET    /api/cards/:id/watchers   - returns array of watcher users
@@ -371,6 +419,278 @@ test.describe('Card Watchers — API (backend fully implemented)', () => {
     const watchers = await watchersRes.json();
     expect(watchers).toHaveLength(1);
   });
+
+  // -------------------------------------------------------------------------
+  // API 6. POST /watch returns 200 (or 201) — verify HTTP status is success
+  // -------------------------------------------------------------------------
+  test('POST /api/cards/:id/watch returns 2xx success status', async ({ request }) => {
+    const { token, cardRes } = await setupBoardWithCardAPI(request, 'WatchStatus');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    const watchRes = await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(watchRes.ok()).toBeTruthy();
+    expect(watchRes.status()).toBeGreaterThanOrEqual(200);
+    expect(watchRes.status()).toBeLessThan(300);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 7. GET /watchers returns array — watcher objects have user_id field
+  // -------------------------------------------------------------------------
+  test('GET /api/cards/:id/watchers returns watcher objects with user id field', async ({ request }) => {
+    const { token, user, cardRes } = await setupBoardWithCardAPI(request, 'WatcherFields');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const watchersRes = await request.get(`${BASE}/api/cards/${card.id}/watchers`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(watchersRes.ok()).toBeTruthy();
+    const watchers = await watchersRes.json();
+    expect(Array.isArray(watchers)).toBe(true);
+    expect(watchers).toHaveLength(1);
+
+    const watcher = watchers[0];
+    // The user object should contain an id property matching the current user
+    expect(watcher).toHaveProperty('id');
+    expect(watcher.id).toBe(user.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 8. DELETE /watch returns 204 No Content after unwatching
+  // -------------------------------------------------------------------------
+  test('DELETE /api/cards/:id/watch returns 204 after removing watch', async ({ request }) => {
+    const { token, cardRes } = await setupBoardWithCardAPI(request, 'UnwatchStatus');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const unwatchRes = await request.delete(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(unwatchRes.status()).toBe(204);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 9. After DELETE /watch, GET /watchers no longer includes that user
+  // -------------------------------------------------------------------------
+  test('after unwatching, GET /watchers does not include the user', async ({ request }) => {
+    const { token, user, cardRes } = await setupBoardWithCardAPI(request, 'PostUnwatch');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    // Watch
+    await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Confirm watcher is in list
+    const beforeRes = await request.get(`${BASE}/api/cards/${card.id}/watchers`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const before = await beforeRes.json();
+    const ids = before.map((w: any) => w.id);
+    expect(ids).toContain(user.id);
+
+    // Unwatch
+    await request.delete(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Confirm user is no longer in list
+    const afterRes = await request.get(`${BASE}/api/cards/${card.id}/watchers`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const after = await afterRes.json();
+    const afterIds = after.map((w: any) => w.id);
+    expect(afterIds).not.toContain(user.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 10. Unwatching a card that is not being watched is idempotent
+  // -------------------------------------------------------------------------
+  test('DELETE /watch on an unwatched card does not error', async ({ request }) => {
+    const { token, cardRes } = await setupBoardWithCardAPI(request, 'UnwatchIdem');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    // Unwatch without ever watching — should not 500
+    const res = await request.delete(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    // Accept 204 or 200 — must not be 5xx
+    expect(res.status()).toBeLessThan(500);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 11. Unauthorized watch request returns 401
+  // -------------------------------------------------------------------------
+  test('POST /api/cards/:id/watch without auth token returns 401', async ({ request }) => {
+    const { token, cardRes } = await setupBoardWithCardAPI(request, 'WatchUnauth');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    // Attempt to watch without token
+    const res = await request.post(`${BASE}/api/cards/${card.id}/watch`);
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 12. Watch card on a board the user is NOT a member of returns 403
+  // -------------------------------------------------------------------------
+  test('POST /api/cards/:id/watch by non-member returns 403', async ({ request }) => {
+    // Owner creates board + card
+    const { token: ownerToken, cardRes } = await setupBoardWithCardAPI(request, 'WatchNonMember');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    // A completely different user who is NOT a member of the board
+    const outsiderEmail = `test-outsider-${crypto.randomUUID()}@test.com`;
+    const { token: outsiderToken } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email: outsiderEmail, password: 'password123', display_name: 'Outsider' },
+      })
+    ).json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${outsiderToken}` },
+    });
+    // Non-member should be forbidden
+    expect(res.status()).toBe(403);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 13. GET /watchers by non-member returns 403
+  // -------------------------------------------------------------------------
+  test('GET /api/cards/:id/watchers by non-member returns 403', async ({ request }) => {
+    const { cardRes } = await setupBoardWithCardAPI(request, 'GetWatchersNonMember');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    const outsiderEmail = `test-outsider-get-${crypto.randomUUID()}@test.com`;
+    const { token: outsiderToken } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email: outsiderEmail, password: 'password123', display_name: 'Outsider Get' },
+      })
+    ).json();
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/watchers`, {
+      headers: { Authorization: `Bearer ${outsiderToken}` },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 14. Watch then unwatch: watcher count goes 0 → 1 → 0
+  // -------------------------------------------------------------------------
+  test('watcher count transitions correctly through watch and unwatch cycle', async ({ request }) => {
+    const { token, cardRes } = await setupBoardWithCardAPI(request, 'WatchCycle');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    const getCount = async () => {
+      const res = await request.get(`${BASE}/api/cards/${card.id}/watchers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const list = await res.json();
+      return list.length;
+    };
+
+    expect(await getCount()).toBe(0);
+
+    await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(await getCount()).toBe(1);
+
+    await request.delete(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(await getCount()).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // API 15. Board member added later can watch card
+  // -------------------------------------------------------------------------
+  test('user added as board member can subsequently watch a card', async ({ request }) => {
+    // Owner creates board + card
+    const ownerEmail = `test-owner-latemember-${crypto.randomUUID()}@test.com`;
+    const { token: ownerToken } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email: ownerEmail, password: 'password123', display_name: 'Late Member Owner' },
+      })
+    ).json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+        data: { name: 'Late Member Board' },
+      })
+    ).json();
+
+    const columns: any[] = await (
+      await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+      })
+    ).json();
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+        data: { name: 'Lane', designator: 'L-' },
+      })
+    ).json();
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { title: 'Late Member Card', column_id: columns[0].id, swimlane_id: swimlane.id, board_id: board.id },
+    });
+    if (!cardRes.ok()) { test.skip(true, 'Card creation unavailable'); return; }
+    const card = await cardRes.json();
+
+    // New user
+    const newEmail = `test-late-member-${crypto.randomUUID()}@test.com`;
+    const { token: newToken } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email: newEmail, password: 'password123', display_name: 'New Member' },
+      })
+    ).json();
+    const newUser = await (
+      await request.get(`${BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${newToken}` } })
+    ).json();
+
+    // Before being added: watch should fail with 403
+    const beforeRes = await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${newToken}` },
+    });
+    expect(beforeRes.status()).toBe(403);
+
+    // Add new user as member
+    await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { user_id: newUser.id, role: 'member' },
+    });
+
+    // After being added: watch should succeed
+    const afterRes = await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${newToken}` },
+    });
+    expect(afterRes.ok()).toBeTruthy();
+
+    const watchersRes = await request.get(`${BASE}/api/cards/${card.id}/watchers`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+    const watchers = await watchersRes.json();
+    const ids = watchers.map((w: any) => w.id);
+    expect(ids).toContain(newUser.id);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -498,10 +818,85 @@ test.describe('Card Watchers — UI (pending Watch button implementation)', () =
     expect(parseInt(newText || '0', 10)).toBe(initialCount + 1);
   });
 
+  test.fixme('watcher count decrements when unwatching', async ({ page, request }) => {
+    await setupBoardWithCard(request, page, 'UnwatchCount');
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // Watch first
+    await Promise.all([
+      page.waitForResponse(
+        (r: any) => r.url().includes('/watch') && r.request().method() === 'POST'
+      ),
+      page.click('button:has-text("Watch"), .watch-btn'),
+    ]);
+
+    const countLocator = page.locator('.watcher-count, [data-testid="watcher-count"]');
+    await expect(countLocator).toBeVisible({ timeout: 5000 });
+    const beforeText = await countLocator.textContent();
+    const beforeCount = parseInt(beforeText || '0', 10);
+
+    // Unwatch
+    await Promise.all([
+      page.waitForResponse(
+        (r: any) => r.url().includes('/watch') && r.request().method() === 'DELETE'
+      ),
+      page.click('button:has-text("Unwatch"), button:has-text("Watching")'),
+    ]);
+
+    // Count should decrease by 1
+    const afterText = await countLocator.textContent();
+    expect(parseInt(afterText || '0', 10)).toBe(beforeCount - 1);
+  });
+
+  test.fixme('watched cards show in notifications when card is updated', async ({ page, request }) => {
+    // This test requires two users and notification infrastructure.
+    // Setup: user1 creates card, user2 watches card, user1 updates card, user2 checks notifications.
+    // Skipped until Watch UI and notification delivery are implemented in the frontend.
+    throw new Error('Test not yet implemented — requires Watch UI and notification delivery');
+  });
+
   test.fixme('watcher receives notification when card is updated', async ({ page, request }) => {
     // This test requires two users and notification infrastructure.
     // Setup: user1 creates card, user2 watches card, user1 updates card, user2 checks notifications.
     // Skipped until Watch UI and notification delivery are implemented in the frontend.
     throw new Error('Test not yet implemented — requires Watch UI and notification delivery');
+  });
+
+  test.fixme('watch button visible in card detail modal sidebar', async ({ page, request }) => {
+    await setupBoardWithCard(request, page, 'WatchSidebar');
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // The Watch action is expected in the sidebar/actions area of the modal
+    await expect(
+      page.locator('.card-detail-sidebar button:has-text("Watch"), .card-actions button:has-text("Watch")')
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  test.fixme('watch button reflects existing watch state on open (pre-watched card)', async ({ page, request }) => {
+    const { board, card, token } = await setupBoardWithCard(request, page, 'WatchPreset');
+    if (!card) return;
+
+    // Watch the card via API before opening the modal
+    await page.evaluate(
+      async ({ base, cardId, tok }: { base: string; cardId: number; tok: string }) => {
+        await fetch(`${base}/api/cards/${cardId}/watch`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tok}` },
+        });
+      },
+      { base: BASE, cardId: card.id, tok: token }
+    );
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // The modal should immediately reflect the already-watching state
+    await expect(
+      page.locator('button:has-text("Unwatch"), button:has-text("Watching"), .watch-btn.active')
+    ).toBeVisible({ timeout: 5000 });
   });
 });

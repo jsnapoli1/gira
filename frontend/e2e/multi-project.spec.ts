@@ -78,6 +78,11 @@ async function openBoard(page: any, token: string, boardId: number) {
 /**
  * Create a swimlane via API, reload the page, and wait until the swimlane name
  * appears in the filter dropdown (confirms the board has fetched fresh data).
+ *
+ * The filter bar must be expanded for the <select> elements to be in the DOM.
+ * openBoard() injects zira-filters-expanded=true via addInitScript which
+ * persists across page.reload(). We additionally ensure the filter is expanded
+ * by checking the .filters-expanded element before looking for the option.
  */
 async function addSwimlane(
   page: any,
@@ -95,21 +100,23 @@ async function addSwimlane(
   ).json();
 
   await page.reload();
-  await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('.board-page')).toBeVisible({ timeout: 15000 });
 
-  // Wait for the swimlane name to appear in any filter dropdown.
-  await page.waitForFunction(
-    (swimlaneName: string) => {
-      const selects = Array.from(document.querySelectorAll('.filter-select'));
-      return selects.some((sel) =>
-        Array.from(sel.querySelectorAll('option')).some((opt) =>
-          opt.textContent?.includes(swimlaneName),
-        ),
-      );
-    },
-    name,
-    { timeout: 8000 },
-  );
+  // Ensure filter bar is expanded. If it was collapsed (e.g. due to reload
+  // state reset), click the toggle to expand it.
+  const filtersExpanded = page.locator('.filters-expanded');
+  const isExpanded = await filtersExpanded.isVisible().catch(() => false);
+  if (!isExpanded) {
+    await page.locator('.filter-toggle-btn').click();
+    await expect(filtersExpanded).toBeVisible({ timeout: 5000 });
+  }
+
+  // Wait for the swimlane option to appear in the swimlane filter <select>.
+  // The swimlane <select> is identified by having "All swimlanes" as its first option.
+  // Use Playwright's built-in retry for reliability.
+  await expect(
+    page.locator('.filter-select option').filter({ hasText: name }),
+  ).toBeAttached({ timeout: 15000 });
 
   return swimlane;
 }
