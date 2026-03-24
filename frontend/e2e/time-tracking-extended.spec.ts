@@ -6,6 +6,8 @@ const BASE = `http://127.0.0.1:${PORT}`;
 /**
  * Shared helper: create user + board + swimlane + card via API,
  * inject token, navigate to board, switch to All Cards view, open the card modal.
+ *
+ * Returns null values for card/board if card creation fails (Gitea 401/403).
  */
 async function setupBoardWithCard(request: any, page: any) {
   const { token } = await (
@@ -88,7 +90,7 @@ test.describe('Time Tracking Extended', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Test 2: Time estimate field — enter estimate, save, verify display
+  // Test 2: Set time estimate, save, verify display
   // ─────────────────────────────────────────────────────────────────────────
   test('should save a time estimate and show it in the time tracking section', async ({ page, request }) => {
     await setupBoardWithCard(request, page);
@@ -111,7 +113,24 @@ test.describe('Time Tracking Extended', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Test 3: Progress bar appears when estimate is set and time is logged
+  // Test 3: Time estimate displayed in human-readable format (e.g. 2h 5m)
+  // ─────────────────────────────────────────────────────────────────────────
+  test('should display time estimate in human-readable format (1h 30m)', async ({ page, request }) => {
+    await setupBoardWithCard(request, page);
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    // Set estimate to 90 minutes (1h 30m)
+    await page.click('.btn:has-text("Edit")');
+    await page.fill('input[placeholder="e.g., 120"]', '90');
+    await page.click('.btn:has-text("Save")');
+
+    await expect(page.locator('.time-tracking-stats .time-estimate')).toContainText('1h 30m estimated', { timeout: 5000 });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Test 4: Progress bar appears when estimate is set and time is logged
   // ─────────────────────────────────────────────────────────────────────────
   test('should show progress bar when estimate is set and time is logged', async ({ page, request }) => {
     await setupBoardWithCard(request, page);
@@ -138,7 +157,7 @@ test.describe('Time Tracking Extended', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Test 4: Progress bar NOT shown when no estimate is set
+  // Test 5: Progress bar NOT shown when no estimate is set
   // ─────────────────────────────────────────────────────────────────────────
   test('should not show progress bar when no time estimate is set', async ({ page, request }) => {
     await setupBoardWithCard(request, page);
@@ -151,32 +170,31 @@ test.describe('Time Tracking Extended', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Test 5: Worklog description/notes field
-  // The compact input only accepts minutes; a notes field is not exposed in the
-  // current compact UI. Mark fixme until the UI exposes a notes input.
+  // Test 6: Progress bar turns "over" class when logged > estimated
   // ─────────────────────────────────────────────────────────────────────────
-  test.fixme('should show worklog notes/description in the worklog list', async ({ page, request }) => {
-    const { token, card } = await setupBoardWithCard(request, page);
-
-    // Seed a worklog with a description via API
-    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        time_spent: 30,
-        date: new Date().toISOString().split('T')[0],
-        notes: 'Reviewed the PR',
-      },
-    });
+  test('should apply "over" class to progress bar when logged time exceeds estimate', async ({ page, request }) => {
+    await setupBoardWithCard(request, page);
 
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // The worklog entry row should display the notes text
-    await expect(page.locator('.worklog-entry')).toContainText('Reviewed the PR');
+    // Set a small estimate: 30 minutes
+    await page.click('.btn:has-text("Edit")');
+    await page.fill('input[placeholder="e.g., 120"]', '30');
+    await page.click('.btn:has-text("Save")');
+    await expect(page.locator('.time-tracking-compact')).toBeVisible({ timeout: 5000 });
+
+    // Log 60 minutes — double the estimate
+    await page.fill('.time-input-mini', '60');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('1h logged', { timeout: 5000 });
+
+    // Progress bar should have the "over" class
+    await expect(page.locator('.time-progress-bar.over')).toBeVisible();
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Test 6: Multiple worklogs accumulate correctly (30m + 45m = 1h 15m)
+  // Test 7: Multiple worklogs accumulate correctly (30m + 45m = 1h 15m)
   // ─────────────────────────────────────────────────────────────────────────
   test('should accumulate total from two separate worklog entries (30m + 45m = 1h 15m)', async ({ page, request }) => {
     await setupBoardWithCard(request, page);
@@ -196,62 +214,51 @@ test.describe('Time Tracking Extended', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Test 7: Worklog shows logged-by user
-  // Individual worklog rows with user attribution are not rendered in the
-  // current modal UI — only the aggregate total. Mark fixme.
+  // Test 8: Multiple worklogs from API accumulate in modal display
   // ─────────────────────────────────────────────────────────────────────────
-  test.fixme('should show the user name on each worklog entry', async ({ page, request }) => {
+  test('should show accumulated total when multiple worklogs pre-seeded via API', async ({ page, request }) => {
     const { token, card } = await setupBoardWithCard(request, page);
+    if (!card) return; // already skipped
 
+    // Pre-seed two worklogs: 60m + 30m = 90m (1h 30m)
+    const today = new Date().toISOString().split('T')[0];
     await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { time_spent: 45, date: new Date().toISOString().split('T')[0], notes: '' },
+      data: { time_spent: 60, date: today, notes: 'First log' },
     });
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, date: today, notes: 'Second log' },
+    });
+
+    // Navigate to board and open the card modal
+    await page.reload();
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    // Total should be 1h 30m
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('1h 30m logged', { timeout: 5000 });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Test 9: Logged time shown in readable format (2h 5m)
+  // ─────────────────────────────────────────────────────────────────────────
+  test('should show time in readable format when logging 125 minutes (2h 5m)', async ({ page, request }) => {
+    await setupBoardWithCard(request, page);
 
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // The worklog entry should show the user's display name
-    await expect(page.locator('.worklog-entry .worklog-user')).toContainText('Time Tracker');
+    // Log 125 minutes
+    await page.fill('.time-input-mini', '125');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('2h 5m logged', { timeout: 5000 });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Test 8: Time summary in reports — board with a sprint and logged time
-  // The .time-tracking-section is rendered inside the sprints.length > 0
-  // branch of Reports.tsx, so a sprint must exist for the section to appear.
-  // ─────────────────────────────────────────────────────────────────────────
-  test('should show time tracking summary on reports page after logging time', async ({ page, request }) => {
-    const { token, card, board } = await setupBoardWithCard(request, page);
-
-    // Create a sprint so the Reports page shows the charts/time section
-    await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Sprint 1', goal: '', start_date: '', end_date: '' },
-    });
-
-    // Log time via API so the board has non-zero time data
-    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { time_spent: 90, date: new Date().toISOString().split('T')[0], notes: '' },
-    });
-
-    // Navigate to Reports page
-    await page.click('a:has-text("Reports")');
-    await expect(page).toHaveURL(/\/reports/, { timeout: 5000 });
-
-    // Select the board — the page auto-selects if it's the only board but
-    // the label selector is more reliable.
-    await page.selectOption('.reports-filters select', { label: 'Time Test Board' });
-
-    // Wait for the time tracking section to appear (requires sprints to exist)
-    await expect(page.locator('.time-tracking-section')).toBeVisible({ timeout: 10000 });
-
-    // The section should show a non-zero logged total (1h 30m = 90 minutes)
-    await expect(page.locator('.time-tracking-section')).toContainText('1h 30m logged');
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Test 9: Estimate shown as "estimated" text clears if estimate removed
+  // Test 10: Estimate shown as "estimated" text clears if estimate removed
   // ─────────────────────────────────────────────────────────────────────────
   test('should hide estimated text when time estimate is cleared', async ({ page, request }) => {
     await setupBoardWithCard(request, page);
@@ -276,26 +283,82 @@ test.describe('Time Tracking Extended', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Test 10: Over-estimate progress bar gets "over" class
+  // Test 11: Worklog description/notes field
+  // The compact input only accepts minutes; a notes field is not exposed in the
+  // current compact UI. Mark fixme until the UI exposes a notes input.
   // ─────────────────────────────────────────────────────────────────────────
-  test('should apply "over" class to progress bar when logged time exceeds estimate', async ({ page, request }) => {
-    await setupBoardWithCard(request, page);
+  test.fixme('should show worklog notes/description in the worklog list', async ({ page, request }) => {
+    const { token, card } = await setupBoardWithCard(request, page);
+
+    // Seed a worklog with a description via API
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        time_spent: 30,
+        date: new Date().toISOString().split('T')[0],
+        notes: 'Reviewed the PR',
+      },
+    });
 
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
 
-    // Set a small estimate: 30 minutes
-    await page.click('.btn:has-text("Edit")');
-    await page.fill('input[placeholder="e.g., 120"]', '30');
-    await page.click('.btn:has-text("Save")');
-    await expect(page.locator('.time-tracking-compact')).toBeVisible({ timeout: 5000 });
+    // The worklog entry row should display the notes text
+    await expect(page.locator('.worklog-entry')).toContainText('Reviewed the PR');
+  });
 
-    // Log 60 minutes — double the estimate
-    await page.fill('.time-input-mini', '60');
-    await page.click('.time-tracking-actions button:has-text("Log")');
-    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('1h logged', { timeout: 5000 });
+  // ─────────────────────────────────────────────────────────────────────────
+  // Test 12: Worklog shows logged-by user
+  // Individual worklog rows with user attribution are not rendered in the
+  // current modal UI — only the aggregate total. Mark fixme.
+  // ─────────────────────────────────────────────────────────────────────────
+  test.fixme('should show the user name on each worklog entry', async ({ page, request }) => {
+    const { token, card } = await setupBoardWithCard(request, page);
 
-    // Progress bar should have the "over" class
-    await expect(page.locator('.time-progress-bar.over')).toBeVisible();
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 45, date: new Date().toISOString().split('T')[0], notes: '' },
+    });
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    // The worklog entry should show the user's display name
+    await expect(page.locator('.worklog-entry .worklog-user')).toContainText('Time Tracker');
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Test 13: Time summary in reports — board with a sprint and logged time
+  // The .time-tracking-section is rendered inside the sprints.length > 0
+  // branch of Reports.tsx, so a sprint must exist for the section to appear.
+  // ─────────────────────────────────────────────────────────────────────────
+  test('should show time tracking summary on reports page after logging time', async ({ page, request }) => {
+    const { token, card, board } = await setupBoardWithCard(request, page);
+    if (!card) return; // already skipped
+
+    // Create a sprint so the Reports page shows the charts/time section
+    await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Sprint 1', goal: '', start_date: '', end_date: '' },
+    });
+
+    // Log time via API so the board has non-zero time data (90 minutes = 1h 30m)
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 90, date: new Date().toISOString().split('T')[0], notes: '' },
+    });
+
+    // Navigate to Reports page
+    await page.click('a:has-text("Reports")');
+    await expect(page).toHaveURL(/\/reports/, { timeout: 5000 });
+
+    // Select the board
+    await page.selectOption('.reports-filters select', { label: 'Time Test Board' });
+
+    // Wait for the time tracking section to appear (requires sprints to exist)
+    await expect(page.locator('.time-tracking-section')).toBeVisible({ timeout: 10000 });
+
+    // The section should show a non-zero logged total (1h 30m = 90 minutes)
+    await expect(page.locator('.time-tracking-section')).toContainText('1h 30m logged');
   });
 });

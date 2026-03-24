@@ -5,8 +5,6 @@ const BASE = `http://127.0.0.1:${PORT}`;
 
 // ---------------------------------------------------------------------------
 // Shared setup helper
-// Creates a unique user, board, swimlane, and up to three cards.
-// Returns everything needed for search tests.
 // ---------------------------------------------------------------------------
 interface SearchSetup {
   token: string;
@@ -46,10 +44,7 @@ async function setupSearchBoard(request: any, page: any): Promise<SearchSetup> {
     })
   ).json();
 
-  // Attempt to create three cards — POST /api/cards can return 401 when Gitea
-  // integration is not configured.  Guard every card creation individually.
-  let cardsCreated = false;
-
+  // Attempt to create three cards
   const card1Res = await request.post(`${BASE}/api/cards`, {
     headers: { Authorization: `Bearer ${token}` },
     data: {
@@ -61,7 +56,6 @@ async function setupSearchBoard(request: any, page: any): Promise<SearchSetup> {
   });
 
   if (!card1Res.ok()) {
-    // Card creation unavailable — navigate to board without cards
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
     await page.waitForSelector('.board-page', { timeout: 15000 });
@@ -89,20 +83,16 @@ async function setupSearchBoard(request: any, page: any): Promise<SearchSetup> {
     },
   });
 
-  cardsCreated = true;
-
   await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
   await page.goto(`/boards/${board.id}`);
   await page.waitForSelector('.board-page', { timeout: 15000 });
 
-  // Switch to All Cards view so cards are visible without an active sprint
   await page.click('.view-btn:has-text("All Cards")');
   await page.waitForSelector('.board-grid, .board-content', { timeout: 10000 });
 
-  // Wait for all 3 cards
   await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
 
-  return { token, boardId: board.id, columnId: columns[0].id, swimlaneId: swimlane.id, cardsCreated };
+  return { token, boardId: board.id, columnId: columns[0].id, swimlaneId: swimlane.id, cardsCreated: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -129,76 +119,34 @@ test.describe('Card Search', () => {
     await page.goto(`/boards/${board.id}`);
     await page.waitForSelector('.board-page', { timeout: 15000 });
 
-    // Search input lives in .board-header-actions .search-input
     const searchInput = page.locator('.search-input input');
     await expect(searchInput).toBeVisible();
     await expect(searchInput).toHaveAttribute('placeholder', /search/i);
   });
 
-  test('search by title filters cards — matching card visible, non-matching hidden', async ({ page, request }) => {
-    const setup = await setupSearchBoard(request, page);
-    if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
-      return;
-    }
+  test('search input has placeholder "Search cards..."', async ({ page, request }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-search-placeholder-${suffix}@test.com`;
+
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Placeholder Tester' },
+      })
+    ).json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Placeholder Board' },
+      })
+    ).json();
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
 
     const searchInput = page.locator('.search-input input');
-    await searchInput.fill('Alpha Feature');
-
-    // Only "Alpha Feature Card" should remain visible
-    await expect(page.locator('.card-item[aria-label="Alpha Feature Card"]')).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).not.toBeVisible();
-    // "Alpha High Priority" also contains "Alpha" but not "Alpha Feature" — should be hidden
-    await expect(page.locator('.card-item[aria-label="Alpha High Priority"]')).not.toBeVisible();
-  });
-
-  test('search is case-insensitive', async ({ page, request }) => {
-    const setup = await setupSearchBoard(request, page);
-    if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
-      return;
-    }
-
-    const searchInput = page.locator('.search-input input');
-    // Lowercase "alpha feature" should match "Alpha Feature Card"
-    await searchInput.fill('alpha feature');
-
-    await expect(page.locator('.card-item[aria-label="Alpha Feature Card"]')).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).not.toBeVisible();
-  });
-
-  test('clearing search restores all cards', async ({ page, request }) => {
-    const setup = await setupSearchBoard(request, page);
-    if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
-      return;
-    }
-
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('Alpha');
-
-    // Confirm only Alpha cards are visible
-    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).not.toBeVisible({ timeout: 8000 });
-
-    // Clear the input
-    await searchInput.fill('');
-
-    // All 3 cards should be visible again
-    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
-  });
-
-  test('search with no matching results shows zero card items', async ({ page, request }) => {
-    const setup = await setupSearchBoard(request, page);
-    if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
-      return;
-    }
-
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('ZZZNONEXISTENTQUERY');
-
-    // No card items should be visible
-    await expect(page.locator('.card-item')).toHaveCount(0, { timeout: 8000 });
+    await expect(searchInput).toHaveAttribute('placeholder', 'Search cards...');
   });
 
   test('keyboard shortcut "/" focuses the search input', async ({ page, request }) => {
@@ -233,14 +181,243 @@ test.describe('Card Search', () => {
     await expect(searchInput).toBeFocused();
   });
 
-  test('search + priority filter combined — only cards matching both criteria shown', async ({ page, request }) => {
+  test('typing in search filters cards — matching visible, non-matching hidden', async ({ page, request }) => {
     const setup = await setupSearchBoard(request, page);
     if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
+      test.skip(true, 'Card creation unavailable');
       return;
     }
 
-    // Search for "Alpha" — should show "Alpha Feature Card" and "Alpha High Priority" (2 cards)
+    const searchInput = page.locator('.search-input input');
+    await searchInput.fill('Alpha Feature');
+
+    // "Alpha Feature Card" should remain visible
+    await expect(page.locator('.card-item[aria-label="Alpha Feature Card"]')).toBeVisible({ timeout: 8000 });
+    // "Beta Bug Report" should be hidden
+    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).not.toBeVisible();
+    // "Alpha High Priority" contains "Alpha" but not "Alpha Feature" — should be hidden
+    await expect(page.locator('.card-item[aria-label="Alpha High Priority"]')).not.toBeVisible();
+  });
+
+  test('search by partial title matches all cards containing the term', async ({ page, request }) => {
+    const setup = await setupSearchBoard(request, page);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const searchInput = page.locator('.search-input input');
+    // "Alpha" appears in two card titles
+    await searchInput.fill('Alpha');
+
+    await expect(page.locator('.card-item[aria-label="Alpha Feature Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Alpha High Priority"]')).toBeVisible({ timeout: 8000 });
+    // "Beta Bug Report" should be hidden
+    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).not.toBeVisible();
+  });
+
+  test('search is case-insensitive', async ({ page, request }) => {
+    const setup = await setupSearchBoard(request, page);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const searchInput = page.locator('.search-input input');
+    // Lowercase "alpha feature" should match "Alpha Feature Card"
+    await searchInput.fill('alpha feature');
+
+    await expect(page.locator('.card-item[aria-label="Alpha Feature Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).not.toBeVisible();
+  });
+
+  test('uppercase search term matches cards case-insensitively', async ({ page, request }) => {
+    const setup = await setupSearchBoard(request, page);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const searchInput = page.locator('.search-input input');
+    await searchInput.fill('BETA');
+
+    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Alpha Feature Card"]')).not.toBeVisible();
+  });
+
+  test('clearing the search input restores all cards', async ({ page, request }) => {
+    const setup = await setupSearchBoard(request, page);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const searchInput = page.locator('.search-input input');
+    await searchInput.fill('Alpha');
+
+    // Confirm "Beta Bug Report" is hidden
+    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).not.toBeVisible({ timeout: 8000 });
+
+    // Clear the input by filling with empty string
+    await searchInput.fill('');
+
+    // All 3 cards should be visible again
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
+  });
+
+  test('clearing via triple-click and Delete key restores all cards', async ({ page, request }) => {
+    const setup = await setupSearchBoard(request, page);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const searchInput = page.locator('.search-input input');
+    await searchInput.fill('Beta');
+
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+
+    // Clear via triple-click + Delete
+    await searchInput.click({ clickCount: 3 });
+    await page.keyboard.press('Delete');
+
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
+  });
+
+  test('search with no results shows zero card items', async ({ page, request }) => {
+    const setup = await setupSearchBoard(request, page);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const searchInput = page.locator('.search-input input');
+    await searchInput.fill('ZZZNONEXISTENTQUERY');
+
+    // No card items should be visible
+    await expect(page.locator('.card-item')).toHaveCount(0, { timeout: 8000 });
+  });
+
+  test('search persists after opening and closing a card modal', async ({ page, request }) => {
+    const setup = await setupSearchBoard(request, page);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    const searchInput = page.locator('.search-input input');
+    await searchInput.fill('Alpha Feature');
+
+    await expect(page.locator('.card-item[aria-label="Alpha Feature Card"]')).toBeVisible({ timeout: 8000 });
+
+    // Open card detail modal by clicking the matching card
+    await page.locator('.card-item[aria-label="Alpha Feature Card"]').click();
+    await expect(page.locator('.card-detail-modal, .modal-overlay')).toBeVisible({ timeout: 5000 });
+
+    // Close modal with Escape
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.card-detail-modal, .modal-overlay')).not.toBeVisible({ timeout: 5000 });
+
+    // Search query should still be active
+    await expect(searchInput).toHaveValue('Alpha Feature');
+    await expect(page.locator('.card-item[aria-label="Beta Bug Report"]')).not.toBeVisible();
+  });
+
+  test('search query is synced to URL parameter "q"', async ({ page, request }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-search-url-${suffix}@test.com`;
+
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'URL Tester' },
+      })
+    ).json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'URL Search Board' },
+      })
+    ).json();
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+
+    const searchInput = page.locator('.search-input input');
+    await searchInput.fill('hello');
+
+    // BoardView syncs filter state to URL params
+    await page.waitForFunction(() => window.location.search.includes('q=hello'), { timeout: 5000 });
+    expect(page.url()).toContain('q=hello');
+  });
+
+  test('URL search param "q" pre-fills the search input on load', async ({ page, request }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-search-preload-${suffix}@test.com`;
+
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Preload Tester' },
+      })
+    ).json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Preload Search Board' },
+      })
+    ).json();
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    // Navigate directly with q= in the URL
+    await page.goto(`/boards/${board.id}?q=preloaded`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+
+    const searchInput = page.locator('.search-input input');
+    await expect(searchInput).toHaveValue('preloaded');
+  });
+
+  test('filter toggle badge appears when search is active', async ({ page, request }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-search-badge-${suffix}@test.com`;
+
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Badge Tester' },
+      })
+    ).json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Badge Search Board' },
+      })
+    ).json();
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+
+    // No search yet — filter button should not have the has-filters class
+    await expect(page.locator('.filter-toggle-btn.has-filters')).not.toBeVisible();
+
+    // Type in search
+    const searchInput = page.locator('.search-input input');
+    await searchInput.fill('something');
+
+    // Filter toggle should now have has-filters (active filter indicator)
+    await expect(page.locator('.filter-toggle-btn.has-filters')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('search combined with priority filter narrows results', async ({ page, request }) => {
+    const setup = await setupSearchBoard(request, page);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    // Search for "Alpha" — shows 2 cards
     const searchInput = page.locator('.search-input input');
     await searchInput.fill('Alpha');
     await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
@@ -254,12 +431,12 @@ test.describe('Card Search', () => {
     });
     await prioritySelect.selectOption('high');
 
-    // Only "Alpha High Priority" matches both search and priority filter
+    // Only "Alpha High Priority" matches both
     await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
     await expect(page.locator('.card-item[aria-label="Alpha High Priority"]')).toBeVisible();
   });
 
-  test('backend search API GET /api/cards/search returns matching cards', async ({ request }) => {
+  test('backend search API returns matching cards', async ({ request }) => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const email = `test-search-api-${suffix}@test.com`;
 
@@ -314,7 +491,6 @@ test.describe('Card Search', () => {
       },
     });
 
-    // Call the backend search endpoint
     const searchRes = await request.get(
       `${BASE}/api/cards/search?q=Alpha&board_id=${board.id}`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -322,7 +498,6 @@ test.describe('Card Search', () => {
     expect(searchRes.status()).toBe(200);
 
     const body = await searchRes.json();
-    // API response shape: { cards: Card[], total: number }
     const cards: any[] = body.cards ?? body;
     expect(Array.isArray(cards)).toBe(true);
     expect(cards.length).toBeGreaterThanOrEqual(1);
@@ -330,37 +505,7 @@ test.describe('Card Search', () => {
     const found = cards.some((c: any) => c.title === 'Alpha Feature Card');
     expect(found).toBe(true);
 
-    // "Beta Bug Report" does not contain "Alpha" — should not appear
     const betaFound = cards.some((c: any) => c.title === 'Beta Bug Report');
     expect(betaFound).toBe(false);
-  });
-
-  test('search input updates URL query param q', async ({ page, request }) => {
-    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const email = `test-search-url-${suffix}@test.com`;
-
-    const { token } = await (
-      await request.post(`${BASE}/api/auth/signup`, {
-        data: { email, password: 'password123', display_name: 'URL Tester' },
-      })
-    ).json();
-
-    const board = await (
-      await request.post(`${BASE}/api/boards`, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: { name: 'URL Search Board' },
-      })
-    ).json();
-
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${board.id}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
-
-    const searchInput = page.locator('.search-input input');
-    await searchInput.fill('hello');
-
-    // BoardView syncs filter state to URL params — wait for URL to update
-    await page.waitForFunction(() => window.location.search.includes('q=hello'), { timeout: 5000 });
-    expect(page.url()).toContain('q=hello');
   });
 });

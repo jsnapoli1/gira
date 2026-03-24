@@ -4,7 +4,7 @@ const PORT = process.env.PORT || 9002;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // ---------------------------------------------------------------------------
-// Shared setup helper — creates user, board, swimlane, and optional cards.
+// Shared setup helper
 // ---------------------------------------------------------------------------
 interface FilterSetup {
   token: string;
@@ -85,8 +85,7 @@ async function setupFilterBoard(request: any): Promise<FilterSetup> {
   return { token, boardId: board.id, columnId: columns[0].id, swimlaneId: swimlane.id, cardsCreated: true };
 }
 
-// Navigate to the board, clear any persisted filter-expansion state, then
-// switch to All Cards view so cards are visible without a sprint.
+/** Navigate to the board and switch to All Cards view. */
 async function navigateToBoard(page: any, boardId: number, token: string, switchToAllCards = true) {
   await page.addInitScript((t: string) => {
     localStorage.setItem('token', t);
@@ -109,20 +108,14 @@ test.describe('Filter Bar', () => {
     const setup = await setupFilterBoard(request);
     await navigateToBoard(page, setup.boardId, setup.token);
 
-    const filterToggle = page.locator('.filter-toggle-btn');
-    await expect(filterToggle).toBeVisible();
+    await expect(page.locator('.filter-toggle-btn')).toBeVisible();
   });
 
   test('clicking filter toggle expands the filter panel', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     await navigateToBoard(page, setup.boardId, setup.token);
 
-    // Filter controls should be collapsed initially (cleared localStorage above)
-    const filterToggle = page.locator('.filter-toggle-btn');
-    await expect(filterToggle).toBeVisible();
-
-    // Expand
-    await filterToggle.click();
+    await page.locator('.filter-toggle-btn').click();
     await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
   });
 
@@ -134,7 +127,6 @@ test.describe('Filter Bar', () => {
     await filterToggle.click();
     await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
-    // Collapse
     await filterToggle.click();
     await expect(page.locator('.filters-expanded')).not.toBeVisible({ timeout: 5000 });
   });
@@ -146,25 +138,21 @@ test.describe('Filter Bar', () => {
     await page.click('.filter-toggle-btn');
     await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
-    // Swimlane filter
     const swimlaneSelect = page.locator('.filter-select').filter({
       has: page.locator('option:text("All swimlanes")'),
     });
     await expect(swimlaneSelect).toBeVisible();
 
-    // Assignee filter
     const assigneeSelect = page.locator('.filter-select').filter({
       has: page.locator('option:text("All assignees")'),
     });
     await expect(assigneeSelect).toBeVisible();
 
-    // Label filter
     const labelSelect = page.locator('.filter-select').filter({
       has: page.locator('option:text("All labels")'),
     });
     await expect(labelSelect).toBeVisible();
 
-    // Priority filter
     const prioritySelect = page.locator('.filter-select').filter({
       has: page.locator('option:text("All priorities")'),
     });
@@ -178,22 +166,19 @@ test.describe('Filter Bar', () => {
     await page.click('.filter-toggle-btn');
     await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
-    const overdueBtn = page.locator('.filter-overdue');
-    await expect(overdueBtn).toBeVisible();
+    await expect(page.locator('.filter-overdue')).toBeVisible();
   });
 
   test('filter by priority shows only matching cards', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
+      test.skip(true, 'Card creation unavailable');
       return;
     }
     await navigateToBoard(page, setup.boardId, setup.token);
 
-    // Wait for all 3 cards
     await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
 
-    // Expand filters
     await page.click('.filter-toggle-btn');
     await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
@@ -202,15 +187,36 @@ test.describe('Filter Bar', () => {
     });
     await prioritySelect.selectOption('high');
 
-    // Only "High Priority Card" should remain
     await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
     await expect(page.locator('.card-item').first()).toHaveAttribute('aria-label', 'High Priority Card');
+  });
+
+  test('filter by low priority shows only low priority card', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+    await navigateToBoard(page, setup.boardId, setup.token);
+
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
+    });
+    await prioritySelect.selectOption('low');
+
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+    await expect(page.locator('.card-item').first()).toHaveAttribute('aria-label', 'Low Priority Card');
   });
 
   test('filter by swimlane shows only cards in that swimlane', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
+      test.skip(true, 'Card creation unavailable');
       return;
     }
     await navigateToBoard(page, setup.boardId, setup.token);
@@ -223,7 +229,6 @@ test.describe('Filter Bar', () => {
       has: page.locator('option:text("All swimlanes")'),
     });
 
-    // The swimlane we created in setup should be the only non-empty option
     const options = await swimlaneSelect.locator('option').allTextContents();
     const swimlaneName = options.find((o) => o !== 'All swimlanes');
     if (!swimlaneName) {
@@ -235,14 +240,14 @@ test.describe('Filter Bar', () => {
     await swimlaneSelect.selectOption({ label: swimlaneName });
     await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
 
-    // The filter is active — indicator dot should be present
+    // Filter is active — indicator dot should be present
     await expect(page.locator('.filter-toggle-btn.has-filters')).toBeVisible();
   });
 
   test('filter by label shows only cards with that label', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
+      test.skip(true, 'Card creation unavailable');
       return;
     }
 
@@ -287,14 +292,40 @@ test.describe('Filter Bar', () => {
     await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
   });
 
+  test('label filter dropdown lists created labels', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+
+    // Create a label
+    const labelRes = await request.post(`${BASE}/api/boards/${setup.boardId}/labels`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'blocker', color: '#dc2626' },
+    });
+    if (!labelRes.ok()) {
+      test.skip(true, 'Label creation unavailable');
+      return;
+    }
+    const label = await labelRes.json();
+
+    await navigateToBoard(page, setup.boardId, setup.token);
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    const labelSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All labels")'),
+    });
+
+    // The label we created should appear as an option
+    await expect(labelSelect.locator(`option[value="${label.id}"]`)).toBeAttached();
+  });
+
   test('filter by assignee shows only assigned cards', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
+      test.skip(true, 'Card creation unavailable');
       return;
     }
 
-    // Get the current user (who created the board) so we can use their id
     const meRes = await request.get(`${BASE}/api/auth/me`, {
       headers: { Authorization: `Bearer ${setup.token}` },
     });
@@ -304,7 +335,6 @@ test.describe('Filter Bar', () => {
     }
     const me = await meRes.json();
 
-    // Get cards and assign the first one to ourselves
     const cardsRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
       headers: { Authorization: `Bearer ${setup.token}` },
     });
@@ -336,7 +366,7 @@ test.describe('Filter Bar', () => {
   test('combined swimlane + priority filter narrows results', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
+      test.skip(true, 'Card creation unavailable');
       return;
     }
     await navigateToBoard(page, setup.boardId, setup.token);
@@ -355,7 +385,7 @@ test.describe('Filter Bar', () => {
       await swimlaneSelect.selectOption({ label: swimlaneName });
     }
 
-    // Then also filter by high priority — only 1 card matches
+    // Also filter by high priority — only 1 card matches
     const prioritySelect = page.locator('.filter-select').filter({
       has: page.locator('option:text("All priorities")'),
     });
@@ -365,10 +395,63 @@ test.describe('Filter Bar', () => {
     await expect(page.locator('.card-item').first()).toHaveAttribute('aria-label', 'High Priority Card');
   });
 
+  test('combined label + priority filter shows only cards matching both criteria', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    // Create label and assign it to the high-priority card
+    const labelRes = await request.post(`${BASE}/api/boards/${setup.boardId}/labels`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'critical', color: '#b91c1c' },
+    });
+    if (!labelRes.ok()) {
+      test.skip(true, 'Label creation unavailable');
+      return;
+    }
+    const label = await labelRes.json();
+
+    const cardsRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const boardCards: any[] = await cardsRes.json();
+    const highCard = boardCards.find((c: any) => c.priority === 'high');
+    if (!highCard) {
+      test.skip(true, 'Cannot find high priority card');
+      return;
+    }
+    await request.post(`${BASE}/api/cards/${highCard.id}/labels`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { label_id: label.id },
+    });
+
+    await navigateToBoard(page, setup.boardId, setup.token);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    // Filter by label
+    const labelSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All labels")'),
+    });
+    await labelSelect.selectOption(String(label.id));
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+
+    // Also filter by high priority — still only the same 1 card
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
+    });
+    await prioritySelect.selectOption('high');
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+  });
+
   test('clear all filters button resets all active filters', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
+      test.skip(true, 'Card creation unavailable');
       return;
     }
     await navigateToBoard(page, setup.boardId, setup.token);
@@ -391,8 +474,48 @@ test.describe('Filter Bar', () => {
     // All 3 cards should be visible again
     await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
 
-    // Priority dropdown should be reset to "All priorities"
+    // Priority dropdown should be reset
     await expect(prioritySelect).toHaveValue('');
+  });
+
+  test('clear all filters also removes label and swimlane selections', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    if (!setup.cardsCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    await navigateToBoard(page, setup.boardId, setup.token);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    // Apply priority filter
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
+    });
+    await prioritySelect.selectOption('high');
+
+    // Apply swimlane filter if available
+    const swimlaneSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All swimlanes")'),
+    });
+    const options = await swimlaneSelect.locator('option').allTextContents();
+    const swimlaneName = options.find((o) => o !== 'All swimlanes');
+    if (swimlaneName) {
+      await swimlaneSelect.selectOption({ label: swimlaneName });
+    }
+
+    // Clear all
+    const clearBtn = page.locator('.clear-filter');
+    if (await clearBtn.isVisible()) {
+      await clearBtn.click();
+    }
+
+    // All dropdowns should reset
+    await expect(prioritySelect).toHaveValue('');
+    await expect(swimlaneSelect).toHaveValue('');
   });
 
   test('filter state is synced to URL search params', async ({ page, request }) => {
@@ -407,12 +530,104 @@ test.describe('Filter Bar', () => {
     });
     await prioritySelect.selectOption('high');
 
-    // BoardView syncs filter state to URL — wait for param to appear
     await page.waitForFunction(() => window.location.search.includes('priority=high'), { timeout: 5000 });
     expect(page.url()).toContain('priority=high');
   });
 
-  test('filter state is NOT persisted across page loads (URL params cleared)', async ({ page, request }) => {
+  test('filter toggle badge appears when a filter is active', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.boardId, setup.token);
+
+    // No active filters — should NOT have has-filters
+    await expect(page.locator('.filter-toggle-btn.has-filters')).not.toBeVisible();
+
+    // Apply a priority filter
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
+    });
+    await prioritySelect.selectOption('high');
+
+    // Badge should now be present
+    await expect(page.locator('.filter-toggle-btn.has-filters')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('filter badge disappears when clear all is clicked', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.boardId, setup.token);
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
+    });
+    await prioritySelect.selectOption('high');
+    await expect(page.locator('.filter-toggle-btn.has-filters')).toBeVisible({ timeout: 5000 });
+
+    const clearBtn = page.locator('.clear-filter');
+    if (await clearBtn.isVisible()) {
+      await clearBtn.click();
+      await expect(page.locator('.filter-toggle-btn.has-filters')).not.toBeVisible({ timeout: 5000 });
+    }
+  });
+
+  test('filters are board-specific: applying filter on board A does not affect board B', async ({ page, request }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-cross-board-${suffix}@test.com`;
+
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Cross Board Tester' },
+      })
+    ).json();
+
+    // Create two boards
+    const boardA = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Board A' },
+      })
+    ).json();
+
+    const boardB = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Board B' },
+      })
+    ).json();
+
+    // Navigate to Board A and set a priority filter
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardA.id}`);
+    await page.waitForSelector('.board-header', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.board-content', { timeout: 10000 });
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+    const prioritySelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All priorities")'),
+    });
+    await prioritySelect.selectOption('high');
+    await page.waitForFunction(() => window.location.search.includes('priority=high'), { timeout: 5000 });
+
+    // Navigate to Board B — it should NOT have the priority filter from Board A
+    await page.goto(`/boards/${boardB.id}`);
+    await page.waitForSelector('.board-header', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.board-content', { timeout: 10000 });
+
+    // URL should not contain priority=high for Board B
+    expect(page.url()).not.toContain('priority=high');
+
+    // Filter toggle should not show active filters
+    await expect(page.locator('.filter-toggle-btn.has-filters')).not.toBeVisible();
+  });
+
+  test('filter state is NOT persisted across page loads (URL params cleared on navigation)', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     await navigateToBoard(page, setup.boardId, setup.token);
 
@@ -424,7 +639,7 @@ test.describe('Filter Bar', () => {
     });
     await prioritySelect.selectOption('high');
 
-    // Navigate away from the board and back (without URL params)
+    // Navigate away from board and back (without URL params)
     await page.goto('/boards');
     await page.waitForSelector('.boards-list, .board-card', { timeout: 10000 });
 
@@ -433,26 +648,26 @@ test.describe('Filter Bar', () => {
     await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.board-content', { timeout: 10000 });
 
-    // Priority filter should be cleared — dropdown should be at default
+    // Priority filter should be cleared
     if (await page.locator('.filters-expanded').isVisible()) {
       const priorityAfterReload = page.locator('.filter-select').filter({
         has: page.locator('option:text("All priorities")'),
       });
       await expect(priorityAfterReload).toHaveValue('');
     } else {
-      // Filter bar is collapsed by default — no active filter indicator
+      // Filter bar is collapsed — no active filter indicator
       await expect(page.locator('.filter-toggle-btn.has-filters')).not.toBeVisible();
     }
   });
 
-  test('overdue filter shows only overdue cards', async ({ page, request }) => {
+  test('overdue filter shows only cards with a past due date', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     if (!setup.cardsCreated) {
-      test.skip(true, 'Card creation unavailable — Gitea integration required');
+      test.skip(true, 'Card creation unavailable');
       return;
     }
 
-    // Create an additional card via API and set a past due date
+    // Create an additional card and set a past due date
     const overdueCardRes = await request.post(`${BASE}/api/cards`, {
       headers: { Authorization: `Bearer ${setup.token}` },
       data: {
@@ -474,34 +689,48 @@ test.describe('Filter Bar', () => {
     });
 
     await navigateToBoard(page, setup.boardId, setup.token);
-
-    // Now 4 cards total (3 from setup + 1 overdue)
+    // 4 cards total (3 from setup + 1 overdue)
     await expect(page.locator('.card-item')).toHaveCount(4, { timeout: 12000 });
 
     await page.click('.filter-toggle-btn');
     await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
 
-    const overdueBtn = page.locator('.filter-overdue');
-    await expect(overdueBtn).toBeVisible();
-    await overdueBtn.click();
+    await expect(page.locator('.filter-overdue')).toBeVisible();
+    await page.locator('.filter-overdue').click();
 
-    // Only the overdue card should be visible
+    // Only the overdue card should remain
     await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
     await expect(page.locator('.card-item').first()).toHaveAttribute('aria-label', 'Overdue Card');
   });
 
-  test('filter-active indicator dot appears on filter toggle when filters are active', async ({ page, request }) => {
+  test('filter-active badge appears on toggle button when filters are set via search', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     await navigateToBoard(page, setup.boardId, setup.token);
 
-    // No active filters — indicator should not be present
+    // No active filters
     await expect(page.locator('.filter-toggle-btn.has-filters')).not.toBeVisible();
 
     // Type in search to activate a filter
     const searchInput = page.locator('.search-input input');
     await searchInput.fill('test');
 
-    // Now the toggle should have the has-filters class
+    // Toggle should now have the has-filters class
     await expect(page.locator('.filter-toggle-btn.has-filters')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('swimlane filter dropdown lists board swimlanes', async ({ page, request }) => {
+    const setup = await setupFilterBoard(request);
+    await navigateToBoard(page, setup.boardId, setup.token);
+
+    await page.click('.filter-toggle-btn');
+    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+
+    const swimlaneSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All swimlanes")'),
+    });
+
+    // The "Test Swimlane" we created should be in the dropdown
+    const options = await swimlaneSelect.locator('option').allTextContents();
+    expect(options.some((o) => o.includes('Test Swimlane'))).toBe(true);
   });
 });
