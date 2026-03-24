@@ -21,6 +21,38 @@
 import { test, expect } from '@playwright/test';
 
 const BASE = `http://127.0.0.1:${process.env.PORT || 9002}`;
+const UI_BASE = 'http://localhost:3000';
+
+/**
+ * Fetch only the HTTP status and headers of the SSE endpoint without consuming
+ * the streaming body. Playwright's APIRequestContext cannot handle streaming
+ * responses (it buffers the full body and times out). Instead we use a
+ * page-level fetch with AbortController: we read the status and content-type
+ * from the response headers, then immediately abort the stream.
+ */
+async function getSseStatus(
+  page: any,
+  url: string,
+): Promise<{ status: number; contentType: string }> {
+  return page.evaluate(async (fetchUrl: string) => {
+    const ctrl = new AbortController();
+    let status = 0;
+    let contentType = '';
+    try {
+      const res = await fetch(fetchUrl, { signal: ctrl.signal });
+      status = res.status;
+      contentType = res.headers.get('content-type') || '';
+      // Immediately abort — we only needed the headers.
+      ctrl.abort();
+    } catch (err: any) {
+      // AbortError is expected; other errors mean request failed.
+      if (err?.name !== 'AbortError') {
+        status = 0;
+      }
+    }
+    return { status, contentType };
+  }, url);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -166,20 +198,25 @@ async function setupTwoUserBoard(request: any, prefix: string) {
 // ---------------------------------------------------------------------------
 
 test.describe('SSE endpoint', () => {
+  // Tests that open a real SSE stream (valid auth, valid board) use page.evaluate
+  // + fetch + AbortController because Playwright's APIRequestContext buffers the
+  // full streaming body and will hang indefinitely on a live SSE stream.
+
   test('GET /api/boards/:id/events returns text/event-stream with valid token', async ({
+    page,
     request,
   }) => {
     const { tokenA, board } = await setupTwoUserBoard(request, 'sse-endpoint');
 
-    // The SSE endpoint authenticates via ?token= query parameter because the
-    // browser EventSource API cannot set Authorization headers.
-    const res = await request.get(`${BASE}/api/boards/${board.id}/events?token=${tokenA}`, {
-      // Use a short timeout; we only need to verify headers, not stream content.
-      timeout: 5000,
-    });
+    // Navigate to a known page so page.evaluate has a valid browsing context.
+    await page.goto(`${UI_BASE}/login`);
 
-    expect(res.status()).toBe(200);
-    const contentType = res.headers()['content-type'] || '';
+    const { status, contentType } = await getSseStatus(
+      page,
+      `${BASE}/api/boards/${board.id}/events?token=${tokenA}`,
+    );
+
+    expect(status).toBe(200);
     expect(contentType).toContain('text/event-stream');
   });
 
@@ -226,16 +263,20 @@ test.describe('SSE endpoint', () => {
   });
 
   test('board owner can connect to SSE (no explicit member record needed)', async ({
+    page,
     request,
   }) => {
     const { token: ownerToken } = await createUser(request, 'Owner', 'sse-owner-conn');
     const board = await createBoard(request, ownerToken, 'Owner SSE Board');
 
-    const res = await request.get(
+    // Navigate to a known page so page.evaluate has a valid browsing context.
+    await page.goto(`${UI_BASE}/login`);
+
+    const { status } = await getSseStatus(
+      page,
       `${BASE}/api/boards/${board.id}/events?token=${ownerToken}`,
-      { timeout: 5000 },
     );
-    expect(res.status()).toBe(200);
+    expect(status).toBe(200);
   });
 });
 
@@ -254,7 +295,7 @@ test.describe('SSE — board page connection', () => {
       pageA.on('pageerror', (err) => errors.push(err.message));
 
       await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-      await pageA.goto(`/boards/${board.id}`);
+      await pageA.goto(`${UI_BASE}/boards/${board.id}`);
       await pageA.waitForSelector('.board-page', { timeout: 15000 });
 
       // Give SSE time to establish.
@@ -277,7 +318,7 @@ test.describe('SSE — board page connection', () => {
     try {
       const pageA = await contextA.newPage();
       await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-      await pageA.goto(`/boards/${board.id}`);
+      await pageA.goto(`${UI_BASE}/boards/${board.id}`);
       await pageA.waitForSelector('.board-page', { timeout: 15000 });
 
       await expect(pageA.locator('.view-btn:has-text("Board")')).toBeVisible();
@@ -305,11 +346,11 @@ test.describe('SSE — two simultaneous users', () => {
     try {
       const pageA = await contextA.newPage();
       await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-      await pageA.goto(`/boards/${board.id}`);
+      await pageA.goto(`${UI_BASE}/boards/${board.id}`);
 
       const pageB = await contextB.newPage();
       await pageB.addInitScript((t: string) => localStorage.setItem('token', t), tokenB);
-      await pageB.goto(`/boards/${board.id}`);
+      await pageB.goto(`${UI_BASE}/boards/${board.id}`);
 
       // Both boards should render successfully.
       await expect(pageA.locator('.board-page')).toBeVisible({ timeout: 15000 });
@@ -337,12 +378,12 @@ test.describe('SSE — two simultaneous users', () => {
     try {
       const pageA = await contextA.newPage();
       await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-      await pageA.goto(`/boards/${board.id}`);
+      await pageA.goto(`${UI_BASE}/boards/${board.id}`);
       await pageA.waitForSelector('.board-page', { timeout: 15000 });
 
       const pageB = await contextB.newPage();
       await pageB.addInitScript((t: string) => localStorage.setItem('token', t), tokenB);
-      await pageB.goto(`/boards/${board.id}`);
+      await pageB.goto(`${UI_BASE}/boards/${board.id}`);
       await pageB.waitForSelector('.board-page', { timeout: 15000 });
 
       await expect(pageA.locator('.board-header h1')).toContainText(boardName, { timeout: 8000 });
@@ -373,7 +414,7 @@ test.describe('SSE — real-time board updates', () => {
       try {
         const pageA = await contextA.newPage();
         await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-        await pageA.goto(`/boards/${board.id}`);
+        await pageA.goto(`${UI_BASE}/boards/${board.id}`);
         await pageA.waitForSelector('.board-page', { timeout: 15000 });
         await pageA.click('.view-btn:has-text("All Cards")');
         await expect(pageA.locator('.card-item')).toHaveCount(0, { timeout: 8000 });
@@ -428,7 +469,7 @@ test.describe('SSE — real-time board updates', () => {
       try {
         const pageA = await contextA.newPage();
         await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-        await pageA.goto(`/boards/${board.id}`);
+        await pageA.goto(`${UI_BASE}/boards/${board.id}`);
         await pageA.waitForSelector('.board-page', { timeout: 15000 });
         await pageA.click('.view-btn:has-text("All Cards")');
         await expect(
@@ -475,7 +516,7 @@ test.describe('SSE — real-time board updates', () => {
       try {
         const pageA = await contextA.newPage();
         await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-        await pageA.goto(`/boards/${board.id}`);
+        await pageA.goto(`${UI_BASE}/boards/${board.id}`);
         await pageA.waitForSelector('.board-page', { timeout: 15000 });
         await pageA.click('.view-btn:has-text("All Cards")');
         await expect(
@@ -528,7 +569,7 @@ test.describe('SSE — real-time board updates', () => {
       try {
         const pageA = await contextA.newPage();
         await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-        await pageA.goto(`/boards/${board.id}`);
+        await pageA.goto(`${UI_BASE}/boards/${board.id}`);
         await pageA.waitForSelector('.board-page', { timeout: 15000 });
         await pageA.click('.view-btn:has-text("All Cards")');
 
@@ -558,13 +599,13 @@ test.describe('SSE — real-time board updates', () => {
       try {
         const pageA = await contextA.newPage();
         await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-        await pageA.goto(`/boards/${board.id}`);
+        await pageA.goto(`${UI_BASE}/boards/${board.id}`);
         await pageA.waitForSelector('.board-page', { timeout: 15000 });
         await pageA.click('.view-btn:has-text("All Cards")');
 
         const pageB = await contextB.newPage();
         await pageB.addInitScript((t: string) => localStorage.setItem('token', t), tokenB);
-        await pageB.goto(`/boards/${board.id}`);
+        await pageB.goto(`${UI_BASE}/boards/${board.id}`);
         await pageB.waitForSelector('.board-page', { timeout: 15000 });
         await pageB.click('.view-btn:has-text("All Cards")');
 
@@ -619,15 +660,15 @@ test.describe('SSE — connection recovery', () => {
       await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
 
       // Open board — SSE connects.
-      await pageA.goto(`/boards/${board.id}`);
+      await pageA.goto(`${UI_BASE}/boards/${board.id}`);
       await pageA.waitForSelector('.board-page', { timeout: 15000 });
 
       // Navigate away — SSE disconnects on unmount.
-      await pageA.goto('/boards');
+      await pageA.goto(`${UI_BASE}/boards`);
       await pageA.waitForSelector('.boards-page, .board-list, h1', { timeout: 10000 });
 
       // Navigate back — SSE reconnects on mount.
-      await pageA.goto(`/boards/${board.id}`);
+      await pageA.goto(`${UI_BASE}/boards/${board.id}`);
       await pageA.waitForSelector('.board-page', { timeout: 15000 });
 
       // Board should render view buttons after reconnect.
@@ -651,7 +692,7 @@ test.describe('SSE — connection recovery', () => {
       const pageA = await contextA.newPage();
       pageA.on('pageerror', (e) => errorsA.push(e.message));
       await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
-      await pageA.goto(`/boards/${board.id}`);
+      await pageA.goto(`${UI_BASE}/boards/${board.id}`);
       await pageA.waitForSelector('.board-page', { timeout: 15000 });
 
       // User B opens the same board — two SSE clients now registered for this board.
@@ -659,7 +700,7 @@ test.describe('SSE — connection recovery', () => {
       const pageB = await contextB.newPage();
       pageB.on('pageerror', (e) => errorsB.push(e.message));
       await pageB.addInitScript((t: string) => localStorage.setItem('token', t), tokenB);
-      await pageB.goto(`/boards/${board.id}`);
+      await pageB.goto(`${UI_BASE}/boards/${board.id}`);
       await pageB.waitForSelector('.board-page', { timeout: 15000 });
 
       await pageA.waitForTimeout(1000);
@@ -691,15 +732,15 @@ test.describe('SSE — connection recovery', () => {
         const pageA = await contextA.newPage();
         await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
 
-        await pageA.goto(`/boards/${board.id}`);
+        await pageA.goto(`${UI_BASE}/boards/${board.id}`);
         await pageA.waitForSelector('.board-page', { timeout: 15000 });
 
         // Navigate away — SSE disconnects.
-        await pageA.goto('/boards');
+        await pageA.goto(`${UI_BASE}/boards`);
         await pageA.waitForSelector('h1, .boards-page', { timeout: 8000 });
 
         // Navigate back — SSE reconnects.
-        await pageA.goto(`/boards/${board.id}`);
+        await pageA.goto(`${UI_BASE}/boards/${board.id}`);
         await pageA.waitForSelector('.board-page', { timeout: 15000 });
         await pageA.click('.view-btn:has-text("All Cards")');
 
@@ -748,7 +789,7 @@ test.describe('SSE — board isolation', () => {
       try {
         const pageB = await contextA.newPage();
         await pageB.addInitScript((t: string) => localStorage.setItem('token', t), tokenOwner);
-        await pageB.goto(`/boards/${boardB.id}`);
+        await pageB.goto(`${UI_BASE}/boards/${boardB.id}`);
         await pageB.waitForSelector('.board-page', { timeout: 15000 });
         await pageB.click('.view-btn:has-text("All Cards")');
         await expect(pageB.locator('.card-item')).toHaveCount(0, { timeout: 8000 });

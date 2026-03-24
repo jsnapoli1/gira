@@ -317,18 +317,19 @@ test.describe('Multi-Board — sprint isolation', () => {
     const sprint = await createSprint(request, token, boardA.id, 'API Sprint');
 
     // Fetch sprints for boardA.
-    const sprintsA = await (
+    // The API returns null (not []) when no sprints exist — guard with || [].
+    const sprintsA = ((await (
       await request.get(`${BASE}/api/sprints?board_id=${boardA.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-    ).json() as any[];
+    ).json()) || []) as any[];
 
     // Fetch sprints for boardB.
-    const sprintsB = await (
+    const sprintsB = ((await (
       await request.get(`${BASE}/api/sprints?board_id=${boardB.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-    ).json() as any[];
+    ).json()) || []) as any[];
 
     expect(sprintsA.some((s: any) => s.id === sprint.id)).toBe(true);
     expect(sprintsB.some((s: any) => s.id === sprint.id)).toBe(false);
@@ -700,10 +701,11 @@ test.describe('Multi-Board — settings isolation', () => {
 
     await page.goto(`/boards/${boardA.id}/settings`);
     await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.settings-page')).toContainText('Settings Board A');
+    // Board name is populated into the <input id="boardName"> field, not as page text.
+    await expect(page.locator('input#boardName')).toHaveValue('Settings Board A', { timeout: 8000 });
 
     await page.goto(`/boards/${boardB.id}/settings`);
     await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.settings-page')).toContainText('Settings Board B');
+    await expect(page.locator('input#boardName')).toHaveValue('Settings Board B', { timeout: 8000 });
   });
 });

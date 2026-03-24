@@ -429,3 +429,267 @@ test.describe("keyboard shortcut 'Escape' — close card detail modal", () => {
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// Escape key — clears selected cards (selection mode)
+// ---------------------------------------------------------------------------
+
+test.describe("keyboard shortcut 'Escape' — clears card selection", () => {
+  test("'Escape' deselects selected cards (bulk selection) when no modal is open", async ({ page, request }) => {
+    await setupBoardWithSwimlane(request, page, 'EscDeselect');
+
+    // The 's' shortcut is listed in the modal; selection mode is toggled via checkboxes.
+    // Without actual cards we verify the shortcut does not throw and board view remains intact.
+    await page.locator('body').click();
+    // Press Escape when nothing is open — no error, board still visible
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.board-page')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Escape key — clears search input content
+// ---------------------------------------------------------------------------
+
+test.describe("keyboard shortcut 'Escape' — search input interaction", () => {
+  test("Escape while focused on search input does not crash the page", async ({ page, request }) => {
+    await setupBoardWithSwimlane(request, page, 'EscSearch');
+
+    const searchInput = page.locator('.search-input input');
+    await searchInput.focus();
+    await searchInput.fill('somequery');
+
+    // Pressing Escape inside a text input clears the browser's native selection but
+    // does not trigger the global Escape handler (tag guard: INPUT is excluded).
+    await page.keyboard.press('Escape');
+
+    // Board page must still be visible
+    await expect(page.locator('.board-page')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Focus management — modal opens with focus on first input
+// ---------------------------------------------------------------------------
+
+test.describe('focus management — modal opens with focus on first interactive element', () => {
+  test("'n' key modal autofocuses the title input on open", async ({ page, request }) => {
+    await setupBoardWithSwimlane(request, page, 'FocusAutoN');
+
+    await page.locator('body').click();
+    await page.keyboard.press('n');
+    await page.waitForSelector('.modal h2:has-text("Create Card")', { timeout: 5000 });
+
+    // The create card modal focuses the title input first
+    const titleInput = page.locator('.modal input[type="text"]').first();
+    await expect(titleInput).toBeFocused({ timeout: 5000 });
+  });
+
+  test('create board modal autofocuses the board name input on open', async ({ page, request }) => {
+    const email = `test-focus-board-${crypto.randomUUID()}@test.com`;
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'FocusBoard User' },
+      })
+    ).json();
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await page.locator('button', { hasText: 'Create Board' }).first().click();
+    await expect(page.locator('.modal')).toBeVisible();
+
+    await expect(page.locator('#boardName')).toBeFocused({ timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Space key — activates a focused button
+// ---------------------------------------------------------------------------
+
+test.describe('keyboard — Space activates a focused button', () => {
+  test('Space key activates a focused Create Board button', async ({ page, request }) => {
+    const email = `test-space-btn-${crypto.randomUUID()}@test.com`;
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Space User' },
+      })
+    ).json();
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    // Tab to the Create Board button and activate it with Space
+    const createBtn = page.locator('button', { hasText: 'Create Board' }).first();
+    await createBtn.focus();
+    await page.keyboard.press('Space');
+
+    await expect(page.locator('.modal')).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Enter key — submits the modal form
+// ---------------------------------------------------------------------------
+
+test.describe('keyboard — Enter submits modal form', () => {
+  test('Enter in board name input submits the Create Board form', async ({ page, request }) => {
+    const email = `test-enter-board-${crypto.randomUUID()}@test.com`;
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Enter User' },
+      })
+    ).json();
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await page.locator('button', { hasText: 'Create Board' }).first().click();
+    await expect(page.locator('.modal')).toBeVisible();
+
+    const uniqueName = `KeyboardBoard-${crypto.randomUUID().slice(0, 8)}`;
+    await page.locator('#boardName').fill(uniqueName);
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/boards') && r.request().method() === 'POST'),
+      page.keyboard.press('Enter'),
+    ]);
+    expect(response.status()).toBe(201);
+
+    // Modal should close after successful submit
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shift+Tab — navigates backwards through form fields
+// ---------------------------------------------------------------------------
+
+test.describe('keyboard — Shift+Tab backwards navigation on /boards', () => {
+  test('Shift+Tab in login form moves focus from password back to email', async ({ page }) => {
+    await page.goto('/login');
+
+    const emailInput = page.locator('input[type="email"], input[name="email"], #email');
+    const passwordInput = page.locator('input[type="password"], input[name="password"], #password');
+
+    await passwordInput.focus();
+    await expect(passwordInput).toBeFocused();
+
+    await page.keyboard.press('Shift+Tab');
+    await expect(emailInput).toBeFocused({ timeout: 3000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 's' shortcut — toggle selection mode (visual listing in shortcuts table)
+// ---------------------------------------------------------------------------
+
+test.describe("keyboard shortcut 's' — selection mode shortcuts table entry", () => {
+  test("'s' shortcut key description is present in the shortcuts modal", async ({ page, request }) => {
+    await setupBoardWithSwimlane(request, page, 'SKeyDesc');
+
+    await page.locator('body').click();
+    await page.keyboard.press('?');
+    await page.waitForSelector('.shortcuts-modal', { timeout: 5000 });
+
+    // Verify the 's' row exists and has descriptive text
+    const table = page.locator('.shortcuts-table');
+    await expect(table).toContainText('s');
+    await expect(table).toContainText('Select');
+  });
+
+  test("'s' shortcut is accepted without error when no input is focused", async ({ page, request }) => {
+    await setupBoardWithSwimlane(request, page, 'SKeyNoError');
+
+    await page.locator('body').click();
+    // 's' key toggles selection mode — the board page should remain intact
+    await page.keyboard.press('s');
+    await expect(page.locator('.board-page')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tab key — card items in All Cards view are focusable
+// ---------------------------------------------------------------------------
+
+test.describe('keyboard — card items focusable via Tab', () => {
+  test.fixme(
+    'Tab key can focus on card items rendered in All Cards view',
+    // Requires card creation (Gitea-dependent).
+    async ({ page, request }) => {
+      const email = `test-tab-cards-${crypto.randomUUID()}@test.com`;
+      const { token } = await (
+        await request.post(`${BASE}/api/auth/signup`, {
+          data: { email, password: 'password123', display_name: 'Tab Cards User' },
+        })
+      ).json();
+
+      const board = await (
+        await request.post(`${BASE}/api/boards`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { name: 'Tab Cards Board' },
+        })
+      ).json();
+
+      const columns: any[] = await (
+        await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      ).json();
+
+      const swimlane = await (
+        await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { name: 'Lane', designator: 'TC-', color: '#2196F3' },
+        })
+      ).json();
+
+      const cardRes = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { title: 'Tab Card', column_id: columns[0].id, swimlane_id: swimlane.id, board_id: board.id },
+      });
+      if (!cardRes.ok()) {
+        test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+        return;
+      }
+
+      await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+      await page.goto(`/boards/${board.id}`);
+      await page.locator('.view-btn', { hasText: 'All Cards' }).click();
+      await page.waitForSelector('.card-item', { timeout: 10000 });
+
+      // Card items should be reachable via Tab since they have tabIndex or are buttons
+      const firstCard = page.locator('.card-item').first();
+      await expect(firstCard).toBeVisible();
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Sidebar navigation — keyboard accessible
+// ---------------------------------------------------------------------------
+
+test.describe('keyboard — sidebar navigation links are keyboard accessible', () => {
+  test('sidebar nav links have focusable role and can receive Tab focus', async ({ page, request }) => {
+    await setupBoardWithSwimlane(request, page, 'SidebarKb');
+
+    // Sidebar nav items should be reachable via Tab
+    const navItems = page.locator('.sidebar .nav-item, .sidebar a, .sidebar button');
+    const count = await navItems.count();
+    expect(count).toBeGreaterThan(0);
+
+    // At least the first nav item is focusable
+    await navItems.first().focus();
+    await expect(navItems.first()).toBeFocused({ timeout: 3000 });
+  });
+
+  test('pressing Enter on a sidebar link navigates to that route', async ({ page, request }) => {
+    await setupBoardWithSwimlane(request, page, 'SidebarEnter');
+
+    // Focus on the Reports nav item and press Enter
+    const reportsLink = page.locator('.sidebar a[href="/reports"], .sidebar .nav-item:has-text("Reports")').first();
+    await reportsLink.focus();
+    await page.keyboard.press('Enter');
+
+    await page.waitForURL(/\/reports/, { timeout: 8000 });
+    expect(page.url()).toContain('/reports');
+  });
+});

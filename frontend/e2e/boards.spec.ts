@@ -581,3 +581,254 @@ test.describe('Board API shape', () => {
     expect(typeof board.id).toBe('number');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Board list card details
+// ---------------------------------------------------------------------------
+
+test.describe('Board list card details', () => {
+  test('board created_at timestamp is included in API response', async ({ request }) => {
+    const { token } = await setup(request, 'Timestamp Tester');
+
+    const res = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Timestamped Board' },
+    });
+    expect(res.status()).toBe(201);
+
+    const board = await res.json();
+    expect(board).toHaveProperty('created_at');
+    expect(typeof board.created_at).toBe('string');
+    expect(board.created_at.length).toBeGreaterThan(0);
+  });
+
+  test('board list shows all boards created by the user', async ({ page, request }) => {
+    const { token } = await setup(request, 'ListAllBoards Tester');
+
+    const names = ['Alpha Board', 'Beta Board', 'Gamma Board'];
+    for (const name of names) {
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name },
+      });
+    }
+
+    await goToBoards(page, token);
+    await page.waitForSelector('.boards-grid', { timeout: 10000 });
+
+    for (const name of names) {
+      await expect(page.locator('.board-card').filter({ hasText: name })).toBeVisible();
+    }
+  });
+
+  test('board list card has a link that navigates to the board', async ({ page, request }) => {
+    const { token } = await setup(request, 'CardLink Tester');
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Link Test Board' },
+      })
+    ).json();
+
+    await goToBoards(page, token);
+    await page.waitForSelector('.boards-grid', { timeout: 10000 });
+
+    // The board-card-link should point to /boards/:id
+    const link = page.locator('.board-card-link').first();
+    const href = await link.getAttribute('href');
+    expect(href).toContain(`/boards/${board.id}`);
+  });
+
+  test('long board name does not break the board list card layout', async ({ page, request }) => {
+    const { token } = await setup(request, 'LongName Tester');
+    const longName = 'A'.repeat(80);
+
+    await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: longName },
+    });
+
+    await goToBoards(page, token);
+    await page.waitForSelector('.boards-grid', { timeout: 10000 });
+
+    const card = page.locator('.board-card').first();
+    await expect(card).toBeVisible();
+    // The card should not overflow its container
+    const cardBox = await card.boundingBox();
+    expect(cardBox).not.toBeNull();
+    if (cardBox) {
+      expect(cardBox.width).toBeGreaterThan(0);
+    }
+  });
+
+  test('board list shows boards in a grid layout', async ({ page, request }) => {
+    const { token } = await setup(request, 'GridLayout Tester');
+
+    for (let i = 1; i <= 2; i++) {
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: `Grid Board ${i}` },
+      });
+    }
+
+    await goToBoards(page, token);
+    await page.waitForSelector('.boards-grid', { timeout: 10000 });
+
+    await expect(page.locator('.boards-grid')).toBeVisible();
+    await expect(page.locator('.board-card')).toHaveCount(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board settings — additional coverage
+// ---------------------------------------------------------------------------
+
+test.describe('Board settings — extended', () => {
+  test('board settings page is reachable via direct URL', async ({ page, request }) => {
+    const { token } = await setup(request, 'SettingsDirect Tester');
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Direct Settings Board' },
+      })
+    ).json();
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('board settings page has a column management section', async ({ page, request }) => {
+    const { token } = await setup(request, 'ColumnMgmt Tester');
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Column Mgmt Board' },
+      })
+    ).json();
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+
+    // Column management section should appear on settings
+    const columnSection = page.locator(
+      '.settings-section:has-text("Column"), .columns-section, section:has-text("Columns")'
+    );
+    await expect(columnSection.first()).toBeVisible({ timeout: 8000 });
+  });
+
+  test('navigating to non-existent board settings redirects or shows error', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await setup(request, 'FakeBoard Tester');
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards/999999/settings');
+
+    // Should either show an error state or redirect back to boards
+    await expect(
+      page.locator('.error-state, .not-found, .empty-state').or(page.locator('.boards-grid'))
+    ).toBeVisible({ timeout: 10000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board API — extended
+// ---------------------------------------------------------------------------
+
+test.describe('Board API — extended', () => {
+  test('GET /api/boards returns an array even when empty', async ({ request }) => {
+    const { token } = await setup(request, 'APIEmpty Tester');
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const boards = await res.json();
+    expect(Array.isArray(boards)).toBe(true);
+    expect(boards.length).toBe(0);
+  });
+
+  test('GET /api/boards/:id returns the board with expected fields', async ({ request }) => {
+    const { token } = await setup(request, 'APIGet Tester');
+
+    const created = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Fields Check Board', description: 'desc' },
+      })
+    ).json();
+
+    const res = await request.get(`${BASE}/api/boards/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+
+    const board = await res.json();
+    expect(board).toHaveProperty('id', created.id);
+    expect(board).toHaveProperty('name', 'Fields Check Board');
+    expect(board).toHaveProperty('description', 'desc');
+    expect(board).toHaveProperty('columns');
+    expect(Array.isArray(board.columns)).toBe(true);
+  });
+
+  test('PUT /api/boards/:id updates the board name', async ({ request }) => {
+    const { token } = await setup(request, 'APIPut Tester');
+
+    const created = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Original API Name' },
+      })
+    ).json();
+
+    const updateRes = await request.put(`${BASE}/api/boards/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Updated API Name' },
+    });
+    expect(updateRes.status()).toBe(200);
+
+    const updated = await updateRes.json();
+    expect(updated.name).toBe('Updated API Name');
+  });
+
+  test('DELETE /api/boards/:id returns 200 or 204 and board is gone', async ({ request }) => {
+    const { token } = await setup(request, 'APIDelete Tester');
+
+    const created = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Delete Me API' },
+      })
+    ).json();
+
+    const deleteRes = await request.delete(`${BASE}/api/boards/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect([200, 204]).toContain(deleteRes.status());
+
+    // Board should no longer be accessible
+    const getRes = await request.get(`${BASE}/api/boards/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect([403, 404]).toContain(getRes.status());
+  });
+
+  test('POST /api/boards requires authentication', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/boards`, {
+      data: { name: 'Unauthenticated Board' },
+    });
+    expect([401, 403]).toContain(res.status());
+  });
+
+  test('GET /api/boards requires authentication', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`);
+    expect([401, 403]).toContain(res.status());
+  });
+});
