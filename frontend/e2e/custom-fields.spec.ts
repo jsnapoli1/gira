@@ -361,8 +361,10 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
 
     const input = page.locator('.custom-field-inline input[type="text"]');
     await input.fill('Acme Corporation');
+    // Wait for the save API response before closing to avoid races with SQLite
+    const savePromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
     await input.blur();
-    await page.waitForTimeout(2500);
+    await savePromise;
 
     // Close modal
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
@@ -413,8 +415,10 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
     await expect(page.locator('.custom-fields-compact')).toBeVisible({ timeout: 8000 });
 
     const select = page.locator('.custom-field-inline select');
+    // Wait for the save API response before closing to avoid races with SQLite
+    const saveSelectPromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
     await select.selectOption('High');
-    await page.waitForTimeout(2500);
+    await saveSelectPromise;
 
     // Close and reopen
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
@@ -457,8 +461,10 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
 
     const checkbox = page.locator('.custom-field-inline input[type="checkbox"]');
     await expect(checkbox).not.toBeChecked();
+    // Wait for the save API response before closing to avoid races with SQLite
+    const saveCheckboxPromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
     await checkbox.check();
-    await page.waitForTimeout(2500);
+    await saveCheckboxPromise;
 
     // Close and reopen
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
@@ -503,8 +509,10 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
     await expect(page.locator('.custom-fields-compact')).toBeVisible({ timeout: 8000 });
     const input = page.locator('.custom-field-inline input[type="text"]');
     await input.fill('ZIRA-42');
+    // Wait for the save API response before reloading to avoid races with SQLite
+    const saveReloadPromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
     await input.blur();
-    await page.waitForTimeout(2500);
+    await saveReloadPromise;
 
     // Full page reload
     await page.reload();

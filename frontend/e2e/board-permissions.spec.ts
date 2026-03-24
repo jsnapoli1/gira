@@ -125,7 +125,8 @@ test.describe('Board owner has admin role', () => {
     const board = await createBoard(request, ownerToken, 'Owner Add Member Board');
 
     const res = await addMember(request, ownerToken, board.id, userB.id, 'member');
-    expect(res.status()).toBe(200);
+    // POST /api/boards/:id/members returns 201 Created
+    expect(res.status()).toBe(201);
   });
 
   test('Owner can delete their board via DELETE /api/boards/:id', async ({ request }) => {
@@ -136,7 +137,8 @@ test.describe('Board owner has admin role', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    expect(res.status()).toBe(200);
+    // DELETE /api/boards/:id returns 204 No Content
+    expect(res.status()).toBe(204);
   });
 
   test('Board owner appears in member list with admin role', async ({ request }) => {
@@ -215,7 +217,8 @@ test.describe('Board admin member role', () => {
     await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
 
     const res = await addMember(request, adminToken, board.id, thirdUser.id, 'viewer');
-    expect(res.status()).toBe(200);
+    // POST /api/boards/:id/members returns 201 Created
+    expect(res.status()).toBe(201);
   });
 
   test('Admin member can remove other members from the board', async ({ request }) => {
@@ -231,7 +234,8 @@ test.describe('Board admin member role', () => {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
 
-    expect(res.status()).toBe(200);
+    // DELETE /api/boards/:id/members/:id returns 204 No Content
+    expect(res.status()).toBe(204);
   });
 
   test('Admin role is shown in the member list as "admin"', async ({ page, request }) => {
@@ -272,7 +276,13 @@ test.describe('Board admin member role', () => {
     await nameInput.clear();
     await nameInput.fill('Admin Renamed Board UI');
 
-    await page.locator('button:has-text("Save Changes")').click();
+    // Wait for the save API call to complete before reloading — click triggers
+    // an async boardsApi.update() and a reload before it finishes would discard
+    // the change (the save happens client-side, not via a form POST).
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes(`/api/boards/${board.id}`) && resp.request().method() === 'PUT'),
+      page.locator('button:has-text("Save Changes")').click(),
+    ]);
 
     await page.reload();
     await expect(page.locator('#boardName')).toHaveValue('Admin Renamed Board UI');

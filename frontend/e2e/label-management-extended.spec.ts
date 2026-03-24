@@ -34,13 +34,13 @@ async function setup(request: APIRequestContext, boardName = 'Label Ext Board'):
     })
   ).json();
 
+  // Omit repo_owner/repo_name so card creation does not attempt a real Gitea
+  // API call (which would fail in test environments without a live Gitea).
   const swimlane = await (
     await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
         name: 'Test Swimlane',
-        repo_owner: 'test',
-        repo_name: 'repo',
         designator: 'LX-',
         color: '#6366f1',
       },

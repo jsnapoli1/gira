@@ -228,8 +228,10 @@ test.describe('Card Modal — Multiple Custom Fields', () => {
 
     const input = page.locator('.custom-field-inline input[type="number"]');
     await input.fill('42');
+    // Wait for the save API response before closing the modal
+    const savePromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
     await input.blur();
-    await page.waitForTimeout(2500);
+    await savePromise;
 
     // Close and reopen
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
@@ -261,9 +263,10 @@ test.describe('Card Modal — Multiple Custom Fields', () => {
     await expect(page.locator('.custom-fields-compact')).toBeVisible({ timeout: 8000 });
 
     const dateInput = page.locator('.custom-field-inline input[type="date"]');
+    // Date fields save on change; wait for the PUT response
+    const saveDatePromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
     await dateInput.fill('2025-06-15');
-    // Date fields typically save on change; allow a moment
-    await page.waitForTimeout(2500);
+    await saveDatePromise;
 
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
     await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
