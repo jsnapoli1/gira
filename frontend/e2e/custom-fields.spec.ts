@@ -328,8 +328,8 @@ test.describe('Card Modal — Custom Fields Rendering', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('Card Modal — Custom Field Value Persistence', () => {
-  // Retry up to 2 times to handle intermittent SQLite lock contention under parallelism
-  test.describe.configure({ retries: 2 });
+  // Retry once to handle intermittent SQLite lock contention under parallelism
+  test.describe.configure({ retries: 1 });
 
   test('text field value persists after close and reopen', async ({ page, request }) => {
     const { token, board } = await setupUserAndBoard(request);

@@ -745,9 +745,10 @@ test.describe('Badge disappears when all read', () => {
     // Confirm badge is present before acting
     await expect(page.locator('.notification-badge')).toBeVisible({ timeout: 8000 });
 
-    // Mark all read via the UI
+    // Mark all read via the UI — use evaluate(el.click()) to bypass sidebar-nav hit-test interception
     await openNotificationDropdown(page);
-    await page.click('.mark-all-read-btn');
+    await expect(page.locator('.notification-item').first()).toBeVisible({ timeout: 8000 });
+    await page.locator('.mark-all-read-btn').evaluate((el: HTMLElement) => el.click());
 
     // Badge should be gone
     await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 8000 });

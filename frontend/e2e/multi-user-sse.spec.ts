@@ -1058,16 +1058,16 @@ test.describe('SSE — reconnection and state refresh', () => {
       await page.addInitScript((t: string) => localStorage.setItem('token', t), tokenOwner);
 
       // First visit — SSE connects.
-      await page.goto(`/boards/${board.id}`);
+      await page.goto(`${UI_BASE}/boards/${board.id}`);
       await page.waitForSelector('.board-page', { timeout: 15000 });
       await expect(page.locator('.board-header h1')).toContainText(boardName, { timeout: 8000 });
 
       // Navigate away — SSE disconnects.
-      await page.goto('/boards');
+      await page.goto(`${UI_BASE}/boards`);
       await page.waitForSelector('h1, .boards-page, .board-list', { timeout: 10000 });
 
       // Navigate back — SSE reconnects, board re-fetched from server.
-      await page.goto(`/boards/${board.id}`);
+      await page.goto(`${UI_BASE}/boards/${board.id}`);
       await page.waitForSelector('.board-page', { timeout: 15000 });
 
       // Board name must still be correct — confirms state reload after reconnect.
@@ -1097,14 +1097,14 @@ test.describe('SSE — reconnection and state refresh', () => {
       const page = await ctx.newPage();
       await page.addInitScript((t: string) => localStorage.setItem('token', t), tokenOwner);
 
-      await page.goto(`/boards/${board.id}`);
+      await page.goto(`${UI_BASE}/boards/${board.id}`);
       await page.waitForSelector('.board-page', { timeout: 15000 });
       await expect(page.locator('.board-header h1')).toContainText(originalName, {
         timeout: 8000,
       });
 
       // Navigate away.
-      await page.goto('/boards');
+      await page.goto(`${UI_BASE}/boards`);
       await page.waitForSelector('h1, .boards-page, .board-list', { timeout: 10000 });
 
       // Rename the board while the user is on the boards list page.
@@ -1114,7 +1114,7 @@ test.describe('SSE — reconnection and state refresh', () => {
       });
 
       // Navigate back — fresh board load should pick up the new name.
-      await page.goto(`/boards/${board.id}`);
+      await page.goto(`${UI_BASE}/boards/${board.id}`);
       await page.waitForSelector('.board-page', { timeout: 15000 });
 
       await expect(page.locator('.board-header h1')).toContainText(updatedName, {
@@ -1143,7 +1143,7 @@ test.describe('SSE — reconnection and state refresh', () => {
       await page.addInitScript((t: string) => localStorage.setItem('token', t), ownerToken);
 
       for (let i = 0; i < 3; i++) {
-        await page.goto(`/boards/${board.id}`);
+        await page.goto(`${UI_BASE}/boards/${board.id}`);
         await page.waitForSelector('.board-page', { timeout: 15000 });
         await page.waitForTimeout(500);
       }

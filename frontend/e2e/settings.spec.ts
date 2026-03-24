@@ -532,8 +532,12 @@ test.describe('Settings — form validation', () => {
     const saveBtn = page.locator('button:has-text("Save Configuration"), button:has-text("Update Configuration")');
     await saveBtn.click();
 
-    // Success badge should NOT appear because the form did not submit
-    await expect(page.locator('.status-badge.success')).not.toBeVisible({ timeout: 2000 });
+    // The save-confirmation badge should NOT appear because the form did not submit.
+    // Note: a "Connected to Gitea" badge may already be present from the shared server state,
+    // so check specifically for the save-confirmation text.
+    await expect(
+      page.locator('.status-badge.success:has-text("Configuration saved successfully")'),
+    ).not.toBeVisible({ timeout: 2000 });
   });
 
   test('admin API key field has required attribute when not configured', async ({ page, request }) => {
@@ -542,16 +546,21 @@ test.describe('Settings — form validation', () => {
     await page.addInitScript((t) => localStorage.setItem('token', t), token);
 
     await page.goto('/settings');
-    await expect(page.locator('#giteaApiKey')).toBeVisible({ timeout: 8000 });
 
-    // The placeholder and required attribute depend on configured state;
-    // if not configured the field has required=""
+    // Wait for the Global Gitea Connection section AND for the config API call to complete
+    // by waiting for either the submit button text to stabilise. This prevents a race
+    // between the initial render (unconfigured) and the loadConfig() API response.
+    await expect(
+      page.locator('button:has-text("Save Configuration"), button:has-text("Update Configuration")'),
+    ).toBeVisible({ timeout: 8000 });
+
+    // Now read the placeholder — it reflects the actual configured state from the server
     const placeholder = await page.locator('#giteaApiKey').getAttribute('placeholder');
-    // When not yet configured, placeholder is 'Your Gitea API key' and required is set
     if (placeholder === 'Your Gitea API key') {
+      // Not yet configured — required attribute must be present
       await expect(page.locator('#giteaApiKey')).toHaveAttribute('required', '');
     } else {
-      // Already configured — required is absent (leave blank to keep existing key)
+      // Already configured (shared server state) — required is absent so blank keeps existing key
       const reqAttr = await page.locator('#giteaApiKey').getAttribute('required');
       expect(reqAttr).toBeNull();
     }
@@ -641,8 +650,10 @@ test.describe('Settings — Add Credential modal', () => {
 
     await page.click('button:has-text("Add Credential")');
 
-    // A modal should appear (AddCredentialModal component)
-    await expect(page.locator('.modal, [class*="modal"], dialog')).toBeVisible({ timeout: 5000 });
+    // A modal should appear (AddCredentialModal component).
+    // Use .modal-content to avoid strict mode violation — the modal overlay creates multiple
+    // elements matching '[class*="modal"]'.
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
   });
 
   test('empty credentials list shows descriptive empty state', async ({ page, request }) => {

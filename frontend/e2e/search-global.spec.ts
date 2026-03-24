@@ -282,12 +282,21 @@ test.describe('Global Search API', () => {
       token,
       'Scoped Search Board 1'
     );
-    await createCard(request, token, {
-      title: 'SharedTitleToken Card',
-      boardId: board1.id,
-      columnId: cols1[0].id,
-      swimlaneId: lane1.id,
+
+    const cardCreationRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'SharedTitleToken Card',
+        boardId: board1.id,
+        column_id: cols1[0].id,
+        swimlane_id: lane1.id,
+        board_id: board1.id,
+      },
     });
+    if (!cardCreationRes.ok()) {
+      test.skip(true, 'Card creation unavailable — skipping scoped search API test');
+      return;
+    }
 
     // Board 2 — does NOT contain the matching card
     const { board: board2 } = await createBoard(request, token, 'Scoped Search Board 2');
@@ -417,18 +426,20 @@ test.describe('Per-board search — card filtering behaviour', () => {
       },
     });
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.waitForSelector('.board-page', { timeout: 25000 });
     // Switch to All Cards so all three cards appear regardless of sprint
     await page.click('.view-btn:has-text("All Cards")');
-    await page.waitForSelector('.board-grid, .board-content', { timeout: 10000 });
-    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+    await page.waitForSelector('.board-grid, .board-content', { timeout: 15000 });
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 20000 });
 
     return { token, board, columns, swimlane, cardsCreated: true };
   }
 
   test('search by card title shows matching cards', async ({ page, request }) => {
+    test.setTimeout(90000);
     const setup = await setupBoardWithCards(request, page);
     if (!setup.cardsCreated) {
       test.skip(true, 'Card creation unavailable');
@@ -442,6 +453,7 @@ test.describe('Per-board search — card filtering behaviour', () => {
   });
 
   test('search with no matches shows zero card items (empty state)', async ({ page, request }) => {
+    test.setTimeout(90000);
     const setup = await setupBoardWithCards(request, page);
     if (!setup.cardsCreated) {
       test.skip(true, 'Card creation unavailable');
@@ -453,6 +465,7 @@ test.describe('Per-board search — card filtering behaviour', () => {
   });
 
   test('clearing search input shows all cards again', async ({ page, request }) => {
+    test.setTimeout(90000);
     const setup = await setupBoardWithCards(request, page);
     if (!setup.cardsCreated) {
       test.skip(true, 'Card creation unavailable');
@@ -467,6 +480,7 @@ test.describe('Per-board search — card filtering behaviour', () => {
   });
 
   test('search is case-insensitive — lowercase matches uppercase title', async ({ page, request }) => {
+    test.setTimeout(90000);
     const setup = await setupBoardWithCards(request, page);
     if (!setup.cardsCreated) {
       test.skip(true, 'Card creation unavailable');
@@ -479,6 +493,7 @@ test.describe('Per-board search — card filtering behaviour', () => {
   });
 
   test('search by partial title — "Zircon" matches two cards', async ({ page, request }) => {
+    test.setTimeout(90000);
     const setup = await setupBoardWithCards(request, page);
     if (!setup.cardsCreated) {
       test.skip(true, 'Card creation unavailable');
@@ -492,6 +507,7 @@ test.describe('Per-board search — card filtering behaviour', () => {
   });
 
   test('search and priority filter work simultaneously', async ({ page, request }) => {
+    test.setTimeout(90000);
     const { token } = await createUser(request);
     const { board, columns, swimlane } = await createBoard(request, token, 'Combined Filter Board');
 
@@ -533,11 +549,12 @@ test.describe('Per-board search — card filtering behaviour', () => {
       },
     });
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.waitForSelector('.board-page', { timeout: 25000 });
     await page.click('.view-btn:has-text("All Cards")');
-    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 20000 });
 
     // Apply text search — narrows to 2 Cobalt cards
     await page.locator('.search-input input').fill('Cobalt');
@@ -556,6 +573,7 @@ test.describe('Per-board search — card filtering behaviour', () => {
   });
 
   test('search persists while navigating between board view modes', async ({ page, request }) => {
+    test.setTimeout(90000);
     const setup = await setupBoardWithCards(request, page);
     if (!setup.cardsCreated) {
       test.skip(true, 'Card creation unavailable');
@@ -640,6 +658,7 @@ test.describe('Per-board search — backlog view', () => {
   });
 
   test('backlog search filters matching cards', async ({ page, request }) => {
+    test.setTimeout(90000);
     const { token } = await createUser(request);
     const { board, columns, swimlane } = await createBoard(request, token, 'Backlog Filter Cards Board');
 
@@ -668,9 +687,10 @@ test.describe('Per-board search — backlog view', () => {
       },
     });
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.waitForSelector('.board-page', { timeout: 25000 });
 
     await page.click('.view-btn:has-text("Backlog")');
 

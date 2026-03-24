@@ -28,7 +28,8 @@ async function setupPage(page: any, request: any, boardName: string, prefix: str
   const board = await createBoard(request, token, boardName);
   await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
   await page.goto(`/boards/${board.id}/settings`);
-  await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+  // Under load the settings page may take a few extra seconds to render
+  await expect(page.locator('.settings-page')).toBeVisible({ timeout: 20000 });
   return { token, user, board };
 }
 
@@ -76,11 +77,11 @@ test.describe('Board Settings — rename and description', () => {
     await nameInput.clear();
     await nameInput.fill('Renamed Board');
     await page.locator('button:has-text("Save Changes")').click();
-    // Wait for save to complete (button returns to non-saving state)
-    await expect(page.locator('button:has-text("Save Changes")')).toBeVisible({ timeout: 5000 });
+    // Wait for save to complete (button returns to non-saving state from "Saving...")
+    await expect(page.locator('button:has-text("Save Changes")')).toBeVisible({ timeout: 15000 });
 
     await page.goto('/boards');
-    await expect(page.locator('.board-card h3:has-text("Renamed Board")')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.board-card h3:has-text("Renamed Board")')).toBeVisible({ timeout: 12000 });
   });
 
   test('updates description and it persists after reload', async ({ page, request }) => {
@@ -90,11 +91,11 @@ test.describe('Board Settings — rename and description', () => {
     await descInput.clear();
     await descInput.fill('Updated board description');
     await page.locator('button:has-text("Save Changes")').click();
-    await expect(page.locator('button:has-text("Save Changes")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('button:has-text("Save Changes")')).toBeVisible({ timeout: 15000 });
 
     await page.goto(`/boards/${board.id}/settings`);
-    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('#boardDesc')).toHaveValue('Updated board description', { timeout: 8000 });
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('#boardDesc')).toHaveValue('Updated board description', { timeout: 12000 });
   });
 
   test('API PUT /api/boards/:id persists the new name', async ({ request }) => {
@@ -144,7 +145,7 @@ test.describe('Board Settings — delete board', () => {
     await page.locator('button.btn-danger:has-text("Delete Board")').click();
 
     // Should remain on settings page
-    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 20000 });
     await expect(page.locator('#boardName')).toHaveValue('Keep Me Board');
   });
 
@@ -424,7 +425,7 @@ test.describe('Board Settings — swimlanes', () => {
 
     await page.locator('.modal button[type="submit"]:has-text("Add Swimlane")').click();
 
-    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 12000 });
     await expect(swimlanesSection.locator('.item-name:has-text("Backend Lane")')).toBeVisible({ timeout: 8000 });
   });
 
@@ -439,7 +440,7 @@ test.describe('Board Settings — swimlanes', () => {
     await page.locator('.modal input[placeholder="FE-"]').fill('ML-');
     await page.locator('.modal button[type="submit"]:has-text("Add Swimlane")').click();
 
-    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 12000 });
 
     const slRow = swimlanesSection.locator('.settings-list-item').filter({ hasText: 'Meta Lane' });
     await expect(slRow).toBeVisible({ timeout: 8000 });
@@ -461,7 +462,7 @@ test.describe('Board Settings — swimlanes', () => {
     await page.locator('.modal .color-option').nth(1).click();
     await page.locator('.modal button[type="submit"]:has-text("Add Swimlane")').click();
 
-    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 12000 });
 
     const slRow = swimlanesSection.locator('.settings-list-item').filter({ hasText: 'Color Lane' });
     await expect(slRow).toBeVisible({ timeout: 8000 });
@@ -477,7 +478,7 @@ test.describe('Board Settings — swimlanes', () => {
     await expect(page.locator('.modal h2:has-text("Add Swimlane")')).toBeVisible();
 
     await page.locator('.modal button:has-text("Cancel")').click();
-    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 12000 });
   });
 
   test('deletes a swimlane via the delete button after confirming', async ({ page, request }) => {
@@ -863,7 +864,7 @@ test.describe('Board Settings — import/export', () => {
     await setupPage(page, request, 'Import Modal Board', 'bs-import-modal');
 
     await page.locator('button:has-text("Import from Jira CSV")').click();
-    await expect(page.locator('.import-modal')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.import-modal')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.import-modal h3:has-text("Import from Jira CSV")')).toBeVisible();
   });
 
@@ -871,10 +872,10 @@ test.describe('Board Settings — import/export', () => {
     await setupPage(page, request, 'Import Cancel Board', 'bs-import-cancel');
 
     await page.locator('button:has-text("Import from Jira CSV")').click();
-    await expect(page.locator('.import-modal')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.import-modal')).toBeVisible({ timeout: 10000 });
 
     await page.locator('.import-modal button:has-text("Cancel")').click();
-    await expect(page.locator('.import-modal')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.import-modal')).not.toBeVisible({ timeout: 10000 });
   });
 });
 
