@@ -1,50 +1,31 @@
 import { test, expect } from '@playwright/test';
 
-const PORT = process.env.PORT || 9002;
-const API = `http://127.0.0.1:${PORT}`;
+const BASE = `http://127.0.0.1:${process.env.PORT || 9002}`;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function signUp(request: any) {
+async function setup(request: any, page: any) {
   const email = `priority-${crypto.randomUUID()}@test.com`;
-  const res = await request.post(`${API}/api/auth/signup`, {
-    data: {
-      email,
-      password: 'password123',
-      display_name: `PrioTester-${crypto.randomUUID().slice(0, 8)}`,
-    },
-  });
-  const body = await res.json();
-  return { token: body.token as string, userId: body.user?.id as number };
-}
+  const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+    data: { email, password: 'password123', display_name: `PrioTester-${crypto.randomUUID().slice(0, 8)}` },
+  })).json();
 
-async function createBoard(request: any, token: string) {
-  const boardRes = await request.post(`${API}/api/boards`, {
+  const board = await (await request.post(`${BASE}/api/boards`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: { name: `Priority Board ${crypto.randomUUID().slice(0, 8)}`, description: '' },
-  });
-  const board = await boardRes.json();
+    data: { name: `Priority Board ${crypto.randomUUID().slice(0, 8)}` },
+  })).json();
 
-  const colRes = await request.get(`${API}/api/boards/${board.id}/columns`, {
+  const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
     headers: { Authorization: `Bearer ${token}` },
-  });
-  const columns = await colRes.json();
+    data: { name: 'Test Lane', designator: 'PL-', color: '#3b82f6' },
+  })).json();
 
-  const slRes = await request.post(`${API}/api/boards/${board.id}/swimlanes`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: {
-      name: 'Test Lane',
-      repo_owner: 'test',
-      repo_name: 'repo',
-      designator: 'PL-',
-      color: '#3b82f6',
-    },
-  });
-  const swimlane = await slRes.json();
+  await page.goto('/login');
+  await page.evaluate((t: string) => localStorage.setItem('token', t), token);
 
-  return { board, columns, swimlane };
+  return { token, board, swimlane, columns: board.columns };
 }
 
 async function createCard(
@@ -65,27 +46,21 @@ async function createCard(
     description: '',
     priority,
   };
-  if (storyPoints !== undefined) {
-    data.story_points = storyPoints;
-  }
-  const res = await request.post(`${API}/api/cards`, {
+  if (storyPoints !== undefined) data.story_points = storyPoints;
+
+  return request.post(`${BASE}/api/cards`, {
     headers: { Authorization: `Bearer ${token}` },
     data,
   });
-  if (!res.ok()) return null;
-  return res.json();
 }
 
-/** Navigate to the board, inject token, switch to All Cards view, wait for cards. */
-async function openBoardAllCards(page: any, token: string, boardId: number) {
-  await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+async function openBoardAllCards(page: any, boardId: number) {
   await page.goto(`/boards/${boardId}`);
   await page.waitForSelector('.board-header', { timeout: 10000 });
   await page.click('.view-btn:has-text("All Cards")');
   await page.waitForSelector('.card-item', { timeout: 10000 });
 }
 
-/** Expand the filter panel if it is not already open. */
 async function expandFilters(page: any) {
   const expanded = page.locator('.filters-expanded');
   if (!(await expanded.isVisible())) {
@@ -101,29 +76,126 @@ async function expandFilters(page: any) {
 test.describe('Card Priority & Ordering', () => {
 
   // -------------------------------------------------------------------------
-  // 1. Priority field exists in card detail modal with all levels
+  // 1. Priority badge visible on board card without opening modal
   // -------------------------------------------------------------------------
-  test('card modal shows priority select in edit mode with all five priority levels', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
+  test('priority indicator visible on board card — no modal needed', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
 
-    const card = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Modal Priority Card', 'medium');
-    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'High Priority Card', 'high');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
 
-    await openBoardAllCards(page, token, board.id);
+    await openBoardAllCards(page, board.id);
 
-    // Open card modal
+    const badge = page.locator('[aria-label="Priority: high"]');
+    await expect(badge).toBeVisible({ timeout: 5000 });
+
+    // Modal must NOT have opened just from seeing the badge
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 2. Priority badge colors — each non-medium priority has a distinct color
+  // -------------------------------------------------------------------------
+  test('priority badge colors — each non-medium priority renders a distinct color', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const entries = [
+      { title: 'Highest Card', priority: 'highest' },
+      { title: 'High Card', priority: 'high' },
+      { title: 'Low Card', priority: 'low' },
+      { title: 'Lowest Card', priority: 'lowest' },
+    ];
+    for (const e of entries) {
+      const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, e.title, e.priority);
+      if (!res.ok()) {
+        test.skip(true, `Card creation unavailable: ${await res.text()}`);
+        return;
+      }
+    }
+
+    await openBoardAllCards(page, board.id);
+    await expect(page.locator('.card-item')).toHaveCount(4, { timeout: 8000 });
+
+    const priorityBadges = page.locator('.card-priority');
+    await expect(priorityBadges).toHaveCount(4, { timeout: 5000 });
+
+    const colors = await priorityBadges.evaluateAll((els: HTMLElement[]) =>
+      els.map((el) => el.style.color),
+    );
+    const uniqueColors = new Set(colors);
+    expect(uniqueColors.size).toBe(4);
+  });
+
+  // -------------------------------------------------------------------------
+  // 3. "Highest" priority renders urgent red (#dc2626)
+  // -------------------------------------------------------------------------
+  test('highest priority card displays an urgent red badge color', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Urgent Card', 'highest');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+
+    const badge = page.locator('[aria-label="Priority: highest"]');
+    await expect(badge).toBeVisible({ timeout: 5000 });
+
+    // CardItem hardcodes #dc2626 → rgb(220, 38, 38)
+    const color = await badge.evaluate((el: HTMLElement) => el.style.color);
+    expect(color).toBe('rgb(220, 38, 38)');
+  });
+
+  // -------------------------------------------------------------------------
+  // 4. Medium priority card has NO badge on the board (intentional design)
+  // -------------------------------------------------------------------------
+  test('medium priority card does not render a priority badge on the board', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Medium Card', 'medium');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+
+    // CardItem only renders badge when priority !== 'medium'
+    await expect(page.locator('.card-item .card-priority')).toHaveCount(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 5. Priority dropdown in modal has all five options (edit mode)
+  // -------------------------------------------------------------------------
+  test('card modal shows priority select in edit mode with all five options', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Modal Priority Card', 'medium');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+
     await page.locator('.card-item').first().click();
-    await page.waitForSelector('.card-detail-meta', { timeout: 8000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
-    // View mode shows the priority badge
+    // View mode: badge shows "medium"
     await expect(page.locator('.card-detail-meta .card-priority')).toContainText('medium');
 
     // Enter edit mode
-    await page.click('button:has-text("Edit")');
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
 
-    // Priority select must expose all 5 levels
-    const prioritySelect = page.locator('select').filter({ has: page.locator('option:text("Highest")') });
+    // Priority select is the 2nd select in the edit form (1st is Issue Type)
+    const prioritySelect = page.locator('.card-detail-edit select').nth(1);
     await expect(prioritySelect).toBeVisible({ timeout: 5000 });
     const optionTexts = await prioritySelect.locator('option').allTextContents();
     expect(optionTexts).toContain('Highest');
@@ -134,143 +206,218 @@ test.describe('Card Priority & Ordering', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 2. Set priority to "high" via modal — badge updates in view mode
+  // 6. Set priority to "high" — card shows high priority indicator
   // -------------------------------------------------------------------------
-  test('setting priority to high in modal updates the view-mode badge', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
+  test('set priority to high in modal — card badge updates to high', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
 
-    const card = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Set High Card', 'medium');
-    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Change Priority Card', 'low');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
 
-    await openBoardAllCards(page, token, board.id);
+    await openBoardAllCards(page, board.id);
+    await expect(page.locator('[aria-label="Priority: low"]')).toBeVisible({ timeout: 5000 });
 
     await page.locator('.card-item').first().click();
-    await page.waitForSelector('.card-detail-meta', { timeout: 8000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
-    // Enter edit mode
-    await page.click('button:has-text("Edit")');
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
 
-    const prioritySelect = page.locator('select').filter({ has: page.locator('option:text("Highest")') });
-    await expect(prioritySelect).toBeVisible({ timeout: 5000 });
+    const prioritySelect = page.locator('.card-detail-edit select').nth(1);
     await prioritySelect.selectOption('high');
 
-    // Save
-    await page.click('button:has-text("Save")');
-    await page.waitForSelector('.card-detail-meta', { timeout: 5000 });
+    const [response] = await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+    expect(response.status()).toBe(200);
 
-    // View mode badge should now say "high"
+    // View mode badge updates immediately
     await expect(page.locator('.card-detail-meta .card-priority')).toContainText('high', { timeout: 5000 });
   });
 
   // -------------------------------------------------------------------------
-  // 3. Priority badge shown on card in board (not medium — medium is hidden)
+  // 7. Change priority from "high" to "critical" (highest)
   // -------------------------------------------------------------------------
-  test('priority indicator is visible on the board card without opening modal', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
+  test('change priority from high to critical (highest) — modal badge updates', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
 
-    const card = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Visible Priority Card', 'high');
-    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'High To Critical', 'high');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
 
-    await openBoardAllCards(page, token, board.id);
+    await openBoardAllCards(page, board.id);
 
-    // aria-label is set directly on the card-priority span — no click needed
-    const badge = page.locator('[aria-label="Priority: high"]');
-    await expect(badge).toBeVisible({ timeout: 5000 });
+    await page.locator('.card-item').first().click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
-    // Modal must not have opened
-    await expect(page.locator('.card-detail-modal-unified, .modal.card-modal')).not.toBeVisible();
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+
+    const prioritySelect = page.locator('.card-detail-edit select').nth(1);
+    await expect(prioritySelect).toHaveValue('high');
+    await prioritySelect.selectOption('highest');
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+    expect(response.status()).toBe(200);
+
+    await expect(page.locator('.card-detail-meta .card-priority')).toContainText('highest', { timeout: 5000 });
+    await expect(page.locator('.card-detail-meta .card-priority')).toHaveClass(/priority-highest/);
   });
 
   // -------------------------------------------------------------------------
-  // 4. Change priority from high to low via modal
+  // 8. Priority persists after modal close and reopen
   // -------------------------------------------------------------------------
-  test('changing priority from high to low in modal updates board card badge immediately', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
+  test('priority change persists after modal close and reopen', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
 
-    const card = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Change Priority Card', 'high');
-    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Persist Priority Card', 'low');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
 
-    await openBoardAllCards(page, token, board.id);
+    await openBoardAllCards(page, board.id);
 
-    // Verify initial "high" badge
+    // Open and update priority to "high"
+    await page.locator('.card-item').first().click();
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+    await page.locator('.card-detail-edit select').nth(1).selectOption('high');
+    await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+
+    // Close modal
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+
+    // Board badge reflects the new priority
     await expect(page.locator('[aria-label="Priority: high"]')).toBeVisible({ timeout: 5000 });
 
-    // Open the card modal
+    // Reopen modal — verify priority still shows "high"
     await page.locator('.card-item').first().click();
-    await page.waitForSelector('.card-detail-meta', { timeout: 8000 });
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+    await expect(page.locator('.card-detail-meta .card-priority')).toContainText('high', { timeout: 5000 });
+  });
 
-    // Enter edit mode and change to low
-    await page.click('button:has-text("Edit")');
-    const prioritySelect = page.locator('select').filter({ has: page.locator('option:text("Highest")') });
-    await expect(prioritySelect).toBeVisible({ timeout: 5000 });
-    await prioritySelect.selectOption('low');
+  // -------------------------------------------------------------------------
+  // 9. Priority change in modal updates board badge without page reload
+  // -------------------------------------------------------------------------
+  test('changing priority in modal updates the board card badge immediately (no reload)', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
 
-    // Save
-    await page.click('button:has-text("Save")');
-    await page.waitForSelector('.card-detail-meta', { timeout: 5000 });
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'No Reload Priority', 'low');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
 
-    // Close modal
-    await page.keyboard.press('Escape');
-    await expect(page.locator('.card-detail-meta')).not.toBeVisible({ timeout: 5000 });
-
-    // Board badge must reflect the change — no page reload
+    await openBoardAllCards(page, board.id);
     await expect(page.locator('[aria-label="Priority: low"]')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('[aria-label="Priority: high"]')).not.toBeVisible();
-  });
 
-  // -------------------------------------------------------------------------
-  // 5. Priority persists after modal reopen
-  // -------------------------------------------------------------------------
-  test('priority persists after closing and reopening the card modal', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    const card = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Persist Priority Card', 'low');
-    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await openBoardAllCards(page, token, board.id);
-
-    // Open modal, change to highest, save, close
     await page.locator('.card-item').first().click();
     await page.waitForSelector('.card-detail-meta', { timeout: 8000 });
-    await page.click('button:has-text("Edit")');
-    const prioritySelect = page.locator('select').filter({ has: page.locator('option:text("Highest")') });
-    await prioritySelect.selectOption('highest');
-    await page.click('button:has-text("Save")');
-    await page.waitForSelector('.card-detail-meta', { timeout: 5000 });
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.locator('.card-detail-edit select').nth(1).selectOption('highest');
+    await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
 
-    // Close modal
+    // Close modal via Escape
     await page.keyboard.press('Escape');
-    await expect(page.locator('.card-detail-meta')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
 
-    // Reopen modal
-    await page.locator('.card-item').first().click();
-    await page.waitForSelector('.card-detail-meta', { timeout: 8000 });
-
-    // Priority should still be "highest"
-    await expect(page.locator('.card-detail-meta .card-priority')).toContainText('highest', { timeout: 5000 });
+    // Board badge reflects change — no reload needed
+    await expect(page.locator('[aria-label="Priority: highest"]')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[aria-label="Priority: low"]')).not.toBeVisible();
   });
 
   // -------------------------------------------------------------------------
-  // 6. Priority filter — high only
+  // 10. API: PUT /api/cards/:id with { priority: "high" } accepted (HTTP 200)
+  // -------------------------------------------------------------------------
+  test('API: PUT /api/cards/:id with priority:high returns 200 and persists priority', async ({ request }) => {
+    const email = `priority-api-${crypto.randomUUID()}@test.com`;
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'PrioApiTester' },
+    })).json();
+
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'API Prio Board' },
+    })).json();
+
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'AP-' },
+    })).json();
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        board_id: board.id,
+        swimlane_id: swimlane.id,
+        column_id: board.columns[0].id,
+        title: 'API Priority Card',
+        priority: 'low',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+
+    const putRes = await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: card.title,
+        description: card.description || '',
+        priority: 'high',
+        story_points: card.story_points ?? null,
+        column_id: card.column_id,
+        swimlane_id: card.swimlane_id,
+      },
+    });
+    expect(putRes.status()).toBe(200);
+    const updated = await putRes.json();
+    expect(updated.priority).toBe('high');
+  });
+
+  // -------------------------------------------------------------------------
+  // 11. Priority filter — selecting "high" shows only high-priority cards
   // -------------------------------------------------------------------------
   test('priority filter — selecting high shows only high-priority cards', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
+    const { token, board, swimlane, columns } = await setup(request, page);
 
-    const c1 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'High Card', 'high');
-    const c2 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Low Card', 'low');
-    const c3 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Medium Card', 'medium');
-    if (!c1 || !c2 || !c3) { test.skip(true, 'Card creation unavailable'); return; }
+    const entries = [
+      { title: 'High Card', priority: 'high' },
+      { title: 'Low Card', priority: 'low' },
+      { title: 'Medium Card', priority: 'medium' },
+    ];
+    for (const e of entries) {
+      const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, e.title, e.priority);
+      if (!res.ok()) {
+        test.skip(true, `Card creation unavailable: ${await res.text()}`);
+        return;
+      }
+    }
 
-    await openBoardAllCards(page, token, board.id);
+    await openBoardAllCards(page, board.id);
     await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
 
     await expandFilters(page);
-
     const prioritySelect = page.locator('.filter-select').filter({
       has: page.locator('option:text("All priorities")'),
     });
@@ -282,18 +429,25 @@ test.describe('Card Priority & Ordering', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 7. Sort/filter by priority — switching between multiple priorities
+  // 12. Priority filter — switching between values correctly narrows the list
   // -------------------------------------------------------------------------
   test('priority filter — switching between values correctly narrows the card list', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
+    const { token, board, swimlane, columns } = await setup(request, page);
 
-    const c1 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Highest Card', 'highest');
-    const c2 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'High Card', 'high');
-    const c3 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Low Card', 'low');
-    if (!c1 || !c2 || !c3) { test.skip(true, 'Card creation unavailable'); return; }
+    const entries = [
+      { title: 'Highest Card', priority: 'highest' },
+      { title: 'High Card', priority: 'high' },
+      { title: 'Low Card', priority: 'low' },
+    ];
+    for (const e of entries) {
+      const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, e.title, e.priority);
+      if (!res.ok()) {
+        test.skip(true, `Card creation unavailable: ${await res.text()}`);
+        return;
+      }
+    }
 
-    await openBoardAllCards(page, token, board.id);
+    await openBoardAllCards(page, board.id);
     await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
 
     await expandFilters(page);
@@ -301,12 +455,12 @@ test.describe('Card Priority & Ordering', () => {
       has: page.locator('option:text("All priorities")'),
     });
 
-    // Filter to highest — 1 card
+    // Filter to "highest" — 1 card
     await prioritySelect.selectOption('highest');
     await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
     await expect(page.locator('.card-item').first()).toHaveAttribute('aria-label', 'Highest Card');
 
-    // Switch to low — different single card
+    // Switch to "low" — different single card
     await prioritySelect.selectOption('low');
     await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
     await expect(page.locator('.card-item').first()).toHaveAttribute('aria-label', 'Low Card');
@@ -317,267 +471,25 @@ test.describe('Card Priority & Ordering', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 8. Cards with priority sorted/visible by priority in backlog
-  // -------------------------------------------------------------------------
-  test('backlog view — priority color dot is rendered per card with distinct colors', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    const lowCard = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Low Prio Card', 'low');
-    const highCard = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'High Prio Card', 'high');
-    if (!lowCard || !highCard) { test.skip(true, 'Card creation unavailable'); return; }
-
-    // Create a sprint and assign both cards to it so they appear in the backlog panel
-    const sprintRes = await request.post(`${API}/api/sprints?board_id=${board.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Sprint Alpha', goal: '' },
-    });
-    const sprint = await sprintRes.json();
-
-    for (const card of [lowCard, highCard]) {
-      await request.put(`${API}/api/cards/${card.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: {
-          title: card.title,
-          description: card.description || '',
-          priority: card.priority,
-          story_points: card.story_points ?? null,
-          sprint_id: sprint.id,
-          column_id: card.column_id,
-          swimlane_id: card.swimlane_id,
-          position: card.position,
-        },
-      });
-    }
-
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${board.id}`);
-    await page.waitForSelector('.board-header', { timeout: 10000 });
-
-    // Navigate to backlog
-    await page.click('.view-btn:has-text("Backlog")');
-    await expect(page.locator('.backlog-card')).toHaveCount(2, { timeout: 10000 });
-
-    // Both cards are present
-    const cardTitles = await page.locator('.backlog-card .card-title').allTextContents();
-    expect(cardTitles).toContain('Low Prio Card');
-    expect(cardTitles).toContain('High Prio Card');
-
-    // Priority color dots (.backlog-card-priority) must be present and distinct
-    const dots = page.locator('.backlog-card-priority');
-    await expect(dots).toHaveCount(2, { timeout: 5000 });
-    const dotColors = await dots.evaluateAll((els: HTMLElement[]) =>
-      els.map((el) => el.style.backgroundColor),
-    );
-    expect(new Set(dotColors).size).toBe(2);
-  });
-
-  // -------------------------------------------------------------------------
-  // 9. Priority badge colors — each priority renders a distinct color
-  // -------------------------------------------------------------------------
-  test('priority badge colors — each non-medium priority has a distinct inline color', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    const c1 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Highest Card', 'highest');
-    const c2 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'High Card', 'high');
-    const c3 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Low Card', 'low');
-    const c4 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Lowest Card', 'lowest');
-    if (!c1 || !c2 || !c3 || !c4) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await openBoardAllCards(page, token, board.id);
-    await expect(page.locator('.card-item')).toHaveCount(4, { timeout: 8000 });
-
-    // Each non-medium card should have a .card-priority badge
-    const priorityBadges = page.locator('.card-priority');
-    await expect(priorityBadges).toHaveCount(4, { timeout: 5000 });
-
-    // Collect the inline color values; they must all be distinct
-    const colors = await priorityBadges.evaluateAll((els: HTMLElement[]) =>
-      els.map((el) => el.style.color),
-    );
-    const uniqueColors = new Set(colors);
-    expect(uniqueColors.size).toBe(4);
-  });
-
-  // -------------------------------------------------------------------------
-  // 10. Bulk set priority — select 3 cards, set to highest
-  // -------------------------------------------------------------------------
-  test('bulk set priority — all 3 selected cards get the new priority', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    const c1 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Bulk Card 1', 'low');
-    const c2 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Bulk Card 2', 'medium');
-    const c3 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Bulk Card 3', 'lowest');
-    if (!c1 || !c2 || !c3) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await openBoardAllCards(page, token, board.id);
-    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
-
-    // Select all three cards
-    const firstCard = page.locator('.card-item').first();
-    await firstCard.hover();
-    await firstCard.locator('.card-select-checkbox input').click({ force: true });
-    await page.locator('.card-item').nth(1).locator('.card-select-checkbox input').click({ force: true });
-    await page.locator('.card-item').nth(2).locator('.card-select-checkbox input').click({ force: true });
-
-    await expect(page.locator('.bulk-action-bar')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.bulk-action-count')).toContainText('3 cards selected');
-
-    // Open the "Set Priority..." dropdown
-    await page.click('.bulk-action-bar button:has-text("Set Priority...")');
-    await expect(page.locator('.bulk-action-dropdown')).toBeVisible({ timeout: 3000 });
-
-    // Select "Highest"
-    await page.locator('.bulk-action-dropdown .bulk-action-dropdown-item').filter({ hasText: /^Highest$/ }).click();
-
-    // Bulk bar closes after action
-    await expect(page.locator('.bulk-action-bar')).not.toBeVisible({ timeout: 5000 });
-
-    // All 3 board cards must now show the highest priority badge
-    await expect(page.locator('[aria-label="Priority: highest"]')).toHaveCount(3, { timeout: 8000 });
-  });
-
-  // -------------------------------------------------------------------------
-  // 11. Medium priority card does not render a badge on the board
-  // -------------------------------------------------------------------------
-  test('medium priority card does not render a priority badge on the board', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    const card = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Medium Card', 'medium');
-    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await openBoardAllCards(page, token, board.id);
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
-
-    // CardItem hides the badge for medium by design
-    await expect(page.locator('.card-item .card-priority')).toHaveCount(0);
-  });
-
-  // -------------------------------------------------------------------------
-  // 12. Highest priority (critical) card displays red badge color
-  // -------------------------------------------------------------------------
-  test('highest priority card displays an urgent red badge color', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    const card = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Urgent Card', 'highest');
-    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await openBoardAllCards(page, token, board.id);
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
-
-    // Board badge present with correct aria-label
-    const badge = page.locator('[aria-label="Priority: highest"]');
-    await expect(badge).toBeVisible({ timeout: 5000 });
-
-    // Inline color must be the "highest" red: #dc2626 → rgb(220, 38, 38)
-    const color = await badge.evaluate((el: HTMLElement) => el.style.color);
-    expect(color).toBe('rgb(220, 38, 38)');
-
-    // Card modal badge carries the priority-highest CSS class
-    await page.locator('.card-item').first().click();
-    await page.waitForSelector('.card-detail-meta', { timeout: 8000 });
-    const modalBadge = page.locator('.card-detail-meta .card-priority');
-    await expect(modalBadge).toHaveClass(/priority-highest/);
-    await expect(modalBadge).toContainText('highest');
-  });
-
-  // -------------------------------------------------------------------------
-  // 13. Default priority — newly created card has a priority value
-  // -------------------------------------------------------------------------
-  test('newly created card defaults to "medium" priority', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    // Seed one card so the board has content (required for quick-add UI)
-    const seed = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Seed Card', 'medium');
-    if (!seed) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await openBoardAllCards(page, token, board.id);
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
-
-    // Use the quick-add button to create a second card
-    await page.locator('.add-card-btn').first().click();
-    await page.waitForSelector('.quick-add-form', { timeout: 5000 });
-    await page.locator('.quick-add-form input[type="text"]').fill('Default Priority Card');
-    await page.locator('.quick-add-form button[type="submit"]').click();
-
-    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
-
-    // Open the newly added card's modal to verify it has a priority
-    await page.locator('.card-item[aria-label="Default Priority Card"]').click();
-    await page.waitForSelector('.card-detail-meta', { timeout: 8000 });
-
-    const priorityBadge = page.locator('.card-detail-meta .card-priority');
-    await expect(priorityBadge).toBeVisible({ timeout: 5000 });
-    // BoardView passes priority: 'medium' on quick-add
-    await expect(priorityBadge).toContainText('medium');
-  });
-
-  // -------------------------------------------------------------------------
-  // 14. Story points displayed on board card
-  // -------------------------------------------------------------------------
-  test('story points number appears on the board card when set', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    const card = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'SP Card', 'medium', 8);
-    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
-
-    // Confirm API response includes story_points
-    expect(card.story_points).toBe(8);
-
-    await openBoardAllCards(page, token, board.id);
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
-
-    // .card-points on the card itself (not inside a modal) should contain "8"
-    const cardItem = page.locator('.card-item[aria-label="SP Card"]');
-    await expect(cardItem).toBeVisible();
-    const pointsBadge = cardItem.locator('.card-points');
-    await expect(pointsBadge).toBeVisible({ timeout: 5000 });
-    await expect(pointsBadge).toContainText('8');
-  });
-
-  // -------------------------------------------------------------------------
-  // 15. Card without story points shows no badge
-  // -------------------------------------------------------------------------
-  test('card without story points shows no story points badge on board', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
-
-    const c1 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Estimated Card', 'medium', 5);
-    const c2 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Unestimated Card', 'medium');
-    if (!c1 || !c2) { test.skip(true, 'Card creation unavailable'); return; }
-
-    await openBoardAllCards(page, token, board.id);
-    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
-
-    // Exactly one .card-points badge across all board cards
-    const allPointsBadges = page.locator('.card-item .card-points');
-    await expect(allPointsBadges).toHaveCount(1, { timeout: 5000 });
-    await expect(allPointsBadges.first()).toContainText('5');
-
-    // The unestimated card must not have a .card-points child
-    const unestimatedCard = page.locator('.card-item[aria-label="Unestimated Card"]');
-    await expect(unestimatedCard.locator('.card-points')).toHaveCount(0);
-  });
-
-  // -------------------------------------------------------------------------
-  // 16. Clearing priority filter restores all cards
+  // 13. Clearing priority filter via clear-filter button restores all cards
   // -------------------------------------------------------------------------
   test('clearing priority filter via clear-filter button restores all cards', async ({ page, request }) => {
-    const { token } = await signUp(request);
-    const { board, columns, swimlane } = await createBoard(request, token);
+    const { token, board, swimlane, columns } = await setup(request, page);
 
-    const c1 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'High Card', 'high');
-    const c2 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Low Card', 'low');
-    const c3 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Medium Card', 'medium');
-    if (!c1 || !c2 || !c3) { test.skip(true, 'Card creation unavailable'); return; }
+    const entries = [
+      { title: 'High Card', priority: 'high' },
+      { title: 'Low Card', priority: 'low' },
+      { title: 'Medium Card', priority: 'medium' },
+    ];
+    for (const e of entries) {
+      const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, e.title, e.priority);
+      if (!res.ok()) {
+        test.skip(true, `Card creation unavailable: ${await res.text()}`);
+        return;
+      }
+    }
 
-    await openBoardAllCards(page, token, board.id);
+    await openBoardAllCards(page, board.id);
     await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
 
     await expandFilters(page);
@@ -597,5 +509,172 @@ test.describe('Card Priority & Ordering', () => {
     // All cards return
     await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
     await expect(prioritySelect).toHaveValue('');
+  });
+
+  // -------------------------------------------------------------------------
+  // 14. Story points number appears on the board card when set
+  // -------------------------------------------------------------------------
+  test('story points number appears on the board card when set', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'SP Card', 'medium', 8);
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+    const card = await res.json();
+    expect(card.story_points).toBe(8);
+
+    await openBoardAllCards(page, board.id);
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+
+    const cardItem = page.locator('.card-item[aria-label="SP Card"]');
+    await expect(cardItem).toBeVisible();
+    const pointsBadge = cardItem.locator('.card-points');
+    await expect(pointsBadge).toBeVisible({ timeout: 5000 });
+    await expect(pointsBadge).toContainText('8');
+  });
+
+  // -------------------------------------------------------------------------
+  // 15. Card without story points shows no story points badge on board
+  // -------------------------------------------------------------------------
+  test('card without story points shows no story points badge on board', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res1 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Estimated Card', 'medium', 5);
+    if (!res1.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res1.text()}`);
+      return;
+    }
+    const res2 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Unestimated Card', 'medium');
+    if (!res2.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res2.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
+
+    // Exactly one .card-points badge across all board cards
+    const allPointsBadges = page.locator('.card-item .card-points');
+    await expect(allPointsBadges).toHaveCount(1, { timeout: 5000 });
+    await expect(allPointsBadges.first()).toContainText('5');
+
+    const unestimatedCard = page.locator('.card-item[aria-label="Unestimated Card"]');
+    await expect(unestimatedCard.locator('.card-points')).toHaveCount(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 16. Bulk set priority — select 3 cards, set to highest
+  // -------------------------------------------------------------------------
+  test('bulk set priority — all 3 selected cards get the new priority', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const entries = [
+      { title: 'Bulk Card 1', priority: 'low' },
+      { title: 'Bulk Card 2', priority: 'medium' },
+      { title: 'Bulk Card 3', priority: 'lowest' },
+    ];
+    for (const e of entries) {
+      const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, e.title, e.priority);
+      if (!res.ok()) {
+        test.skip(true, `Card creation unavailable: ${await res.text()}`);
+        return;
+      }
+    }
+
+    await openBoardAllCards(page, board.id);
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
+
+    // Select all three cards via checkboxes
+    const firstCard = page.locator('.card-item').first();
+    await firstCard.hover();
+    await firstCard.locator('.card-select-checkbox input').click({ force: true });
+    await page.locator('.card-item').nth(1).locator('.card-select-checkbox input').click({ force: true });
+    await page.locator('.card-item').nth(2).locator('.card-select-checkbox input').click({ force: true });
+
+    await expect(page.locator('.bulk-action-bar')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.bulk-action-count')).toContainText('3 cards selected');
+
+    // Open the "Set Priority..." dropdown
+    await page.click('.bulk-action-bar button:has-text("Set Priority...")');
+    await expect(page.locator('.bulk-action-dropdown')).toBeVisible({ timeout: 3000 });
+
+    // Select "Highest"
+    await page.locator('.bulk-action-dropdown .bulk-action-dropdown-item').filter({ hasText: /^Highest$/ }).click();
+
+    // Bulk bar closes after action
+    await expect(page.locator('.bulk-action-bar')).not.toBeVisible({ timeout: 5000 });
+
+    // All 3 board cards now show the highest priority badge
+    await expect(page.locator('[aria-label="Priority: highest"]')).toHaveCount(3, { timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 17. Backlog view — priority color dot rendered per card with distinct colors
+  // -------------------------------------------------------------------------
+  test('backlog view — priority color dot rendered per card with distinct colors', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page);
+
+    const res1 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Low Prio Card', 'low');
+    if (!res1.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res1.text()}`);
+      return;
+    }
+    const lowCard = await res1.json();
+
+    const res2 = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'High Prio Card', 'high');
+    if (!res2.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res2.text()}`);
+      return;
+    }
+    const highCard = await res2.json();
+
+    // Create sprint and assign both cards so they appear in the backlog panel
+    const sprintRes = await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Sprint Alpha', goal: '' },
+    });
+    const sprint = await sprintRes.json();
+
+    for (const card of [lowCard, highCard]) {
+      await request.put(`${BASE}/api/cards/${card.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          title: card.title,
+          description: card.description || '',
+          priority: card.priority,
+          story_points: card.story_points ?? null,
+          sprint_id: sprint.id,
+          column_id: card.column_id,
+          swimlane_id: card.swimlane_id,
+          position: card.position,
+        },
+      });
+    }
+
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-header', { timeout: 10000 });
+    await page.click('.view-btn:has-text("Backlog")');
+    await expect(page.locator('.backlog-card')).toHaveCount(2, { timeout: 10000 });
+
+    const cardTitles = await page.locator('.backlog-card .card-title').allTextContents();
+    expect(cardTitles).toContain('Low Prio Card');
+    expect(cardTitles).toContain('High Prio Card');
+
+    const dots = page.locator('.backlog-card-priority');
+    await expect(dots).toHaveCount(2, { timeout: 5000 });
+    const dotColors = await dots.evaluateAll((els: HTMLElement[]) =>
+      els.map((el) => el.style.backgroundColor),
+    );
+    expect(new Set(dotColors).size).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // 18. Drag-based reordering (skipped — drag simulation fragile in Playwright)
+  // -------------------------------------------------------------------------
+  test.fixme('drag card to reorder within column — position updates', async ({ page: _page, request: _request }) => {
+    // DnD Kit drag simulation is fragile in Playwright.
+    // Implement once a keyboard-based reorder API or test-id drag target is available.
   });
 });

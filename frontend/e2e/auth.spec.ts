@@ -21,16 +21,6 @@ async function signupViaAPI(
   });
 }
 
-async function loginViaAPI(
-  request: Parameters<Parameters<typeof test>[1]>[0]['request'],
-  email: string,
-  password: string,
-) {
-  return request.post(`${BASE}/api/auth/login`, {
-    data: { email, password },
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Unauthenticated access
 // ---------------------------------------------------------------------------
@@ -44,6 +34,17 @@ test.describe('Unauthenticated access', () => {
   test('login page shows Welcome to Zira heading', async ({ page }) => {
     await page.goto('/login');
     await expect(page.locator('h1')).toContainText('Welcome to Zira');
+  });
+
+  test('login page shows email and password fields', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.locator('#email')).toBeVisible();
+    await expect(page.locator('#password')).toBeVisible();
+  });
+
+  test('login page shows Sign In submit button', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.locator('button[type="submit"]')).toContainText('Sign In');
   });
 
   test('accessing /boards while unauthenticated redirects to /login', async ({ page }) => {
@@ -68,6 +69,42 @@ test.describe('Unauthenticated access', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Signup form layout
+// ---------------------------------------------------------------------------
+
+test.describe('Signup form layout', () => {
+  test('signup page shows Create Account heading', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page.locator('h1')).toContainText('Create Account');
+  });
+
+  test('signup form renders displayName field', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page.locator('#displayName')).toBeVisible();
+  });
+
+  test('signup form renders email field', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page.locator('#email')).toBeVisible();
+  });
+
+  test('signup form renders password field', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page.locator('#password')).toBeVisible();
+  });
+
+  test('signup form renders confirmPassword field', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page.locator('#confirmPassword')).toBeVisible();
+  });
+
+  test('signup form renders Create Account submit button', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page.locator('button[type="submit"]')).toContainText('Create Account');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Signup
 // ---------------------------------------------------------------------------
 
@@ -76,8 +113,6 @@ test.describe('Signup', () => {
     const email = uniqueEmail('signup');
 
     await page.goto('/signup');
-    await expect(page.locator('h1')).toContainText('Create Account');
-
     await page.fill('#displayName', 'New User');
     await page.fill('#email', email);
     await page.fill('#password', 'password123');
@@ -105,7 +140,7 @@ test.describe('Signup', () => {
     expect(token!.split('.').length).toBe(3);
   });
 
-  test('duplicate email signup shows an error', async ({ page, request }) => {
+  test('duplicate email signup shows an error containing "already exists"', async ({ page, request }) => {
     const email = uniqueEmail('dup');
     // Pre-create via API
     await signupViaAPI(request, email);
@@ -118,6 +153,7 @@ test.describe('Signup', () => {
     await page.click('button[type="submit"]');
 
     await expect(page.locator('.auth-error')).toBeVisible();
+    await expect(page.locator('.auth-error')).toContainText(/already exists/i);
   });
 
   test('signup with mismatched passwords shows a client-side error', async ({ page }) => {
@@ -142,6 +178,18 @@ test.describe('Signup', () => {
 
     await expect(page.locator('.auth-error')).toBeVisible();
     await expect(page.locator('.auth-error')).toContainText('at least 6 characters');
+  });
+
+  test('signup form does not navigate on password mismatch error', async ({ page }) => {
+    await page.goto('/signup');
+    await page.fill('#displayName', 'Test User');
+    await page.fill('#email', uniqueEmail('nomove'));
+    await page.fill('#password', 'password123');
+    await page.fill('#confirmPassword', 'wrong');
+    await page.click('button[type="submit"]');
+
+    // Stays on signup page
+    await expect(page).toHaveURL(/\/signup/);
   });
 
   test('can navigate from signup to login', async ({ page }) => {
@@ -182,11 +230,20 @@ test.describe('Login', () => {
 
   test('login with non-existent email shows an error', async ({ page }) => {
     await page.goto('/login');
-    await page.fill('#email', 'nobody@example.com');
+    await page.fill('#email', 'nobody-does-not-exist@example.com');
     await page.fill('#password', 'somepassword');
     await page.click('button[type="submit"]');
 
     await expect(page.locator('.auth-error')).toBeVisible();
+  });
+
+  test('login error does not navigate away from /login', async ({ page }) => {
+    await page.goto('/login');
+    await page.fill('#email', 'wrong@example.com');
+    await page.fill('#password', 'badpassword');
+    await page.click('button[type="submit"]');
+
+    await expect(page).toHaveURL(/\/login/);
   });
 
   test('after login a JWT token is stored in localStorage', async ({ page, request }) => {
@@ -202,6 +259,26 @@ test.describe('Login', () => {
     const token = await page.evaluate(() => localStorage.getItem('token'));
     expect(token).not.toBeNull();
     expect(token!.split('.').length).toBe(3);
+  });
+
+  test('submit button shows "Signing in..." while the request is in flight', async ({ page, request }) => {
+    const email = uniqueEmail('loading');
+    await signupViaAPI(request, email, 'password123', 'Loading User');
+
+    await page.goto('/login');
+
+    // Intercept the login API to delay it so we can observe the loading state
+    await page.route('**/api/auth/login', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.continue();
+    });
+
+    await page.fill('#email', email);
+    await page.fill('#password', 'password123');
+    await page.click('button[type="submit"]');
+
+    // Button should be disabled while loading
+    await expect(page.locator('button[type="submit"]')).toBeDisabled();
   });
 
   test('can navigate from login to signup', async ({ page }) => {
@@ -222,10 +299,8 @@ test.describe('Logout', () => {
     const body = await res.json();
     const token: string = body.token;
 
-    await page.addInitScript((t: string) => {
-      localStorage.setItem('token', t);
-    }, token);
-
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto('/boards');
     await expect(page).toHaveURL(/\/boards/);
 
@@ -244,10 +319,8 @@ test.describe('Logout', () => {
     const body = await res.json();
     const token: string = body.token;
 
-    await page.addInitScript((t: string) => {
-      localStorage.setItem('token', t);
-    }, token);
-
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto('/boards');
     await page.click('.logout-btn');
     await expect(page).toHaveURL(/\/login/);
@@ -266,14 +339,14 @@ test.describe('Already-authenticated redirects', () => {
   async function injectValidToken(
     page: Parameters<Parameters<typeof test>[1]>[0]['page'],
     request: Parameters<Parameters<typeof test>[1]>[0]['request'],
-  ) {
+  ): Promise<void> {
     const email = uniqueEmail('redir');
     const res = await signupViaAPI(request, email);
     const body = await res.json();
     const token: string = body.token;
-    await page.addInitScript((t: string) => {
-      localStorage.setItem('token', t);
-    }, token);
+    // Navigate first so localStorage is accessible, then set the token
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
   }
 
   test('visiting /login while authenticated redirects to /dashboard', async ({ page, request }) => {
@@ -292,5 +365,28 @@ test.describe('Already-authenticated redirects', () => {
     await injectValidToken(page, request);
     await page.goto('/');
     await expect(page).toHaveURL(/\/dashboard/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User display name shown after login
+// ---------------------------------------------------------------------------
+
+test.describe('Display name shown in sidebar after login', () => {
+  test('user display name is visible in the sidebar after login', async ({ page, request }) => {
+    const email = uniqueEmail('dispname');
+    await signupViaAPI(request, email, 'password123', 'SidebarNameUser');
+
+    await page.goto('/login');
+    await page.fill('#email', email);
+    await page.fill('#password', 'password123');
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/\/boards/);
+
+    // Ensure sidebar is expanded so .user-name is rendered
+    await page.evaluate(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.reload();
+
+    await expect(page.locator('.user-name')).toContainText('SidebarNameUser');
   });
 });

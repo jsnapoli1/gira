@@ -257,8 +257,11 @@ test.describe('Navigation — logo link', () => {
 test.describe('Navigation — logout', () => {
   test('clicking the logout button navigates to /login', async ({ page, request }) => {
     const { token } = await createUser(request, 'nav-logout');
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    // Use page.evaluate (not addInitScript) so token is not re-injected after logout
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
 
     await page.locator('.logout-btn').click();
 

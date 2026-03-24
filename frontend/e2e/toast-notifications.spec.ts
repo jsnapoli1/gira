@@ -1,14 +1,48 @@
+/**
+ * toast-notifications.spec.ts
+ *
+ * Comprehensive tests for the Toast notification system.
+ *
+ * Toast component behaviour (from Toast.tsx):
+ *  - All toasts auto-dismiss after 3500ms (300ms exit animation → 3800ms total)
+ *  - Types: 'success' (.toast-success), 'error' (.toast-error), 'info' (.toast-info)
+ *  - Clicking a toast dismisses it immediately
+ *  - Multiple toasts stack in .toast-container
+ *
+ * Test inventory
+ * ──────────────
+ *  1.  Quick-add card creation shows success toast
+ *  2.  Saving card edits shows success toast
+ *  3.  Comment post shows no toast on success (verify actual behaviour)
+ *  4.  Comment post failure shows error toast
+ *  5.  Board creation failure shows error toast (via route interception)
+ *  6.  Card update failure shows error toast (via route interception)
+ *  7.  Success toast auto-dismisses after ~3.5 seconds
+ *  8.  Multiple toasts stack — all visible simultaneously
+ *  9.  Clicking a toast dismisses it immediately
+ */
+
 import { test, expect } from '@playwright/test';
 
 const PORT = process.env.PORT || 9002;
 const BASE = `http://127.0.0.1:${PORT}`;
 
+// ---------------------------------------------------------------------------
+// Setup helper
+// ---------------------------------------------------------------------------
+
 /**
- * Create user + board + swimlane + card via API, inject token, navigate to board,
- * and switch to "All Cards" view so the card is visible.
+ * Create user + board + swimlane + card via API, inject token with
+ * page.evaluate (NOT addInitScript), navigate to board, and switch to
+ * "All Cards" view so the card is visible.
  */
-async function setupBoardWithCard(request: any, page: any, label = 'Toast') {
-  const email = `test-toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.com`;
+async function setupBoardWithCard(
+  request: import('@playwright/test').APIRequestContext,
+  page: import('@playwright/test').Page,
+  label = 'Toast',
+) {
+  const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const email = `test-toast-${uid}@test.com`;
 
   const { token } = await (
     await request.post(`${BASE}/api/auth/signup`, {
@@ -45,17 +79,22 @@ async function setupBoardWithCard(request: any, page: any, label = 'Toast') {
       board_id: board.id,
     },
   });
+
   if (!cardRes.ok()) {
-    test.skip(true, `Card creation failed (likely Gitea 401): ${await cardRes.text()}`);
-    return { board, columns, swimlane, card: null, token };
+    test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+    return { board, columns, swimlane, card: null as any, token };
   }
+
   const card = await cardRes.json();
 
-  await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+  // Use page.evaluate (NOT addInitScript) to inject the token so it is set
+  // after the page is loaded — avoids re-injection on subsequent reloads.
+  await page.goto('/login');
+  await page.evaluate((t: string) => localStorage.setItem('token', t), token);
   await page.goto(`/boards/${board.id}`);
   await page.waitForSelector('.board-page', { timeout: 15000 });
 
-  // Switch to All Cards so the card is visible regardless of sprint state
+  // Switch to "All Cards" so the card is visible regardless of sprint state.
   await page.click('.view-btn:has-text("All Cards")');
   await page.waitForSelector('.card-item', { timeout: 10000 });
 
@@ -63,128 +102,119 @@ async function setupBoardWithCard(request: any, page: any, label = 'Toast') {
 }
 
 // ---------------------------------------------------------------------------
-// Toast on card creation via 'n' key modal
+// 1. Quick-add card creation — success toast
 // ---------------------------------------------------------------------------
 
-test.describe('Toast — card creation', () => {
-  test("'Card created' success toast appears after creating a card via the Add Card modal", async ({
-    page,
-    request,
-  }) => {
-    await setupBoardWithCard(request, page, 'ToastCreate');
+test.describe('Toast — quick-add card creation', () => {
+  test('creating a card via quick-add shows a success toast', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'ToastCreate');
+    if (!setup.card) return;
 
-    // Open the AddCardModal via the 'n' keyboard shortcut
-    await page.locator('body').click();
-    await page.keyboard.press('n');
-    await page.waitForSelector('.modal h2:has-text("Create Card")', { timeout: 5000 });
+    // Click the add-card button in the column.
+    await page.click('.add-card-btn');
+    await page.waitForSelector('.quick-add-form', { timeout: 5000 });
 
-    await page.fill('.modal input[placeholder="Card title"]', 'New Toast Card');
+    await page.fill('.quick-add-form input', 'Quick Add Toast Card');
 
     const [response] = await Promise.all([
       page.waitForResponse(
-        (r) => r.url().includes('/api/cards') && r.request().method() === 'POST'
+        (r) => r.url().includes('/api/cards') && r.request().method() === 'POST',
       ),
-      page.click('.modal .btn-primary:has-text("Create Card")'),
+      page.keyboard.press('Enter'),
     ]);
-    // Card creation returns 201 Created
-    await expect(response.status()).toBe(201);
+    expect(response.status()).toBe(201);
 
-    // The "Card created" success toast should appear
+    // Success toast should appear.
     await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.toast-success .toast-message')).toContainText('Card created');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Toast on card update
+// 2. Card title update — success toast
 // ---------------------------------------------------------------------------
 
 test.describe('Toast — card update', () => {
-  test("'Card updated' success toast appears after saving card edits", async ({
-    page,
-    request,
-  }) => {
-    await setupBoardWithCard(request, page, 'ToastUpdate');
+  test("saving card edits shows a 'Card updated' success toast", async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'ToastUpdate');
+    if (!setup.card) return;
 
-    // Open the card detail modal
+    // Open the card detail modal.
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
-    // Enter edit mode
+    // Enter edit mode.
     await page.click('.card-detail-actions button:has-text("Edit")');
     await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
 
-    // Change the title
+    // Change the title.
     const titleInput = page.locator('.card-detail-edit input[type="text"]').first();
     await titleInput.fill('Updated Toast Title');
 
     const [response] = await Promise.all([
       page.waitForResponse(
-        (r) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'
+        (r) => r.url().includes('/api/cards/') && r.request().method() === 'PUT',
       ),
       page.click('.card-detail-actions button:has-text("Save")'),
     ]);
-    await expect(response.status()).toBe(200);
+    expect(response.status()).toBe(200);
 
-    // "Card updated" success toast should appear
+    // "Card updated" success toast should appear.
     await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.toast-success .toast-message')).toContainText('Card updated');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Toast on comment post — error path only (no success toast is shown on success)
+// 3. Comment post on success — no toast (verify actual behaviour)
 // ---------------------------------------------------------------------------
 
-test.describe('Toast — comment error feedback', () => {
-  test("'Failed to post comment' error toast appears when comment API fails", async ({
-    page,
-    request,
-  }) => {
-    await setupBoardWithCard(request, page, 'ToastComment');
+test.describe('Toast — comment post success (no toast)', () => {
+  test('posting a comment successfully shows no toast', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'ToastCommentOk');
+    if (!setup.card) return;
 
-    // Intercept the POST comment call to make it fail
-    await page.route(`**/api/cards/*/comments`, (route) => {
-      route.fulfill({ status: 500, body: 'Internal Server Error' });
-    });
-
-    // Open the card
+    // Open the card.
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
-    // Type a comment and submit
-    await page.fill('.comment-form-compact textarea', 'This comment will fail');
-    await page.click('.comment-form-compact button[type="submit"]');
+    // Post a comment.
+    await page.fill('.comment-form-compact textarea', 'A comment that should not toast');
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/api/cards/') && r.url().includes('/comments') && r.request().method() === 'POST',
+      ),
+      page.click('.comment-form-compact button[type="submit"]'),
+    ]);
+    expect(response.status()).toBe(201);
 
-    // Error toast should appear
-    await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.toast-error .toast-message')).toContainText('Failed to post comment');
+    // Wait briefly to confirm that neither a success nor error toast appears.
+    // The app intentionally shows no toast on successful comment creation.
+    await page.waitForTimeout(500);
+    await expect(page.locator('.toast-success')).not.toBeVisible();
+    await expect(page.locator('.toast-error')).not.toBeVisible();
+
+    // The comment should appear in the list to confirm the post succeeded.
+    await expect(
+      page.locator('.comment-body-compact').filter({ hasText: 'A comment that should not toast' }),
+    ).toBeVisible({ timeout: 5000 });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Toast on board creation — error path (success navigates away immediately)
+// 4. Comment post failure — error toast
 // ---------------------------------------------------------------------------
 
-test.describe('Toast — board creation error feedback', () => {
-  test("'Failed to create board' error toast appears when boards API fails", async ({
+test.describe('Toast — comment post error', () => {
+  test("failed comment post shows a 'Failed to post comment' error toast", async ({
     page,
     request,
   }) => {
-    // Create a user via API and inject the token
-    const email = `test-board-toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.com`;
-    const { token } = await (
-      await request.post(`${BASE}/api/auth/signup`, {
-        data: { email, password: 'password123', display_name: 'BoardToast User' },
-      })
-    ).json();
+    const setup = await setupBoardWithCard(request, page, 'ToastCommentErr');
+    if (!setup.card) return;
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto('/boards');
-    await page.waitForSelector('.page-header', { timeout: 10000 });
-
-    // Intercept the board creation POST to force a failure
-    await page.route(`**/api/boards`, (route) => {
+    // Intercept the POST comment call to make it fail.
+    await page.route(`**/api/cards/*/comments`, (route) => {
       if (route.request().method() === 'POST') {
         route.fulfill({ status: 500, body: 'Internal Server Error' });
       } else {
@@ -192,37 +222,78 @@ test.describe('Toast — board creation error feedback', () => {
       }
     });
 
-    // Open the create board modal and submit
+    // Open the card.
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // Type a comment and submit.
+    await page.fill('.comment-form-compact textarea', 'This comment will fail');
+    await page.click('.comment-form-compact button[type="submit"]');
+
+    // Error toast should appear.
+    await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.toast-error .toast-message')).toContainText('Failed to post comment');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Board creation failure (POST /api/boards returns 500) — error toast
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — board creation error', () => {
+  test("failed board creation shows a 'Failed to create board' error toast", async ({
+    page,
+    request,
+  }) => {
+    const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: {
+          email: `test-board-toast-${uid}@test.com`,
+          password: 'password123',
+          display_name: 'BoardToast User',
+        },
+      })
+    ).json();
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    // Intercept the board creation POST to force a failure while allowing GETs.
+    await page.route(`**/api/boards`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    // Open the Create Board modal and submit.
     await page.click('button:has-text("Create Board")');
     await page.fill('#boardName', 'Should Fail Board');
     await page.click('button[type="submit"]:has-text("Create Board")');
 
-    // Error toast should appear
+    // Error toast should appear.
     await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.toast-error .toast-message')).toContainText('Failed to create board');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Error toast on failed card move (bulk action)
+// 6. Card update failure (PUT /api/cards/:id returns 500) — error toast
 // ---------------------------------------------------------------------------
 
-test.describe('Toast — failed card move error feedback', () => {
-  test("'Failed to move card' error toast appears when drag-and-drop API fails", async ({
+test.describe('Toast — card update error', () => {
+  test("failed card save shows a 'Failed to update card' error toast", async ({
     page,
     request,
   }) => {
-    await setupBoardWithCard(request, page, 'ToastMoveErr');
+    const setup = await setupBoardWithCard(request, page, 'ToastUpdateErr');
+    if (!setup.card) return;
 
-    // Intercept the card move PATCH call to make it fail
-    await page.route(`**/api/cards/*/move`, (route) => {
-      route.fulfill({ status: 500, body: 'Internal Server Error' });
-    });
-
-    // Try to drag the card to another column using the move button in the card actions
-    // Since DnD is complex to test, trigger a card PUT update that causes a move error
-    // by intercepting ALL card PUT requests
-    await page.unroute(`**/api/cards/*/move`);
+    // Intercept ALL card PUT requests to force failure.
     await page.route(`**/api/cards/**`, (route) => {
       if (route.request().method() === 'PUT') {
         route.fulfill({ status: 500, body: 'Internal Server Error' });
@@ -231,7 +302,7 @@ test.describe('Toast — failed card move error feedback', () => {
       }
     });
 
-    // Open the card and attempt a save — this triggers the card PUT which is now mocked to fail
+    // Open the card and attempt a save.
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
 
@@ -240,21 +311,25 @@ test.describe('Toast — failed card move error feedback', () => {
     await page.locator('.card-detail-edit input[type="text"]').first().fill('Will Fail Save');
     await page.click('.card-detail-actions button:has-text("Save")');
 
-    // The "Failed to update card" error toast should appear
+    // The "Failed to update card" error toast should appear.
     await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.toast-error .toast-message')).toContainText('Failed to update card');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Toast auto-dismisses
+// 7. Toast auto-dismiss — success toast disappears after ~3.5 seconds
 // ---------------------------------------------------------------------------
 
 test.describe('Toast — auto-dismiss behaviour', () => {
-  test('success toast disappears after a few seconds', async ({ page, request }) => {
-    await setupBoardWithCard(request, page, 'ToastDismiss');
+  test('success toast disappears after a few seconds without any interaction', async ({
+    page,
+    request,
+  }) => {
+    const setup = await setupBoardWithCard(request, page, 'ToastDismiss');
+    if (!setup.card) return;
 
-    // Trigger a card update to show a toast
+    // Trigger a card update to produce a success toast.
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
     await page.click('.card-detail-actions button:has-text("Edit")');
@@ -263,16 +338,92 @@ test.describe('Toast — auto-dismiss behaviour', () => {
 
     await Promise.all([
       page.waitForResponse(
-        (r) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'
+        (r) => r.url().includes('/api/cards/') && r.request().method() === 'PUT',
       ),
       page.click('.card-detail-actions button:has-text("Save")'),
     ]);
 
-    // Toast appears
+    // Toast should appear first.
     await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
 
-    // Toast disappears (auto-dismiss after 3500ms + 300ms exit animation = ~3800ms;
-    // we wait up to 6000ms to be safe without using waitForTimeout)
+    // Toast must disappear within 6000ms (3500ms timer + 300ms animation + buffer).
     await expect(page.locator('.toast-success')).not.toBeVisible({ timeout: 6000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Multiple toasts stack — all visible simultaneously
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — multiple toasts stack', () => {
+  test('triggering multiple toasts shows all of them stacked', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'ToastStack');
+    if (!setup.card) return;
+
+    // Intercept ALL card PUTs to fail — this gives us a reliable error toast on save.
+    // But first, do one successful update to get a success toast, then fail a second.
+    // Simpler approach: intercept board list to fail twice in a row from /boards page.
+    // We route to /boards and trigger two failed board creation attempts.
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    // Intercept POST /boards to fail — allows GET to pass.
+    await page.route(`**/api/boards`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    // First failed creation.
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Fail Board 1');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+    await expect(page.locator('.toast-error').first()).toBeVisible({ timeout: 5000 });
+
+    // Quickly submit a second failing creation before the first toast dismisses.
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Fail Board 2');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+
+    // Both error toasts must be present at the same time.
+    await expect(page.locator('.toast-error')).toHaveCount(2, { timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Clicking a toast dismisses it immediately
+// ---------------------------------------------------------------------------
+
+test.describe('Toast — click to dismiss', () => {
+  test('clicking an error toast dismisses it immediately', async ({ page, request }) => {
+    const setup = await setupBoardWithCard(request, page, 'ToastClick');
+    if (!setup.card) return;
+
+    // Route to /boards and trigger a failed board creation for a reliable error toast.
+    await page.goto('/boards');
+    await page.waitForSelector('.page-header', { timeout: 10000 });
+
+    await page.route(`**/api/boards`, (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({ status: 500, body: 'Server Error' });
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Click Dismiss Board');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+
+    const toast = page.locator('.toast-error').first();
+    await expect(toast).toBeVisible({ timeout: 5000 });
+
+    // Click the toast to dismiss it.
+    await toast.click();
+
+    // Toast should disappear well before the 3500ms auto-dismiss timer.
+    await expect(toast).not.toBeVisible({ timeout: 2000 });
   });
 });
