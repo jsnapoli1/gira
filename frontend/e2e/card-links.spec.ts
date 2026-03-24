@@ -313,6 +313,47 @@ test.describe('Card Links — API', () => {
     expect(res.status()).toBe(400);
   });
 
+  test('POST /api/cards/:id/links rejects link to non-existent target card', async ({ request }) => {
+    const { token, cardAId } = await setup(request);
+
+    const res = await request.post(`${BASE}/api/cards/${cardAId}/links`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { target_card_id: 999999, link_type: 'relates_to' },
+    });
+
+    expect(res.status()).toBe(400);
+  });
+
+  test('POST /api/cards/:id/links on non-existent source card returns 404', async ({ request }) => {
+    const { token, cardBId } = await setup(request);
+
+    const res = await request.post(`${BASE}/api/cards/999999/links`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { target_card_id: cardBId, link_type: 'relates_to' },
+    });
+
+    expect(res.status()).toBe(404);
+  });
+
+  test('duplicate link is rejected', async ({ request }) => {
+    const { token, cardAId, cardBId } = await setup(request);
+
+    // Create the link once
+    const first = await request.post(`${BASE}/api/cards/${cardAId}/links`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { target_card_id: cardBId, link_type: 'relates_to' },
+    });
+    expect(first.status()).toBe(201);
+
+    // Attempt to create the same link again — should be rejected
+    const second = await request.post(`${BASE}/api/cards/${cardAId}/links`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { target_card_id: cardBId, link_type: 'relates_to' },
+    });
+
+    expect(second.status()).toBeGreaterThanOrEqual(400);
+  });
+
   test('multiple links on a single card', async ({ request }) => {
     const { token, boardId, columnId, swimlaneId, cardAId } = await setup(request);
 
