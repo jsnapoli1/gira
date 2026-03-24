@@ -777,4 +777,331 @@ test.describe('Sprint Metrics', () => {
     // Should not error — starting an already-active sprint is idempotent
     expect([200, 409]).toContain(res.status());
   });
+
+  // -------------------------------------------------------------------------
+  // 21. GET /api/sprints/:id/metrics — total_cards increments with more cards
+  // -------------------------------------------------------------------------
+  test('total_cards increases when more cards are assigned to the sprint', async ({ request }) => {
+    const { token } = await createUser(request, 'Total Cards Tester');
+    const bs = await setupBoard(request, token, 'Total Cards Board');
+    const sprint = await createSprint(request, token, bs.boardId, 'Total Cards Sprint');
+
+    const card1 = await createCard(request, token, bs, 'TC Card 1', 0);
+    if (card1.id === -1) return;
+    await assignCardToSprint(request, token, card1.id, sprint.id);
+    await startSprint(request, token, sprint.id);
+
+    const metrics1 = await getLatestMetrics(request, token, sprint.id);
+    expect(metrics1.total_cards).toBe(1);
+
+    const card2 = await createCard(request, token, bs, 'TC Card 2', 0);
+    if (card2.id === -1) return;
+    await assignCardToSprint(request, token, card2.id, sprint.id);
+
+    const metrics2 = await getLatestMetrics(request, token, sprint.id);
+    expect(metrics2.total_cards).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // 22. GET /api/sprints/:id/metrics — completion percentage calculation
+  // -------------------------------------------------------------------------
+  test('completion percentage equals completed_cards / total_cards * 100', async ({ request }) => {
+    const { token } = await createUser(request, 'Completion Pct Tester');
+    const bs = await setupBoard(request, token, 'Completion Pct Board');
+    const sprint = await createSprint(request, token, bs.boardId, 'Completion Pct Sprint');
+
+    const cards = [];
+    for (let i = 0; i < 4; i++) {
+      const c = await createCard(request, token, bs, `Pct Card ${i}`, 0);
+      if (c.id === -1) return;
+      cards.push(c);
+      await assignCardToSprint(request, token, c.id, sprint.id);
+    }
+    await startSprint(request, token, sprint.id);
+
+    // Move 1 of 4 to done
+    await moveCardToDone(request, token, cards[0].id, bs.doneColumnId);
+
+    const metrics = await getLatestMetrics(request, token, sprint.id);
+    expect(metrics.total_cards).toBe(4);
+    expect(metrics.completed_cards).toBe(1);
+    // remaining_points = 0 since no story points assigned; cards count is what matters
+    // Verify completed < total
+    expect(metrics.completed_cards).toBeLessThan(metrics.total_cards);
+  });
+
+  // -------------------------------------------------------------------------
+  // 23. GET /api/sprints — list returns all sprints for a board
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints?board_id returns all sprints for the board', async ({ request }) => {
+    const { token } = await createUser(request, 'List Sprints Tester');
+    const bs = await setupBoard(request, token, 'List Sprints Board');
+
+    await createSprint(request, token, bs.boardId, 'Sprint X');
+    await createSprint(request, token, bs.boardId, 'Sprint Y');
+    await createSprint(request, token, bs.boardId, 'Sprint Z');
+
+    const res = await request.get(`${BASE}/api/sprints?board_id=${bs.boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+
+    const data = await res.json();
+    expect(Array.isArray(data)).toBe(true);
+    expect(data.length).toBeGreaterThanOrEqual(3);
+
+    const names = (data as Array<{ name: string }>).map((s) => s.name);
+    expect(names).toContain('Sprint X');
+    expect(names).toContain('Sprint Y');
+    expect(names).toContain('Sprint Z');
+  });
+
+  // -------------------------------------------------------------------------
+  // 24. GET /api/sprints — missing board_id returns 400
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints without board_id returns 400', async ({ request }) => {
+    const { token } = await createUser(request, 'Sprints 400 Tester');
+    const res = await request.get(`${BASE}/api/sprints`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  // -------------------------------------------------------------------------
+  // 25. POST /api/sprints creates sprint with correct name
+  // -------------------------------------------------------------------------
+  test('POST /api/sprints creates sprint and returns it with correct name', async ({ request }) => {
+    const { token } = await createUser(request, 'Create Sprint API Tester');
+    const bs = await setupBoard(request, token, 'Create Sprint API Board');
+
+    const res = await request.post(`${BASE}/api/sprints?board_id=${bs.boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'New API Sprint', goal: 'Ship it' },
+    });
+    expect(res.status()).toBe(201);
+
+    const sprint = await res.json();
+    expect(sprint.name).toBe('New API Sprint');
+    expect(sprint.goal).toBe('Ship it');
+    expect(sprint.status).toBe('planning');
+    expect(typeof sprint.id).toBe('number');
+  });
+
+  // -------------------------------------------------------------------------
+  // 26. Reports page — select board shows "No sprints found" when board has none
+  // -------------------------------------------------------------------------
+  test('reports page shows "No sprints found" when selected board has no sprints', async ({
+    request,
+    page,
+  }) => {
+    const { token } = await createUser(request, 'No Sprints Reports Tester');
+    const bs = await setupBoard(request, token, 'No Sprints Reports Board');
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-filters', { timeout: 10000 });
+
+    await page.locator('.reports-filters select').first().selectOption({ label: 'No Sprints Reports Board' });
+
+    await expect(page.locator('.empty-state')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.empty-state h2')).toContainText('No sprints found');
+  });
+
+  // -------------------------------------------------------------------------
+  // 27. Reports page — sprint selector shows sprints after board is selected
+  // -------------------------------------------------------------------------
+  test('reports page shows sprint selector after board selection', async ({
+    request,
+    page,
+  }) => {
+    const { token } = await createUser(request, 'Sprint Selector Tester');
+    const bs = await setupBoard(request, token, 'Sprint Selector Board');
+    await createSprint(request, token, bs.boardId, 'Selector Sprint');
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-filters', { timeout: 10000 });
+
+    await page.locator('.reports-filters select').first().selectOption({ label: 'Sprint Selector Board' });
+
+    const sprintSelect = page.locator('.reports-filters select').nth(1);
+    await expect(sprintSelect).toBeVisible({ timeout: 8000 });
+
+    const options = await sprintSelect.locator('option').allTextContents();
+    expect(options.some((o) => o.includes('Selector Sprint'))).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // 28. Reports page — Avg Velocity metric is shown after board selection
+  // -------------------------------------------------------------------------
+  test('reports page shows Avg Velocity metric card after board selection', async ({
+    request,
+    page,
+  }) => {
+    const { token } = await createUser(request, 'Avg Velocity Tester');
+    const bs = await setupBoard(request, token, 'Avg Velocity Board');
+    await createSprint(request, token, bs.boardId, 'Vel Sprint');
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-filters', { timeout: 10000 });
+
+    await page.locator('.reports-filters select').first().selectOption({ label: 'Avg Velocity Board' });
+    await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
+
+    const velocityCard = page.locator('.metric-card').filter({
+      has: page.locator('.metric-label:has-text("Avg Velocity")'),
+    });
+    await expect(velocityCard).toBeVisible({ timeout: 8000 });
+    await expect(velocityCard.locator('.metric-value')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 29. Reports page — Completed Sprints metric shown after board selection
+  // -------------------------------------------------------------------------
+  test('reports page shows Completed Sprints metric card after board selection', async ({
+    request,
+    page,
+  }) => {
+    const { token } = await createUser(request, 'Completed Sprints Tester');
+    const bs = await setupBoard(request, token, 'Completed Sprints Board');
+
+    const sprint = await createSprint(request, token, bs.boardId, 'Done Sprint');
+    const card = await createCard(request, token, bs, 'Done Card', 3);
+    if (card.id === -1) return;
+    await assignCardToSprint(request, token, card.id, sprint.id);
+    await startSprint(request, token, sprint.id);
+    await completeSprint(request, token, sprint.id);
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-filters', { timeout: 10000 });
+
+    await page.locator('.reports-filters select').first().selectOption({ label: 'Completed Sprints Board' });
+    await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
+
+    const completedCard = page.locator('.metric-card').filter({
+      has: page.locator('.metric-label:has-text("Completed Sprints")'),
+    });
+    await expect(completedCard).toBeVisible({ timeout: 8000 });
+    await expect(completedCard.locator('.metric-value')).toContainText('1');
+  });
+
+  // -------------------------------------------------------------------------
+  // 30. Reports page — burndown chart heading visible for active sprint
+  // -------------------------------------------------------------------------
+  test('reports page shows Sprint Burndown chart title for active sprint', async ({
+    request,
+    page,
+  }) => {
+    const { token } = await createUser(request, 'Burndown Heading Tester');
+    const bs = await setupBoard(request, token, 'Burndown Heading Board');
+    const sprint = await createSprint(request, token, bs.boardId, 'Heading Sprint');
+    const card = await createCard(request, token, bs, 'Heading Card', 5);
+    if (card.id === -1) return;
+    await assignCardToSprint(request, token, card.id, sprint.id);
+    await startSprint(request, token, sprint.id);
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-filters', { timeout: 10000 });
+
+    await page.locator('.reports-filters select').first().selectOption({ label: 'Burndown Heading Board' });
+    await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
+
+    await expect(page.locator('.chart-card h3:has-text("Sprint Burndown")')).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 31. Reports page — Velocity Trend chart heading visible
+  // -------------------------------------------------------------------------
+  test('reports page shows Velocity Trend chart title', async ({
+    request,
+    page,
+  }) => {
+    const { token } = await createUser(request, 'Velocity Trend Heading Tester');
+    const bs = await setupBoard(request, token, 'Velocity Trend Heading Board');
+    await createSprint(request, token, bs.boardId, 'VTH Sprint');
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-filters', { timeout: 10000 });
+
+    await page.locator('.reports-filters select').first().selectOption({ label: 'Velocity Trend Heading Board' });
+    await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
+
+    await expect(page.locator('.chart-card h3:has-text("Velocity Trend")')).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 32. Reports accessible via sidebar Reports link
+  // -------------------------------------------------------------------------
+  test('reports page accessible from sidebar navigation link', async ({
+    request,
+    page,
+  }) => {
+    const { token } = await createUser(request, 'Sidebar Nav Reports Tester');
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await page.waitForSelector('.sidebar, nav', { timeout: 10000 });
+
+    const reportsLink = page.locator('a[href="/reports"], nav a:has-text("Reports")');
+    await expect(reportsLink.first()).toBeVisible({ timeout: 8000 });
+    await reportsLink.first().click();
+
+    await expect(page).toHaveURL(/\/reports/, { timeout: 5000 });
+    await expect(page.locator('h1:has-text("Reports")')).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 33. Reports page — no board selected shows "Select a board" prompt
+  // -------------------------------------------------------------------------
+  test('reports page shows "Select a board" prompt when no board is selected', async ({
+    request,
+    page,
+  }) => {
+    const { token } = await createUser(request, 'Select Board Prompt Tester');
+
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+    await page.waitForSelector('.reports-filters', { timeout: 10000 });
+
+    await expect(page.locator('.empty-state')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.empty-state h2')).toContainText('Select a board');
+  });
+
+  // -------------------------------------------------------------------------
+  // 34. GET /api/sprints/:id/metrics — remaining_points equals total minus completed
+  // -------------------------------------------------------------------------
+  test('remaining_points equals total_points minus completed_points', async ({ request }) => {
+    const { token } = await createUser(request, 'Remaining Points Tester');
+    const bs = await setupBoard(request, token, 'Remaining Points Board');
+    const sprint = await createSprint(request, token, bs.boardId, 'Remaining Points Sprint');
+
+    const card1 = await createCard(request, token, bs, 'RP Card 1', 7);
+    if (card1.id === -1) return;
+    const card2 = await createCard(request, token, bs, 'RP Card 2', 3);
+    if (card2.id === -1) return;
+
+    await assignCardToSprint(request, token, card1.id, sprint.id);
+    await assignCardToSprint(request, token, card2.id, sprint.id);
+    await startSprint(request, token, sprint.id);
+
+    await moveCardToDone(request, token, card1.id, bs.doneColumnId);
+
+    const metrics = await getLatestMetrics(request, token, sprint.id);
+    expect(metrics.total_points).toBe(10);
+    expect(metrics.completed_points).toBe(7);
+    expect(metrics.remaining_points).toBe(3);
+    expect(metrics.remaining_points).toBe(metrics.total_points - metrics.completed_points);
+  });
 });

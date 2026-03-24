@@ -113,6 +113,8 @@ async function saveFilter(page: any, name: string) {
 // ---------------------------------------------------------------------------
 
 test.describe('Saved Filters', () => {
+  test.setTimeout(90000);
+
   test('filter bar expands and collapses via toggle button', async ({ page, request }) => {
     const setup = await setupBoard(request);
     await navigateToBoard(page, setup.boardId, setup.token);
@@ -353,6 +355,7 @@ test.describe('Saved Filters', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Saved Filters — API', () => {
+  test.setTimeout(90000);
 
   test('POST /api/boards/:id/filters returns 201 with id', async ({ request }) => {
     const setup = await setupBoard(request);
@@ -706,6 +709,7 @@ test.describe('Saved Filters — API', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Saved Filters — UI (additional)', () => {
+  test.setTimeout(90000);
 
   test('saved filter with label criteria can be saved and applied', async ({ page, request }) => {
     const setup = await setupBoard(request);

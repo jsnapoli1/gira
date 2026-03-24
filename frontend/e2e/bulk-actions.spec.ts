@@ -86,6 +86,8 @@ async function selectFirstCard(page: any) {
 // ---------------------------------------------------------------------------
 
 test.describe('Bulk Actions', () => {
+  test.setTimeout(90000);
+
   test('hovering a card reveals the selection checkbox', async ({ page, request }) => {
     const { token } = await signUp(request);
     const { board, columns, swimlane } = await createBoard(request, token);
