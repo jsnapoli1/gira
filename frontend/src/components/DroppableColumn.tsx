@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Card, Column, Swimlane } from '../types';
 import { useToast } from '../components/Toast';
@@ -26,6 +27,7 @@ export const DroppableColumn = React.memo(function DroppableColumn({
   selectedCards,
   onSelectCard,
 }: DroppableColumnProps) {
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `column-${column.id}` });
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickTitle, setQuickTitle] = useState('');
   const [adding, setAdding] = useState(false);
@@ -50,7 +52,13 @@ export const DroppableColumn = React.memo(function DroppableColumn({
   return (
     <div className="board-column" role="region" aria-label={column.name}>
       <SortableContext items={cards.map((c) => `card-${c.id}`)} strategy={verticalListSortingStrategy}>
-        <div className="column-cards" data-column-id={column.id} data-state={column.state} aria-dropeffect="move">
+        <div
+          ref={setDropRef}
+          className={`column-cards${isOver ? ' drag-over' : ''}`}
+          data-column-id={column.id}
+          data-state={column.state}
+          aria-dropeffect="move"
+        >
           {cards.map((card) => (
             <CardItem
               key={card.id}

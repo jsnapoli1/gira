@@ -248,6 +248,22 @@ export function BoardView() {
     loadBoard();
   }, [boardId]);
 
+  // Open card from ?card=id query param (e.g. when navigating from a notification)
+  useEffect(() => {
+    if (loading || cards.length === 0) return;
+    const cardIdParam = searchParams.get('card');
+    if (!cardIdParam) return;
+    const cardId = parseInt(cardIdParam);
+    const card = cards.find((c) => c.id === cardId);
+    if (card) {
+      setSelectedCard(card);
+      // Switch to All Cards view so the card is always visible regardless of sprint
+      setViewMode('all');
+      // Remove the param so back/forward navigation doesn't re-open it
+      setSearchParams((prev) => { prev.delete('card'); return prev; }, { replace: true });
+    }
+  }, [loading, cards, searchParams]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -397,7 +413,16 @@ export function BoardView() {
     let targetColumnId: number | null = null;
     let targetState: string | null = null;
 
-    if (String(over.id).startsWith('card-')) {
+    if (String(over.id).startsWith('column-')) {
+      // Dropped onto the column droppable zone (e.g. empty column)
+      const colId = parseInt(String(over.id).replace('column-', ''));
+      const targetColumn = board.columns.find((c) => c.id === colId);
+      if (targetColumn) {
+        targetColumnId = targetColumn.id;
+        targetState = targetColumn.state;
+      }
+    } else if (String(over.id).startsWith('card-')) {
+      // Dropped onto another card — use that card's column
       const overCard = cards.find((c) => `card-${c.id}` === over.id);
       if (overCard) {
         targetColumnId = overCard.column_id;
