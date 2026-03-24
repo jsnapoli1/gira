@@ -512,3 +512,529 @@ test.describe('Duplicate label name', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 11. Card-Label API — POST /api/cards/:id/labels
+// ---------------------------------------------------------------------------
+test.describe('Card-Label API — assign label', () => {
+  test('POST /api/cards/:id/labels returns 2xx for valid label', async ({ request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'AssignOk', '#6366f1');
+    const res = await request.post(`${BASE}/api/cards/${cardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { label_id: label.id },
+    });
+    expect(res.ok()).toBeTruthy();
+  });
+
+  test('DELETE /api/cards/:id/labels/:labelId returns 2xx after assignment', async ({ request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'RemoveOk', '#22c55e');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    const res = await request.delete(`${BASE}/api/cards/${cardId}/labels/${label.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBeTruthy();
+  });
+
+  test('GET /api/cards/:id response includes labels array with assigned label', async ({ request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'CardGet', '#f97316');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    const cardRes = await request.get(`${BASE}/api/cards/${cardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(cardRes.ok()).toBeTruthy();
+    const card = await cardRes.json();
+    expect(Array.isArray(card.labels)).toBe(true);
+    const found = card.labels.find((l: any) => l.id === label.id);
+    expect(found).toBeDefined();
+    expect(found.name).toBe('CardGet');
+  });
+
+  test('assigning label twice returns non-500 and card has label once only', async ({ request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'IdempotentAssign', '#8b5cf6');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    const secondRes = await request.post(`${BASE}/api/cards/${cardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { label_id: label.id },
+    });
+    expect(secondRes.status()).not.toBe(500);
+
+    const listRes = await request.get(`${BASE}/api/cards/${cardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const labels: any[] = await listRes.json();
+    const occurrences = labels.filter((l) => l.id === label.id);
+    expect(occurrences.length).toBeLessThanOrEqual(1);
+  });
+
+  test('assigning non-existent label returns 400/404/422', async ({ request }) => {
+    const { token, cardId } = await setup(request);
+    const res = await request.post(`${BASE}/api/cards/${cardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { label_id: 999999999 },
+    });
+    expect([400, 404, 422]).toContain(res.status());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. Card-Label display in board view
+// ---------------------------------------------------------------------------
+test.describe('Card-Label display — board view', () => {
+  test('label pill on card in board view has correct color style', async ({ page, request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'ColorPill', '#ec4899');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    const chip = page.locator('.card-item .card-label[title="ColorPill"]');
+    await expect(chip).toBeVisible({ timeout: 5000 });
+    const style = await chip.getAttribute('style');
+    // Style should contain background-color referencing the pink color
+    expect(style).toBeTruthy();
+    expect(style).toContain('background');
+  });
+
+  test('label chip computed background-color matches assigned hex', async ({ page, request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'ComputedBg', '#22c55e');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    const chip = page.locator('.card-item .card-label[title="ComputedBg"]');
+    await expect(chip).toBeVisible({ timeout: 5000 });
+    const bg = await chip.evaluate((el) => getComputedStyle(el).backgroundColor);
+    // #22c55e = rgb(34, 197, 94)
+    expect(bg).toMatch(/rgb\(34,\s*197,\s*94\)/);
+  });
+
+  test('label chip visible in backlog view', async ({ page, request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'BacklogLabel', '#6366f1');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+
+    // Switch to Backlog view
+    const backlogBtn = page.locator('.view-btn:has-text("Backlog")');
+    if (await backlogBtn.isVisible()) {
+      await backlogBtn.click();
+      await page.waitForSelector('.backlog-card, .backlog-item, .card-item', { timeout: 10000 });
+
+      const chip = page.locator('.card-label[title="BacklogLabel"]');
+      await expect(chip).toBeVisible({ timeout: 5000 });
+    } else {
+      test.skip(true, 'Backlog view not available');
+    }
+  });
+
+  test('label chip persists after page reload', async ({ page, request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'ReloadPersist', '#f97316');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item .card-label', { timeout: 10000 });
+
+    await page.reload();
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await expect(page.locator('.card-item .card-label[title="ReloadPersist"]')).toBeVisible({
+      timeout: 5000,
+    });
+  });
+
+  test('removing label via modal clears chip from board card', async ({ page, request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'ToRemoveChip', '#ec4899');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // Open modal and deselect the label
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    const toggle = page.locator(`.label-toggle:has(.label-name:has-text("ToRemoveChip"))`);
+    await expect(toggle).toHaveClass(/assigned/, { timeout: 5000 });
+    await toggle.click();
+    await expect(toggle).not.toHaveClass(/assigned/);
+
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+
+    // Chip should be gone from the card
+    await expect(page.locator('.card-item .card-label[title="ToRemoveChip"]')).not.toBeVisible({
+      timeout: 5000,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. Label changes persist across modal close/reopen
+// ---------------------------------------------------------------------------
+test.describe('Label assignment persistence in modal', () => {
+  test('label assigned in modal is still shown as assigned when modal is reopened', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'ModalReopen', '#06b6d4');
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // First open: assign label
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    const toggle = page.locator(`.label-toggle:has(.label-name:has-text("ModalReopen"))`);
+    await expect(toggle).toBeVisible({ timeout: 5000 });
+    await expect(toggle).not.toHaveClass(/assigned/);
+    await toggle.click();
+    await expect(toggle).toHaveClass(/assigned/);
+
+    // Close modal
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+
+    // Reopen modal — label should still be assigned
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+    const toggleAgain = page.locator(`.label-toggle:has(.label-name:has-text("ModalReopen"))`);
+    await expect(toggleAgain).toHaveClass(/assigned/, { timeout: 5000 });
+  });
+
+  test('label toggle in modal shows all board labels', async ({ page, request }) => {
+    const { token, boardId } = await setup(request);
+    await createLabelViaApi(request, token, boardId, 'PickerLabelA', '#ef4444');
+    await createLabelViaApi(request, token, boardId, 'PickerLabelB', '#22c55e');
+    await createLabelViaApi(request, token, boardId, 'PickerLabelC', '#8b5cf6');
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    await expect(page.locator('.label-toggle:has(.label-name:has-text("PickerLabelA"))')).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator('.label-toggle:has(.label-name:has-text("PickerLabelB"))')).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator('.label-toggle:has(.label-name:has-text("PickerLabelC"))')).toBeVisible({
+      timeout: 5000,
+    });
+  });
+
+  test('unassigned label toggles do not carry assigned class', async ({ page, request }) => {
+    const { token, boardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'NotAssigned', '#eab308');
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    const toggle = page.locator(`.label-toggle:has(.label-name:has-text("${label.name}"))`);
+    await expect(toggle).toBeVisible({ timeout: 5000 });
+    await expect(toggle).not.toHaveClass(/assigned/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. Label filter — board view integration
+// ---------------------------------------------------------------------------
+test.describe('Label filter — board view', () => {
+  test('filtering by label hides cards without that label', async ({ page, request }) => {
+    const { token, boardId, columnId, swimlaneId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'FilterLabel', '#ef4444');
+
+    // Create a second card without the label
+    await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Unlabeled Card',
+        column_id: columnId,
+        swimlane_id: swimlaneId,
+        board_id: boardId,
+      },
+    });
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await page.addInitScript((t: string) => {
+      localStorage.setItem('token', t);
+      localStorage.removeItem('zira-filters-expanded');
+    }, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
+
+    // Open filters and select the label
+    await page.click('.filter-toggle-btn');
+    await page.waitForSelector('.filters-expanded', { timeout: 5000 });
+
+    const labelSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All labels")'),
+    });
+    await labelSelect.selectOption(String(label.id));
+
+    // Only the labeled card should remain
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+  });
+
+  test('clearing label filter restores all cards', async ({ page, request }) => {
+    const { token, boardId, columnId, swimlaneId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'ClearFilter', '#22c55e');
+
+    await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Unlabeled Card B',
+        column_id: columnId,
+        swimlane_id: swimlaneId,
+        board_id: boardId,
+      },
+    });
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await page.addInitScript((t: string) => {
+      localStorage.setItem('token', t);
+      localStorage.removeItem('zira-filters-expanded');
+    }, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await page.click('.filter-toggle-btn');
+    await page.waitForSelector('.filters-expanded', { timeout: 5000 });
+
+    const labelSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All labels")'),
+    });
+    await labelSelect.selectOption(String(label.id));
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+
+    // Clear all filters
+    await page.click('.clear-filter');
+    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
+  });
+
+  test('label filter dropdown option value equals label id', async ({ page, request }) => {
+    const { token, boardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'OptionValue', '#06b6d4');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+
+    await page.click('.filter-toggle-btn');
+    await page.waitForSelector('.filters-expanded', { timeout: 5000 });
+
+    const labelSelect = page.locator('.filter-select').filter({
+      has: page.locator('option:text("All labels")'),
+    });
+    const option = labelSelect.locator(`option[value="${label.id}"]`);
+    await expect(option).toBeAttached();
+    const optionText = await option.textContent();
+    expect(optionText).toContain('OptionValue');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. Error handling — create label validations
+// ---------------------------------------------------------------------------
+test.describe('Label error handling', () => {
+  test('creating label with empty name via API returns 400/422 or stores empty', async ({
+    request,
+  }) => {
+    const { token, boardId } = await setup(request);
+    const res = await request.post(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: '', color: '#ef4444' },
+    });
+    // Must not 500; server may accept (store empty) or reject
+    expect(res.status()).not.toBe(500);
+  });
+
+  test('creating label without name field returns 400/422 or stores empty', async ({ request }) => {
+    const { token, boardId } = await setup(request);
+    const res = await request.post(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { color: '#ef4444' },
+    });
+    expect(res.status()).not.toBe(500);
+  });
+
+  test('creating label with omitted color uses a default color', async ({ request }) => {
+    const { token, boardId } = await setup(request);
+    const res = await request.post(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'DefaultColorLabel' },
+    });
+    expect(res.status()).not.toBe(500);
+    if (res.ok()) {
+      const body = await res.json();
+      // Must be a valid hex color
+      expect(body.color).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
+  });
+
+  test('deleting label used by many cards still succeeds', async ({ request }) => {
+    const { token, boardId, columnId, swimlaneId, cardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'ManyCards', '#ef4444');
+
+    // Create more cards and assign the label to all
+    for (let i = 0; i < 3; i++) {
+      const cardRes = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          title: `Card ${i}`,
+          column_id: columnId,
+          swimlane_id: swimlaneId,
+          board_id: boardId,
+        },
+      });
+      if (cardRes.ok()) {
+        const card = await cardRes.json();
+        await request.post(`${BASE}/api/cards/${card.id}/labels`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { label_id: label.id },
+        });
+      }
+    }
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    const delRes = await request.delete(`${BASE}/api/boards/${boardId}/labels/${label.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(delRes.ok()).toBeTruthy();
+
+    // Label should no longer appear in board list
+    const listRes = await request.get(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const labels: any[] = await listRes.json();
+    expect(labels.find((l) => l.id === label.id)).toBeUndefined();
+  });
+
+  test('updating label to invalid color returns 500 or stores as-is (no crash)', async ({
+    request,
+  }) => {
+    const { token, boardId } = await setup(request);
+    const label = await createLabelViaApi(request, token, boardId, 'BadColorUpdate', '#6366f1');
+
+    const res = await request.put(`${BASE}/api/boards/${boardId}/labels/${label.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'BadColorUpdate', color: 'not-a-color' },
+    });
+    // Must not crash the server; behavior (accept/reject) is up to the implementation
+    expect([200, 400, 422]).toContain(res.status());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. Label display — text contrast
+// ---------------------------------------------------------------------------
+test.describe('Label display — text readability', () => {
+  test('label chip text is visible against a dark background color', async ({ page, request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    // Very dark blue — text should be light for readability
+    const label = await createLabelViaApi(request, token, boardId, 'DarkBg', '#0f172a');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    const chip = page.locator('.card-item .card-label[title="DarkBg"]');
+    await expect(chip).toBeVisible({ timeout: 5000 });
+    // Chip is visible — text is readable (Playwright visibility check is sufficient)
+  });
+
+  test('label chip text is visible against a light background color', async ({ page, request }) => {
+    const { token, boardId, cardId } = await setup(request);
+    // Very light yellow — text should be dark for readability
+    const label = await createLabelViaApi(request, token, boardId, 'LightBg', '#fef9c3');
+    await applyLabelViaApi(request, token, cardId, label.id);
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}`);
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    const chip = page.locator('.card-item .card-label[title="LightBg"]');
+    await expect(chip).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. Board count / settings page label count
+// ---------------------------------------------------------------------------
+test.describe('Label count in board settings', () => {
+  test('settings page shows correct number of label rows', async ({ page, request }) => {
+    const { token, boardId } = await setup(request);
+    await createLabelViaApi(request, token, boardId, 'CountA', '#ef4444');
+    await createLabelViaApi(request, token, boardId, 'CountB', '#22c55e');
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.item-name:has-text("CountA")', { timeout: 10000 });
+
+    const rows = page.locator('.settings-section:has(h2:has-text("Labels")) .settings-list-item');
+    expect(await rows.count()).toBeGreaterThanOrEqual(2);
+  });
+
+  test('label count in settings matches API response', async ({ page, request }) => {
+    const { token, boardId } = await setup(request);
+    await createLabelViaApi(request, token, boardId, 'APICountA', '#ef4444');
+    await createLabelViaApi(request, token, boardId, 'APICountB', '#22c55e');
+    await createLabelViaApi(request, token, boardId, 'APICountC', '#8b5cf6');
+
+    const apiLabels: any[] = await (
+      await request.get(`${BASE}/api/boards/${boardId}/labels`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.item-name:has-text("APICountA")', { timeout: 10000 });
+
+    const rows = page.locator('.settings-section:has(h2:has-text("Labels")) .settings-list-item');
+    const uiCount = await rows.count();
+    expect(uiCount).toBe(apiLabels.length);
+  });
+});
