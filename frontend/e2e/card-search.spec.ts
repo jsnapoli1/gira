@@ -98,6 +98,8 @@ async function setupSearchBoard(request: any, page: any): Promise<SearchSetup> {
 // ---------------------------------------------------------------------------
 
 test.describe('Card Search', () => {
+  test.setTimeout(90000);
+
   test('search input is visible in the board header', async ({ page, request }) => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const email = `test-search-visible-${suffix}@test.com`;

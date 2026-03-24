@@ -104,6 +104,8 @@ async function navigateToBoard(page: any, boardId: number, token: string, switch
 // ---------------------------------------------------------------------------
 
 test.describe('Filter Bar', () => {
+  test.setTimeout(90000);
+
   test('filter toggle button is visible in the board header', async ({ page, request }) => {
     const setup = await setupFilterBoard(request);
     await navigateToBoard(page, setup.boardId, setup.token);

@@ -33,8 +33,6 @@ async function createBoard(request: any, token: string) {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       name: 'Test Lane',
-      repo_owner: 'test',
-      repo_name: 'repo',
       designator: 'TL-',
       color: '#3b82f6',
     },

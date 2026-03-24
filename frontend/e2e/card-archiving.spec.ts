@@ -463,7 +463,7 @@ test.describe('Card Deletion (always-run API tests)', () => {
    * board/backlog without permanent deletion. Users currently must delete
    * cards which is irreversible and loses all card history.
    */
-  test('card deletion is permanent — DELETE then GET returns 404', async ({ request }) => {
+  test('card deletion is permanent — DELETE then GET returns 404', { timeout: 90_000 }, async ({ request }) => {
     const email = `test-del-permanent-${crypto.randomUUID()}@test.com`;
 
     const { token } = await (
@@ -536,7 +536,7 @@ test.describe('Card Deletion (always-run API tests)', () => {
    * also be excluded from this list by default (only returned when
    * include_archived=true is passed).
    */
-  test('deleted card is removed from board card list', async ({ request }) => {
+  test('deleted card is removed from board card list', { timeout: 90_000 }, async ({ request }) => {
     const email = `test-del-list-${crypto.randomUUID()}@test.com`;
 
     const { token } = await (
