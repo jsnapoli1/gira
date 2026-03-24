@@ -677,7 +677,8 @@ test.describe('Reports — core', () => {
     await page.locator('.reports-filters select').first().selectOption({ label: 'Sprint Switch Board B' });
     const sprintSelectB = page.locator('.reports-filters select').nth(1);
     await expect(sprintSelectB).toBeVisible({ timeout: 8000 });
-    await expect(sprintSelectB.locator('option:has-text("Beta Sprint")')).toBeAttached();
+    // Wait for the sprint options to update to Board B's sprints
+    await expect(sprintSelectB.locator('option:has-text("Beta Sprint")')).toBeAttached({ timeout: 8000 });
     await expect(sprintSelectB.locator('option:has-text("Alpha Sprint")')).not.toBeAttached();
   });
 

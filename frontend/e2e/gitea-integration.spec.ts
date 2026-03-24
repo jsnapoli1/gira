@@ -443,6 +443,9 @@ test.describe('Swimlane without Gitea credentials', () => {
     await page.goto(`/boards/${board.id}`);
     await expect(page.locator('.board-page')).toBeVisible({ timeout: 10_000 });
 
+    // Switch to "All Cards" view so cards are visible without an active sprint
+    await page.click('button.view-btn:has-text("All Cards")');
+
     // The card title should be visible — use h4.card-title inside .card-item
     await expect(
       page.locator('.card-item h4.card-title:has-text("Card in uncredentialed swimlane")'),

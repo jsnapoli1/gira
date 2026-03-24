@@ -119,6 +119,9 @@ async function createBoardViaUI(
   if (description) await page.fill('#boardDesc', description);
   await page.click('button[type="submit"]:has-text("Create Board")');
   await page.waitForURL(/\/boards\/\d+/, { timeout: 10000 });
+  // Wait for the board to finish loading before returning so that callers can
+  // safely query elements that only appear once the board data is fetched.
+  await page.waitForSelector('.board-header', { timeout: 15000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -731,9 +734,10 @@ test.describe('Board settings — extended', () => {
     await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto('/boards/999999/settings');
 
-    // Should either show an error state or redirect back to boards
+    // Should either show an error state or redirect back to boards.
+    // BoardSettings renders <div className="error"> when the board is not found.
     await expect(
-      page.locator('.error-state, .not-found, .empty-state').or(page.locator('.boards-grid'))
+      page.locator('.error-state, .not-found, .empty-state, .error').or(page.locator('.boards-grid'))
     ).toBeVisible({ timeout: 10000 });
   });
 });
