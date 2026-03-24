@@ -28,14 +28,21 @@ async function createBoard(request: any, token: string, name = 'Shared Board') {
 }
 
 async function addMember(request: any, token: string, boardId: number, userId: number, role = 'member') {
-  await request.post(`${BASE}/api/boards/${boardId}/members`, {
+  return request.post(`${BASE}/api/boards/${boardId}/members`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { user_id: userId, role },
   });
 }
 
+async function getMembers(request: any, token: string, boardId: number) {
+  const res = await request.get(`${BASE}/api/boards/${boardId}/members`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.json() as Promise<Array<{ user_id: number; role: string; user?: { display_name: string } }>>;
+}
+
 // ---------------------------------------------------------------------------
-// Board Settings — Members Tab
+// Board Settings — Members Tab (original tests, kept intact)
 // ---------------------------------------------------------------------------
 
 test.describe('Board Members — Settings UI', () => {
@@ -57,17 +64,13 @@ test.describe('Board Members — Settings UI', () => {
     await page.goto(`/boards/${board.id}/settings`);
 
     const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
-    // Wait for the member list to render
     await expect(membersSection.locator('.settings-list-item')).toHaveCount(1, { timeout: 8000 });
 
-    // The owner's display name should be visible
     await expect(membersSection.locator('.item-name:has-text("BoardOwner")')).toBeVisible();
 
-    // Role shown in .item-meta — the board creator is stored with role "admin" in the DB
     const ownerRow = membersSection.locator('.settings-list-item').filter({ hasText: 'BoardOwner' });
     await expect(ownerRow.locator('.item-meta')).toBeVisible();
     const roleText = await ownerRow.locator('.item-meta').textContent();
-    // Accept either "owner" or "admin" — the backend stores the creator as "admin"
     expect(roleText?.toLowerCase()).toMatch(/owner|admin/);
   });
 
@@ -81,20 +84,14 @@ test.describe('Board Members — Settings UI', () => {
 
     const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
 
-    // Click "Add Member" button to open modal
     await membersSection.locator('button:has-text("Add Member")').click();
     await expect(page.locator('.modal h2:has-text("Add Member")')).toBeVisible();
 
-    // Select User B from the user dropdown
     await page.locator('.modal select').first().selectOption({ label: `${userB.display_name} (${userB.email})` });
 
-    // Submit
     await page.locator('.modal button[type="submit"]:has-text("Add Member")').click();
 
-    // Modal should close
     await expect(page.locator('.modal')).not.toBeVisible();
-
-    // User B should now appear in the members list
     await expect(membersSection.locator('.item-name:has-text("NewMember")')).toBeVisible({ timeout: 8000 });
   });
 
@@ -103,18 +100,14 @@ test.describe('Board Members — Settings UI', () => {
     const { user: userB } = await createUser(request, 'MemberToRemove', 'member-rm');
     const board = await createBoard(request, tokenA, 'Remove Member Board');
 
-    // Pre-add User B via API
     await addMember(request, tokenA, board.id, userB.id);
 
     await page.addInitScript((t) => localStorage.setItem('token', t), tokenA);
     await page.goto(`/boards/${board.id}/settings`);
 
     const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
-
-    // User B should be in the list
     await expect(membersSection.locator('.item-name:has-text("MemberToRemove")')).toBeVisible({ timeout: 8000 });
 
-    // Click delete on User B's row
     const memberRow = membersSection
       .locator('.settings-list-item')
       .filter({ hasText: 'MemberToRemove' });
@@ -122,13 +115,12 @@ test.describe('Board Members — Settings UI', () => {
     page.once('dialog', (d) => d.accept());
     await memberRow.locator('.item-delete').click();
 
-    // User B should no longer appear in the list
     await expect(membersSection.locator('.item-name:has-text("MemberToRemove")')).not.toBeVisible({ timeout: 8000 });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Access Control
+// Access Control (original tests, kept intact)
 // ---------------------------------------------------------------------------
 
 test.describe('Board Members — Access Control', () => {
@@ -137,14 +129,10 @@ test.describe('Board Members — Access Control', () => {
     const { token: tokenB } = await createUser(request, 'NonMember', 'nonmember');
     const board = await createBoard(request, tokenA, 'Private Board');
 
-    // Navigate as User B (not a member)
     await page.addInitScript((t) => localStorage.setItem('token', t), tokenB);
     await page.goto(`/boards/${board.id}`);
 
-    // Board should NOT be accessible — either redirected away or error shown
-    // BoardView renders `.error` with "Board not found" when the API returns 403
     await expect(page.locator('.error')).toBeVisible({ timeout: 8000 });
-    // The board header (which only appears for members) must not be visible
     await expect(page.locator('.board-page')).not.toBeVisible();
   });
 
@@ -153,16 +141,12 @@ test.describe('Board Members — Access Control', () => {
     const { token: tokenB, user: userB } = await createUser(request, 'MemberAccess', 'member-acc');
     const board = await createBoard(request, tokenA, 'Accessible Board');
 
-    // Add User B as member via API
     await addMember(request, tokenA, board.id, userB.id);
 
-    // Navigate as User B
     await page.addInitScript((t) => localStorage.setItem('token', t), tokenB);
     await page.goto(`/boards/${board.id}`);
 
-    // Board should load — the .board-page wrapper is rendered when board is accessible
     await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
-    // Board name should appear in the header
     await expect(page.locator('.board-header h1')).toContainText('Accessible Board', { timeout: 8000 });
   });
 
@@ -171,15 +155,12 @@ test.describe('Board Members — Access Control', () => {
     const { user: userB } = await createUser(request, 'RoleMember', 'member-rl');
     const board = await createBoard(request, tokenA, 'Role Check Board');
 
-    // Add User B with explicit "member" role
     await addMember(request, tokenA, board.id, userB.id, 'member');
 
     await page.addInitScript((t) => localStorage.setItem('token', t), tokenA);
     await page.goto(`/boards/${board.id}/settings`);
 
     const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
-
-    // User B's row should show the role label
     await expect(membersSection.locator('.item-name:has-text("RoleMember")')).toBeVisible({ timeout: 8000 });
 
     const memberRow = membersSection
@@ -192,14 +173,11 @@ test.describe('Board Members — Access Control', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Role Change (fixme — no role-change UI in current member list)
+// Role Change (original — fixme kept)
 // ---------------------------------------------------------------------------
 
 test.describe('Board Members — Role Change', () => {
   test.fixme('Change member role via settings UI', async ({ page, request }) => {
-    // The members list in BoardSettings.tsx renders .item-meta for the role but
-    // provides no inline dropdown or edit control to change an existing member's
-    // role.  Mark fixme until the UI adds that capability.
     const { token: tokenA } = await createUser(request, 'OwnerChange', 'owner-ch');
     const { user: userB } = await createUser(request, 'RoleChange', 'member-ch');
     const board = await createBoard(request, tokenA, 'Role Change Board');
@@ -216,11 +194,334 @@ test.describe('Board Members — Role Change', () => {
       .locator('.settings-list-item')
       .filter({ hasText: 'RoleChange' });
 
-    // Find role dropdown on the row and change to "viewer"
     await memberRow.locator('select.member-role').selectOption('viewer');
 
-    // Verify role updated
     const roleText = await memberRow.locator('.item-meta').textContent();
     expect(roleText?.toLowerCase()).toMatch(/viewer/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API-level member tests
+// ---------------------------------------------------------------------------
+
+test.describe('Board Members — API', () => {
+  test('API: board creator is listed as admin member', async ({ request }) => {
+    const { token, user } = await createUser(request, 'Creator', 'api-creator');
+    const board = await createBoard(request, token);
+
+    const members = await getMembers(request, token, board.id);
+    expect(Array.isArray(members)).toBe(true);
+
+    const creatorEntry = members.find((m) => m.user_id === user.id);
+    expect(creatorEntry).toBeDefined();
+    expect(creatorEntry!.role).toBe('admin');
+  });
+
+  test('API: GET members returns array with user_id and role fields', async ({ request }) => {
+    const { token } = await createUser(request, 'ListOwner', 'api-list');
+    const board = await createBoard(request, token);
+
+    const members = await getMembers(request, token, board.id);
+    expect(Array.isArray(members)).toBe(true);
+    expect(members.length).toBeGreaterThan(0);
+
+    const entry = members[0];
+    expect(entry).toHaveProperty('user_id');
+    expect(entry).toHaveProperty('role');
+  });
+
+  test('API: add member returns 201', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'AddOwner', 'api-add-owner');
+    const { user: newUser } = await createUser(request, 'NewUser', 'api-add-user');
+    const board = await createBoard(request, ownerToken);
+
+    const res = await addMember(request, ownerToken, board.id, newUser.id);
+    expect(res.status()).toBe(201);
+  });
+
+  test('API: added member appears in GET members list', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'AddListOwner', 'api-add-list');
+    const { user: newUser } = await createUser(request, 'ListNewUser', 'api-add-list-u');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, newUser.id);
+
+    const members = await getMembers(request, ownerToken, board.id);
+    const found = members.find((m) => m.user_id === newUser.id);
+    expect(found).toBeDefined();
+    expect(found!.role).toBe('member');
+  });
+
+  test('API: added member with admin role has role "admin"', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'AdminOwner', 'api-admin-owner');
+    const { user: adminUser } = await createUser(request, 'AdminUser', 'api-admin-user');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const members = await getMembers(request, ownerToken, board.id);
+    const found = members.find((m) => m.user_id === adminUser.id);
+    expect(found).toBeDefined();
+    expect(found!.role).toBe('admin');
+  });
+
+  test('API: removed member is no longer in members list', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'RmOwner', 'api-rm-owner');
+    const { user: memberUser } = await createUser(request, 'RmUser', 'api-rm-user');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, memberUser.id);
+
+    const delRes = await request.delete(`${BASE}/api/boards/${board.id}/members/${memberUser.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+    expect(delRes.ok()).toBe(true);
+
+    const members = await getMembers(request, ownerToken, board.id);
+    const found = members.find((m) => m.user_id === memberUser.id);
+    expect(found).toBeUndefined();
+  });
+
+  test('API: removed member receives 403 on board access', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'RmAccessOwner', 'api-rmacc-owner');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'RmAccessUser', 'api-rmacc-user');
+    const board = await createBoard(request, ownerToken);
+
+    // Add then remove
+    await addMember(request, ownerToken, board.id, memberUser.id);
+    await request.delete(`${BASE}/api/boards/${board.id}/members/${memberUser.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+
+    // Former member should now get 403
+    const res = await request.get(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('API: non-admin member cannot remove another member (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'NonAdminOwner', 'api-nadm-owner');
+    const { token: memberAToken, user: memberA } = await createUser(request, 'MemberA', 'api-nadm-a');
+    const { user: memberB } = await createUser(request, 'MemberB', 'api-nadm-b');
+    const board = await createBoard(request, ownerToken);
+
+    // Add both members with "member" role (not admin)
+    await addMember(request, ownerToken, board.id, memberA.id, 'member');
+    await addMember(request, ownerToken, board.id, memberB.id, 'member');
+
+    // Member A (non-admin) tries to remove Member B — should be 403
+    const res = await request.delete(`${BASE}/api/boards/${board.id}/members/${memberB.id}`, {
+      headers: { Authorization: `Bearer ${memberAToken}` },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('API: non-admin member cannot add new member (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'AddNonAdminOwner', 'api-nadmadd-owner');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'NonAdminMember', 'api-nadmadd-m');
+    const { user: targetUser } = await createUser(request, 'Target', 'api-nadmadd-t');
+    const board = await createBoard(request, ownerToken);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { user_id: targetUser.id, role: 'member' },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('API: unauthenticated request returns 401 for members list', async ({ request }) => {
+    const { token } = await createUser(request, 'UnAuthOwner', 'api-unauth');
+    const board = await createBoard(request, token);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/members`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('API: add member with invalid user_id returns error', async ({ request }) => {
+    const { token } = await createUser(request, 'InvalidOwner', 'api-invalid');
+    const board = await createBoard(request, token);
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { user_id: 999999999, role: 'member' },
+    });
+    // Should return 4xx (400 or 500 depending on DB constraint)
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+  });
+
+  test('API: duplicate member add is handled gracefully', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'DupOwner', 'api-dup-owner');
+    const { user: dupUser } = await createUser(request, 'DupUser', 'api-dup-user');
+    const board = await createBoard(request, ownerToken);
+
+    // First add — should succeed
+    const firstRes = await addMember(request, ownerToken, board.id, dupUser.id);
+    expect(firstRes.status()).toBe(201);
+
+    // Second add — should not cause a 5xx; 4xx or 2xx is acceptable
+    const secondRes = await addMember(request, ownerToken, board.id, dupUser.id);
+    expect(secondRes.status()).toBeLessThan(500);
+
+    // Only one entry for this user in the members list
+    const members = await getMembers(request, ownerToken, board.id);
+    const userEntries = members.filter((m) => m.user_id === dupUser.id);
+    expect(userEntries.length).toBe(1);
+  });
+
+  test('API: member count correct after add and remove', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'CountOwner', 'api-count-owner');
+    const { user: u1 } = await createUser(request, 'CountUser1', 'api-count-u1');
+    const { user: u2 } = await createUser(request, 'CountUser2', 'api-count-u2');
+    const board = await createBoard(request, ownerToken);
+
+    // Start: only creator (1)
+    let members = await getMembers(request, ownerToken, board.id);
+    const startCount = members.length;
+
+    await addMember(request, ownerToken, board.id, u1.id);
+    await addMember(request, ownerToken, board.id, u2.id);
+
+    members = await getMembers(request, ownerToken, board.id);
+    expect(members.length).toBe(startCount + 2);
+
+    // Remove u1
+    await request.delete(`${BASE}/api/boards/${board.id}/members/${u1.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+
+    members = await getMembers(request, ownerToken, board.id);
+    expect(members.length).toBe(startCount + 1);
+  });
+
+  test('API: added member can see board in their boards list', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'ListBoardOwner', 'api-listboard-owner');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'ListBoardMember', 'api-listboard-m');
+    const board = await createBoard(request, ownerToken, 'Visible Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id);
+
+    // Member should see the board when fetching their boards
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+    expect(res.ok()).toBe(true);
+    const boards = await res.json();
+    const found = boards.find((b: any) => b.id === board.id);
+    expect(found).toBeDefined();
+    expect(found.name).toBe('Visible Board');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UI extended tests
+// ---------------------------------------------------------------------------
+
+test.describe('Board Members — UI Extended', () => {
+  test('UI: member count shown correctly in settings', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'CountUIOwner', 'ui-count-owner');
+    const { user: u1 } = await createUser(request, 'CountUI1', 'ui-count-u1');
+    const { user: u2 } = await createUser(request, 'CountUI2', 'ui-count-u2');
+    const board = await createBoard(request, ownerToken, 'Count Board');
+
+    await addMember(request, ownerToken, board.id, u1.id);
+    await addMember(request, ownerToken, board.id, u2.id);
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    // 3 members total: owner + u1 + u2
+    await expect(membersSection.locator('.settings-list-item')).toHaveCount(3, { timeout: 8000 });
+  });
+
+  test('UI: admin role label shown for admin member in list', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'AdminLabelOwner', 'ui-admin-owner');
+    const { user: adminUser } = await createUser(request, 'AdminLabelUser', 'ui-admin-user');
+    const board = await createBoard(request, ownerToken, 'Admin Label Board');
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("AdminLabelUser")')).toBeVisible({ timeout: 8000 });
+
+    const adminRow = membersSection.locator('.settings-list-item').filter({ hasText: 'AdminLabelUser' });
+    const roleText = await adminRow.locator('.item-meta').textContent();
+    expect(roleText?.toLowerCase()).toMatch(/admin/);
+  });
+
+  test('UI: member role label shown for member in list', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'MemberLabelOwner', 'ui-mem-owner');
+    const { user: memberUser } = await createUser(request, 'MemberLabelUser', 'ui-mem-user');
+    const board = await createBoard(request, ownerToken, 'Member Label Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("MemberLabelUser")')).toBeVisible({ timeout: 8000 });
+
+    const memberRow = membersSection.locator('.settings-list-item').filter({ hasText: 'MemberLabelUser' });
+    const roleText = await memberRow.locator('.item-meta').textContent();
+    expect(roleText?.toLowerCase()).toMatch(/member/);
+  });
+
+  test('UI: board creator delete button not present for own row', async ({ page, request }) => {
+    const { token } = await createUser(request, 'SelfDeleteOwner', 'ui-selfdel-owner');
+    const board = await createBoard(request, token, 'Self Delete Board');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.settings-list-item')).toHaveCount(1, { timeout: 8000 });
+
+    // The creator's own row should either have no delete button or a disabled one
+    const ownerRow = membersSection.locator('.settings-list-item').first();
+    const deleteBtn = ownerRow.locator('.item-delete');
+    const deleteBtnCount = await deleteBtn.count();
+
+    if (deleteBtnCount > 0) {
+      // If delete button exists it must be disabled for the creator's own row
+      await expect(deleteBtn.first()).toBeDisabled();
+    }
+    // If no delete button at all, that's also correct — the test passes
+  });
+
+  test('UI: added member appears in settings list immediately', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'ImmediateOwner', 'ui-imm-owner');
+    const { user: newUser } = await createUser(request, 'ImmediateNewUser', 'ui-imm-user');
+    const board = await createBoard(request, ownerToken, 'Immediate Board');
+
+    // Add via API before navigating
+    await addMember(request, ownerToken, board.id, newUser.id);
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("ImmediateNewUser")')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: board appears in member dashboard board list', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'DashOwner', 'ui-dash-owner');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'DashMember', 'ui-dash-member');
+    const board = await createBoard(request, ownerToken, 'Dashboard Visible Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), memberToken);
+    await page.goto('/boards');
+    await page.waitForSelector('.board-list, .boards-grid, .board-card', { timeout: 10000 });
+
+    await expect(page.locator('[class*="board"]').filter({ hasText: 'Dashboard Visible Board' })).toBeVisible({ timeout: 8000 });
   });
 });
