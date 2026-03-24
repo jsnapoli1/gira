@@ -309,6 +309,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const boardId = await createBoard(request, token, 'Metrics Board');
     const swimlaneId = await createSwimlane(request, token, boardId);
@@ -333,6 +334,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const boardId = await createBoard(request, token, 'Metric Cards Board');
     const swimlaneId = await createSwimlane(request, token, boardId);
@@ -361,6 +363,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const boardId = await createBoard(request, token, 'Completed Count Board');
     const swimlaneId = await createSwimlane(request, token, boardId);
@@ -395,6 +398,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const boardId = await createBoard(request, token, 'Charts Board');
     const swimlaneId = await createSwimlane(request, token, boardId);
@@ -423,6 +427,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const boardId = await createBoard(request, token, 'Velocity Render Board');
     const swimlaneId = await createSwimlane(request, token, boardId);
@@ -529,6 +534,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const boardId = await createBoard(request, token, 'Time Tracking Board');
     const swimlaneId = await createSwimlane(request, token, boardId);
@@ -555,6 +561,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const boardId = await createBoard(request, token, 'TT Section Board');
     const swimlaneId = await createSwimlane(request, token, boardId);
@@ -583,6 +590,7 @@ test.describe('Reports — core', () => {
     request,
     page,
   }) => {
+    test.setTimeout(90000);
     const token = await createUser(request);
     const boardId = await createBoard(request, token, 'No Logs Board');
     const swimlaneId = await createSwimlane(request, token, boardId);

@@ -380,7 +380,14 @@ test.describe('Toast — multiple toasts stack', () => {
     await page.click('button:has-text("Create Board")');
     await page.fill('#boardName', 'Fail Board 1');
     await page.click('button[type="submit"]:has-text("Create Board")');
+
+    // Wait for error toast to appear.
     await expect(page.locator('.toast-error').first()).toBeVisible({ timeout: 5000 });
+
+    // The modal stays open after failure — close it by clicking the Cancel button inside
+    // the modal form before trying again.
+    await page.locator('.modal .form-actions button:has-text("Cancel")').click();
+    await expect(page.locator('.modal-overlay')).not.toBeVisible({ timeout: 3000 });
 
     // Quickly submit a second failing creation before the first toast dismisses.
     await page.click('button:has-text("Create Board")');
