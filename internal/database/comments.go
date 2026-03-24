@@ -99,7 +99,9 @@ func (d *DB) GetCommentsForCard(cardID int64) ([]models.Comment, error) {
 		commentMap[allComments[i].ID] = &allComments[i]
 	}
 
-	var topLevel []models.Comment
+	// Collect top-level comment pointers first so that reply nesting (via
+	// commentMap) is reflected when we dereference at the end.
+	var topLevelPtrs []*models.Comment
 	for i := range allComments {
 		if allComments[i].ParentCommentID != nil {
 			if parent, ok := commentMap[*allComments[i].ParentCommentID]; ok {
@@ -107,11 +109,12 @@ func (d *DB) GetCommentsForCard(cardID int64) ([]models.Comment, error) {
 				continue
 			}
 		}
-		topLevel = append(topLevel, allComments[i])
+		topLevelPtrs = append(topLevelPtrs, &allComments[i])
 	}
 
-	if topLevel == nil {
-		topLevel = []models.Comment{}
+	topLevel := make([]models.Comment, len(topLevelPtrs))
+	for i, p := range topLevelPtrs {
+		topLevel[i] = *p
 	}
 
 	return topLevel, nil
