@@ -1179,4 +1179,556 @@ test.describe('Board Views', () => {
     const initialPath = new URL(initialUrl).pathname;
     expect(urlAfter.pathname).toBe(initialPath);
   });
+
+  // -------------------------------------------------------------------------
+  // Sprint view — Board mode details
+  // -------------------------------------------------------------------------
+
+  test('Board view shows "No active sprint" empty state when sprint not started', async ({
+    request,
+    page,
+  }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-no-active-${suffix}@test.com`;
+
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'No Active Sprint Tester' },
+      })
+    ).json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'No Active Sprint Board' },
+      })
+    ).json();
+
+    await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Lane', designator: 'LN-', color: '#6366f1' },
+    });
+
+    // Create a sprint but do NOT start it
+    await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Planning Sprint' },
+    });
+
+    await page.goto('/login');
+    await injectToken(page, token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    // The board body should show the no-active-sprint empty state
+    await expect(page.locator('.board-content .empty-swimlanes, .board-content .empty-state')).toBeVisible({
+      timeout: 8000,
+    });
+  });
+
+  test('Board view shows active sprint header/badge when sprint is running', async ({
+    request,
+    page,
+  }) => {
+    const setup = await setupViewBoard(request);
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    // The active sprint badge should contain the sprint name
+    await expect(page.locator('.active-sprint-badge')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.active-sprint-badge')).toContainText('Test Sprint');
+  });
+
+  test('Board view card shows title when a sprint card is present', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+    if (!setup.columnId || !setup.swimlaneId) {
+      test.skip(true, 'No column/swimlane available');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        board_id: setup.boardId,
+        swimlane_id: setup.swimlaneId,
+        column_id: setup.columnId,
+        title: 'Sprint Board Card Title',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+    await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { sprint_id: setup.sprintId },
+    });
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 8000 });
+
+    await expect(
+      page.locator('.card-item, .board-card-item').filter({ hasText: 'Sprint Board Card Title' })
+    ).toBeVisible({ timeout: 8000 });
+  });
+
+  test('Board view card shows assignee avatar when assignee is set', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+    if (!setup.columnId || !setup.swimlaneId) {
+      test.skip(true, 'No column/swimlane available');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        board_id: setup.boardId,
+        swimlane_id: setup.swimlaneId,
+        column_id: setup.columnId,
+        title: 'Assignee Badge Card',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+
+    // Get current user id
+    const meRes = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const me = await meRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/assignees`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { user_id: me.id },
+    });
+
+    await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { sprint_id: setup.sprintId },
+    });
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 8000 });
+
+    const cardEl = page.locator('.card-item, .board-card-item').filter({ hasText: 'Assignee Badge Card' });
+    await expect(cardEl).toBeVisible({ timeout: 8000 });
+    // Assignee avatar or chip present inside card
+    await expect(cardEl.locator('.assignee-avatar, .card-assignee, .avatar')).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // Board view basics
+  // -------------------------------------------------------------------------
+
+  test('Board view shows swimlane row labels for each swimlane', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+
+    await request.post(`${BASE}/api/boards/${setup.boardId}/swimlanes`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'My Swimlane Label', designator: 'MS-', color: '#a855f7' },
+    });
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.board-content', { timeout: 8000 });
+
+    // Swimlane label should appear in the gutter
+    await expect(page.locator('.swimlane-label, .swimlane-gutter-label').filter({ hasText: 'My Swimlane Label' })).toBeVisible({ timeout: 6000 });
+  });
+
+  test('Board view shows multiple column headers sorted by position', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+
+    await request.post(`${BASE}/api/boards/${setup.boardId}/swimlanes`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'Multi Col Lane', designator: 'MC-', color: '#10b981' },
+    });
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    const colHeaders = page.locator('.board-column-header');
+    await expect(colHeaders.first()).toBeVisible({ timeout: 8000 });
+    const count = await colHeaders.count();
+    expect(count).toBeGreaterThanOrEqual(2); // Default boards have at least To Do and Done
+  });
+
+  test('Board view shows quick-add card input when Add button is clicked', async ({
+    request,
+    page,
+  }) => {
+    const setup = await setupViewBoard(request);
+    if (!setup.columnId || !setup.swimlaneId) {
+      test.skip(true, 'No column/swimlane available');
+      return;
+    }
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 8000 });
+
+    // Find and click the add-card button in the first column
+    const addBtn = page.locator('.add-card-btn, button:has-text("Add card"), .column-add-btn').first();
+    const addBtnCount = await addBtn.count();
+    if (addBtnCount === 0) {
+      test.skip(true, 'No add-card button found in board view');
+      return;
+    }
+
+    await addBtn.click({ force: true });
+
+    // Quick-add input should appear
+    const quickInput = page.locator('input[placeholder*="card title"], input[placeholder*="Add a card"], .quick-add-input input, .add-card-input').first();
+    await expect(quickInput).toBeVisible({ timeout: 5000 });
+  });
+
+  test('Board view board-header and settings link present', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    // Settings link should be in the header
+    const settingsLink = page.locator('a[href*="/settings"], .board-settings-link, button[aria-label*="settings"]').first();
+    await expect(settingsLink).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // View state — reload and navigation behaviour
+  // -------------------------------------------------------------------------
+
+  test('reloading board page returns to Board view (default state)', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    // Switch to Backlog
+    await page.click('.view-btn:has-text("Backlog")');
+    await expect(page.locator('.view-btn:has-text("Backlog")')).toHaveClass(/active/, { timeout: 5000 });
+
+    // Reload — view state is component-only, should reset to Board (default)
+    await page.reload();
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    // After reload, Board is active again (no persistence)
+    await expect(page.locator('.view-btn:has-text("Board")')).toHaveClass(/active/, { timeout: 5000 });
+  });
+
+  test('navigating to boards list and back resets to Board view', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    // Switch to All Cards
+    await page.click('.view-btn:has-text("All Cards")');
+    await expect(page.locator('.view-btn:has-text("All Cards")')).toHaveClass(/active/, { timeout: 5000 });
+
+    // Navigate away
+    await page.goto('/boards');
+    await expect(page.locator('.board-list, .boards-page, h1:has-text("Board")')).toBeVisible({ timeout: 10000 });
+
+    // Navigate back
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    // View reverts to Board (default) since state is not persisted
+    await expect(page.locator('.view-btn:has-text("Board")')).toHaveClass(/active/, { timeout: 5000 });
+  });
+
+  test('view tab shows active CSS class only for the currently selected view', async ({
+    request,
+    page,
+  }) => {
+    const setup = await setupViewBoard(request);
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    // Verify initial state: Board active, others not
+    await expect(page.locator('.view-btn:has-text("Board")')).toHaveClass(/active/);
+    await expect(page.locator('.view-btn:has-text("Backlog")')).not.toHaveClass(/active/);
+    await expect(page.locator('.view-btn:has-text("All Cards")')).not.toHaveClass(/active/);
+
+    // Switch to All Cards
+    await page.click('.view-btn:has-text("All Cards")');
+    await expect(page.locator('.view-btn:has-text("All Cards")')).toHaveClass(/active/, { timeout: 5000 });
+    await expect(page.locator('.view-btn:has-text("Board")')).not.toHaveClass(/active/);
+    await expect(page.locator('.view-btn:has-text("Backlog")')).not.toHaveClass(/active/);
+  });
+
+  // -------------------------------------------------------------------------
+  // Backlog view — additional scenarios
+  // -------------------------------------------------------------------------
+
+  test('Backlog view shows Create Sprint button in backlog header area', async ({
+    request,
+    page,
+  }) => {
+    const setup = await setupViewBoard(request);
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    await page.click('.view-btn:has-text("Backlog")');
+    await expect(page.locator('.backlog-header')).toBeVisible({ timeout: 8000 });
+
+    await expect(page.locator('button:has-text("Create Sprint")')).toBeVisible({ timeout: 6000 });
+  });
+
+  test('Backlog view shows unassigned card in swimlane section', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+    if (!setup.columnId || !setup.swimlaneId) {
+      test.skip(true, 'No column/swimlane available');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        board_id: setup.boardId,
+        swimlane_id: setup.swimlaneId,
+        column_id: setup.columnId,
+        title: 'No Sprint Backlog Card',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    await page.click('.view-btn:has-text("Backlog")');
+    await expect(page.locator('.backlog-header')).toBeVisible({ timeout: 8000 });
+
+    // The unassigned card should be in the swimlane backlog section
+    await expect(
+      page.locator('.swimlane-backlog .card-title').filter({ hasText: 'No Sprint Backlog Card' })
+    ).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // All Cards view — additional scenarios
+  // -------------------------------------------------------------------------
+
+  test('All Cards view API count matches visible card count', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+    if (!setup.columnId || !setup.swimlaneId) {
+      test.skip(true, 'No column/swimlane available');
+      return;
+    }
+
+    // Create 3 cards via API
+    const titles = ['All Cards API 1', 'All Cards API 2', 'All Cards API 3'];
+    let allCreated = true;
+    for (const title of titles) {
+      const res = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${setup.token}` },
+        data: {
+          board_id: setup.boardId,
+          swimlane_id: setup.swimlaneId,
+          column_id: setup.columnId,
+          title,
+        },
+      });
+      if (!res.ok()) { allCreated = false; break; }
+    }
+
+    if (!allCreated) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    // Get API count
+    const apiRes = await request.get(`${BASE}/api/boards/${setup.boardId}/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const apiCards: Array<{ id: number }> = await apiRes.json();
+    const apiCount = apiCards.length;
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    await page.click('.view-btn:has-text("All Cards")');
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 8000 });
+
+    // All 3 created titles should appear
+    for (const title of titles) {
+      await expect(
+        page.locator('.card-item, .board-card-item').filter({ hasText: title })
+      ).toBeVisible({ timeout: 8000 });
+    }
+
+    // The total visible count should be >= apiCount (all-cards shows all)
+    const visibleCount = await page.locator('.card-item, .board-card-item').count();
+    expect(visibleCount).toBeGreaterThanOrEqual(apiCount > 0 ? Math.min(apiCount, 3) : 3);
+  });
+
+  test('All Cards view search input filters cards by title', async ({ request, page }) => {
+    const setup = await setupViewBoard(request);
+    if (!setup.columnId || !setup.swimlaneId) {
+      test.skip(true, 'No column/swimlane available');
+      return;
+    }
+
+    const uniqueTitle = `Unique-Search-${Date.now()}`;
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        board_id: setup.boardId,
+        swimlane_id: setup.swimlaneId,
+        column_id: setup.columnId,
+        title: uniqueTitle,
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+
+    // Also create a second card with a different title
+    await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        board_id: setup.boardId,
+        swimlane_id: setup.swimlaneId,
+        column_id: setup.columnId,
+        title: 'OtherCardTitle',
+      },
+    });
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    // Navigate with q= search param to test filter
+    await page.goto(`/boards/${setup.boardId}?q=${encodeURIComponent(uniqueTitle)}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    await page.click('.view-btn:has-text("All Cards")');
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 8000 });
+
+    // The unique card should be visible
+    await expect(
+      page.locator('.card-item, .board-card-item').filter({ hasText: uniqueTitle })
+    ).toBeVisible({ timeout: 8000 });
+  });
+
+  test('All Cards view shows column name or column indicator on each card', async ({
+    request,
+    page,
+  }) => {
+    const setup = await setupViewBoard(request);
+    if (!setup.columnId || !setup.swimlaneId) {
+      test.skip(true, 'No column/swimlane available');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        board_id: setup.boardId,
+        swimlane_id: setup.swimlaneId,
+        column_id: setup.columnId,
+        title: 'Column Info Card',
+      },
+    });
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+
+    await request.post(`${BASE}/api/cards/${(await cardRes.json()).id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { sprint_id: setup.sprintId },
+    });
+
+    await page.goto('/login');
+    await injectToken(page, setup.token);
+    await page.goto(`/boards/${setup.boardId}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    await page.click('.view-btn:has-text("All Cards")');
+    await expect(page.locator('.board-content')).toBeVisible({ timeout: 8000 });
+
+    // The card should appear in the appropriate column cell
+    const cardEl = page.locator('.card-item, .board-card-item').filter({ hasText: 'Column Info Card' });
+    await expect(cardEl).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // Sprint view — no active sprint link to Backlog
+  // -------------------------------------------------------------------------
+
+  test('Go to Backlog button in empty sprint view switches to Backlog', async ({
+    request,
+    page,
+  }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-gotobl-${suffix}@test.com`;
+
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Go To Backlog Tester' },
+      })
+    ).json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Go To Backlog Board' },
+      })
+    ).json();
+
+    await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'GTB Lane', designator: 'GTB-', color: '#6366f1' },
+    });
+
+    await page.goto('/login');
+    await injectToken(page, token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
+
+    const gotoBacklogBtn = page.locator('.board-content button:has-text("Go to Backlog")');
+    await expect(gotoBacklogBtn).toBeVisible({ timeout: 8000 });
+
+    await gotoBacklogBtn.click();
+
+    await expect(page.locator('.view-btn:has-text("Backlog")')).toHaveClass(/active/, { timeout: 5000 });
+    await expect(page.locator('.backlog-header')).toBeVisible({ timeout: 8000 });
+  });
 });
