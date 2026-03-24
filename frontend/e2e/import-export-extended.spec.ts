@@ -110,15 +110,10 @@ function writeMinimalJiraCSV(rows: Array<{ summary: string; description?: string
 
 test.describe('Export API — authorization', () => {
   test('export without any token returns 4xx', async ({ request }) => {
-    const { token, board } = await (async () => {
-      const { token, board } = { token: (await createUser(request, 'exp-auth-1')).token, board: await createBoard(request, (await createUser(request, 'exp-auth-2')).token) };
-      // simpler:
-      return { token, board: await createBoard(request, token) };
-    })();
+    const { token } = await createUser(request, 'exp-auth-no-token');
+    const board = await createBoard(request, token, 'Auth Board');
 
-    // Confirm board exists first
-    const owned = await createBoard(request, token, 'Auth Board');
-    const res = await request.get(`${BASE}/api/boards/${owned.id}/export`);
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export`);
     expect(res.status()).toBeGreaterThanOrEqual(400);
   });
 
