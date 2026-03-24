@@ -193,7 +193,7 @@ func (d *DB) ListBoardsForUser(userID int64) ([]models.Board, error) {
 	}
 	defer rows.Close()
 
-	var boards []models.Board
+	boards := []models.Board{}
 	for rows.Next() {
 		var board models.Board
 		if err := rows.Scan(&board.ID, &board.Name, &board.Description, &board.OwnerID, &board.CreatedAt, &board.UpdatedAt); err != nil {

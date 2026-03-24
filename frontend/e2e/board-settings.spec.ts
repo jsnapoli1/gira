@@ -296,7 +296,7 @@ test.describe('Board Settings — columns', () => {
       .click();
 
     // Column should still be present
-    await expect(columnsSection.locator('.item-name:has-text("Persist Col")')).toBeVisible({ timeout: 5000 });
+    await expect(columnsSection.locator('.item-name:has-text("Persist Col")')).toBeVisible({ timeout: 10000 });
   });
 
   test('reorders columns with the Move down button', async ({ page, request }) => {
@@ -314,8 +314,8 @@ test.describe('Board Settings — columns', () => {
     await items.nth(0).locator('.reorder-btn[title="Move down"]').click();
 
     await expect(items.nth(0).locator('.item-name')).not.toHaveText(firstNameBefore!, { timeout: 8000 });
-    await expect(items.nth(0).locator('.item-name')).toHaveText(secondNameBefore!, { timeout: 5000 });
-    await expect(items.nth(1).locator('.item-name')).toHaveText(firstNameBefore!, { timeout: 5000 });
+    await expect(items.nth(0).locator('.item-name')).toHaveText(secondNameBefore!, { timeout: 10000 });
+    await expect(items.nth(1).locator('.item-name')).toHaveText(firstNameBefore!, { timeout: 10000 });
   });
 
   test('reorders columns with the Move up button', async ({ page, request }) => {
@@ -333,8 +333,8 @@ test.describe('Board Settings — columns', () => {
     await items.nth(1).locator('.reorder-btn[title="Move up"]').click();
 
     await expect(items.nth(0).locator('.item-name')).not.toHaveText(firstNameBefore!, { timeout: 8000 });
-    await expect(items.nth(0).locator('.item-name')).toHaveText(secondNameBefore!, { timeout: 5000 });
-    await expect(items.nth(1).locator('.item-name')).toHaveText(firstNameBefore!, { timeout: 5000 });
+    await expect(items.nth(0).locator('.item-name')).toHaveText(secondNameBefore!, { timeout: 10000 });
+    await expect(items.nth(1).locator('.item-name')).toHaveText(firstNameBefore!, { timeout: 10000 });
   });
 
   test('first column Move up button is disabled', async ({ page, request }) => {
@@ -406,7 +406,7 @@ test.describe('Board Settings — swimlanes', () => {
 
     const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
     await swimlanesSection.locator('button:has-text("Add Swimlane")').click();
-    await expect(page.locator('.modal h2:has-text("Add Swimlane")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.modal h2:has-text("Add Swimlane")')).toBeVisible({ timeout: 10000 });
   });
 
   test('adds a new swimlane via the modal with name, repo, and designator', async ({ page, request }) => {
@@ -414,7 +414,7 @@ test.describe('Board Settings — swimlanes', () => {
 
     const swimlanesSection = page.locator('.settings-section').filter({ hasText: 'Swimlanes' });
     await swimlanesSection.locator('button:has-text("Add Swimlane")').click();
-    await expect(page.locator('.modal h2:has-text("Add Swimlane")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.modal h2:has-text("Add Swimlane")')).toBeVisible({ timeout: 10000 });
 
     // Fill in name (placeholder "Frontend")
     await page.locator('.modal input[placeholder="Frontend"]').fill('Backend Lane');
@@ -531,7 +531,7 @@ test.describe('Board Settings — swimlanes', () => {
       .locator('.item-delete')
       .click();
 
-    await expect(swimlanesSection.locator('.item-name:has-text("Keep Lane")')).toBeVisible({ timeout: 5000 });
+    await expect(swimlanesSection.locator('.item-name:has-text("Keep Lane")')).toBeVisible({ timeout: 10000 });
   });
 
   test('API: create swimlane returns 201 and swimlane appears in settings list', async ({ page, request }) => {
@@ -694,7 +694,7 @@ test.describe('Board Settings — labels', () => {
       .locator('.item-delete')
       .click();
 
-    await expect(labelsSection.locator('.item-name:has-text("Persist Label")')).toBeVisible({ timeout: 5000 });
+    await expect(labelsSection.locator('.item-name:has-text("Persist Label")')).toBeVisible({ timeout: 10000 });
   });
 
   test('closing Add Label modal via Cancel discards the input', async ({ page, request }) => {

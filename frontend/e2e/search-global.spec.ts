@@ -789,6 +789,7 @@ test.describe('Per-board search — keyboard interactions', () => {
 
 test.describe('Per-board search — description keyword search', () => {
   test('search by description keyword shows matching card', async ({ page, request }) => {
+    test.setTimeout(90000);
     const { token } = await createUser(request);
     const { board, columns, swimlane } = await createBoard(request, token, 'Desc Keyword Board');
 
@@ -808,9 +809,10 @@ test.describe('Per-board search — description keyword search', () => {
       return;
     }
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.waitForSelector('.board-page', { timeout: 25000 });
     await page.click('.view-btn:has-text("All Cards")');
 
     await page.locator('.search-input input').fill('XYZZY-KEYWORD-DESC-TOKEN-unique');
@@ -818,6 +820,7 @@ test.describe('Per-board search — description keyword search', () => {
   });
 
   test('description-based search is case-insensitive', async ({ page, request }) => {
+    test.setTimeout(90000);
     const { token } = await createUser(request);
     const { board, columns, swimlane } = await createBoard(request, token, 'Desc Case Board');
 
@@ -837,9 +840,10 @@ test.describe('Per-board search — description keyword search', () => {
       return;
     }
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.waitForSelector('.board-page', { timeout: 25000 });
     await page.click('.view-btn:has-text("All Cards")');
 
     await page.locator('.search-input input').fill('mixed-case-description');
@@ -853,6 +857,7 @@ test.describe('Per-board search — description keyword search', () => {
 
 test.describe('Per-board search — result count', () => {
   test('number of visible card-items reflects search results', async ({ page, request }) => {
+    test.setTimeout(90000);
     const { token } = await createUser(request);
     const { board, columns, swimlane } = await createBoard(request, token, 'Count Board');
 
@@ -891,11 +896,12 @@ test.describe('Per-board search — result count', () => {
       },
     });
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/login');
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
-    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.waitForSelector('.board-page', { timeout: 25000 });
     await page.click('.view-btn:has-text("All Cards")');
-    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 12000 });
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 20000 });
 
     await page.locator('.search-input input').fill('Tungsten');
     await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });

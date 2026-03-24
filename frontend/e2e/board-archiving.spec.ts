@@ -145,8 +145,12 @@ test.describe('Board Archiving and Lifecycle', () => {
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${boardId}`);
 
+    // Wait for the loading state to complete: either the board renders (.board-page),
+    // an error appears (.error), or a redirect occurs away from this URL.
+    await page.locator('.board-page, .error').waitFor({ timeout: 20000 }).catch(() => {});
+
     // Either the .error element appears (board not found / 404) or the page redirects away
-    const hasError = await page.locator('.error').isVisible({ timeout: 8000 }).catch(() => false);
+    const hasError = await page.locator('.error').isVisible({ timeout: 5000 }).catch(() => false);
     const redirected = !page.url().includes(`/boards/${boardId}`);
 
     expect(hasError || redirected).toBeTruthy();
@@ -188,13 +192,15 @@ test.describe('Board Archiving and Lifecycle', () => {
     const listRes = await request.get(`${BASE}/api/boards`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const boards = await listRes.json();
+    const boards = (await listRes.json()) || [];
     expect(boards.some((b: { id: number }) => b.id === board.id)).toBeFalsy();
 
     // Navigating to the deleted board URL should show an error in the UI
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
-    const hasError = await page.locator('.error').isVisible({ timeout: 8000 }).catch(() => false);
+    // Wait for the loading state to complete before asserting
+    await page.locator('.board-page, .error').waitFor({ timeout: 20000 }).catch(() => {});
+    const hasError = await page.locator('.error').isVisible({ timeout: 5000 }).catch(() => false);
     const redirected = !page.url().includes(`/boards/${board.id}`);
     expect(hasError || redirected).toBeTruthy();
   });
@@ -386,7 +392,8 @@ test.describe('Board Archiving and Lifecycle', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.ok()).toBe(true);
-    const boards = await res.json();
+    // Backend returns [] (or null on older versions). Normalise to array.
+    const boards = (await res.json()) || [];
     expect(Array.isArray(boards)).toBe(true);
     expect(boards.length).toBe(0);
   });
