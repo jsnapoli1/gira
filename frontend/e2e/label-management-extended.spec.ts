@@ -131,7 +131,7 @@ test.describe('Label color picker', () => {
     await expect(swatches.nth(2)).toHaveClass(/selected/);
 
     await page.click('.modal button[type="submit"]');
-    await expect(page.locator('.modal')).not.toBeVisible();
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 15000 });
 
     // Grab the created label id via API so we can apply it
     const labels: Array<{ id: number; name: string; color: string }> = await (

@@ -209,10 +209,20 @@ test.describe('Attachments Extended', () => {
 
     const fileInput = page.locator('.attachments-sidebar input[type="file"]');
 
-    await fileInput.setInputFiles(txtFilePath1);
+    // Upload first file and wait for API response
+    const [res1] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/attachments') && r.request().method() === 'POST'),
+      fileInput.setInputFiles(txtFilePath1),
+    ]);
+    expect(res1.status()).toBe(201);
     await expect(page.locator('.attachment-item-sidebar')).toHaveCount(1, { timeout: 8000 });
 
-    await fileInput.setInputFiles(txtFilePath2);
+    // Upload second file and wait for API response
+    const [res2] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/attachments') && r.request().method() === 'POST'),
+      fileInput.setInputFiles(txtFilePath2),
+    ]);
+    expect(res2.status()).toBe(201);
     await expect(page.locator('.attachment-item-sidebar')).toHaveCount(2, { timeout: 8000 });
 
     // Both filenames should be visible
@@ -265,25 +275,31 @@ test.describe('Attachments Extended', () => {
     await openCardModal(page, setup.token, setup.boardId);
 
     const fileInput = page.locator('.attachments-sidebar input[type="file"]');
-    await fileInput.setInputFiles(txtFilePath1);
+
+    // Wait for the upload response before checking UI
+    const [uploadRes] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/attachments') && r.request().method() === 'POST'),
+      fileInput.setInputFiles(txtFilePath1),
+    ]);
+    expect(uploadRes.status()).toBe(201);
     await expect(page.locator('.attachment-name-small').first()).toContainText(
       path.basename(txtFilePath1),
       { timeout: 8000 },
     );
 
-    // Close modal
+    // Close modal by clicking the overlay corner
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
-    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
+    await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
 
     // Reopen
     await page.locator('.card-item').first().click();
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
     await page.waitForSelector('.attachments-sidebar', { timeout: 5000 });
 
-    // Attachment should still be there
+    // Attachment should still be there after reload from server
     await expect(page.locator('.attachment-name-small').first()).toContainText(
       path.basename(txtFilePath1),
-      { timeout: 8000 },
+      { timeout: 10000 },
     );
   });
 

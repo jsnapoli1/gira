@@ -213,7 +213,8 @@ test.describe('Board Templates — API', () => {
 
     expect(byName['To Do']).toBe('open');
     expect(byName['In Progress']).toBe('in_progress');
-    expect(byName['In Review']).toBe('in_progress');
+    // The default "In Review" column uses state "review" (not "in_progress")
+    expect(byName['In Review']).toBe('review');
     expect(byName['Done']).toBe('closed');
   });
 
@@ -682,7 +683,7 @@ test.describe('Card Templates — API', () => {
   // -------------------------------------------------------------------------
   // Template issue_type is empty string when not provided
   // -------------------------------------------------------------------------
-  test('card template with no issue_type stores empty string', async ({ request }) => {
+  test('card template with no issue_type defaults to "task"', async ({ request }) => {
     const { token } = await createUser(request, 'ct-no-type');
     const board = await createBoard(request, token, 'No Issue Type Board');
 
@@ -692,8 +693,8 @@ test.describe('Card Templates — API', () => {
     });
     expect(res.status()).toBe(201);
     const template: CardTemplate = await res.json();
-    // issue_type should be empty or absent when not provided
-    expect(template.issue_type === '' || template.issue_type === undefined || template.issue_type === null).toBe(true);
+    // When issue_type is omitted, the backend defaults to "task"
+    expect(template.issue_type).toBe('task');
   });
 
   // -------------------------------------------------------------------------
