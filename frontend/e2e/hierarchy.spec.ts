@@ -442,8 +442,8 @@ test.describe('Issue Hierarchy', () => {
     }
     const card = await cardRes.json();
 
-    // Attempt to set a card as its own parent
-    const selfRefRes = await request.patch(`${BASE}/api/cards/${card.id}`, {
+    // Attempt to set a card as its own parent (uses PUT for card updates)
+    const selfRefRes = await request.put(`${BASE}/api/cards/${card.id}`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
         title: card.title,

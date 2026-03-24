@@ -44,16 +44,16 @@ async function promoteAdmin(
 }
 
 /**
- * Inject a JWT token into localStorage so that AuthContext picks it up on the
- * next navigation. Navigates to /login first to establish the origin context,
- * then sets the token via evaluate.
+ * Inject a JWT token into localStorage before any page navigation.
+ * Uses addInitScript so the token is set before React mounts on every
+ * navigation, including page.reload() calls.
+ * Must be called before the first page.goto().
  */
-async function injectToken(
+function injectToken(
   page: Parameters<Parameters<typeof test>[1]>[0]['page'],
   token: string,
-): Promise<void> {
-  await page.goto('/login');
-  await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+): void {
+  page.addInitScript((t: string) => localStorage.setItem('token', t), token);
 }
 
 // ---------------------------------------------------------------------------

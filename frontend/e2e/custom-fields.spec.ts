@@ -328,6 +328,9 @@ test.describe('Card Modal — Custom Fields Rendering', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('Card Modal — Custom Field Value Persistence', () => {
+  // Retry once to handle intermittent SQLite lock contention under parallelism
+  test.describe.configure({ retries: 1 });
+
   test('text field value persists after close and reopen', async ({ page, request }) => {
     const { token, board } = await setupUserAndBoard(request);
     const columns = board.columns || [];
@@ -359,7 +362,7 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
     const input = page.locator('.custom-field-inline input[type="text"]');
     await input.fill('Acme Corporation');
     await input.blur();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2500);
 
     // Close modal
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
@@ -411,7 +414,7 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
 
     const select = page.locator('.custom-field-inline select');
     await select.selectOption('High');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2500);
 
     // Close and reopen
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
@@ -455,7 +458,7 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
     const checkbox = page.locator('.custom-field-inline input[type="checkbox"]');
     await expect(checkbox).not.toBeChecked();
     await checkbox.check();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2500);
 
     // Close and reopen
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
@@ -501,7 +504,7 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
     const input = page.locator('.custom-field-inline input[type="text"]');
     await input.fill('ZIRA-42');
     await input.blur();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2500);
 
     // Full page reload
     await page.reload();

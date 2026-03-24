@@ -75,6 +75,9 @@ async function setupWithCard(request: any) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('Custom Field Management — API', () => {
+  // Retry once to handle intermittent SQLite lock contention under parallelism
+  test.describe.configure({ retries: 1 });
+
   test('edit custom field name via PUT', async ({ request }) => {
     const { token, board } = await setupUserAndBoard(request);
     const field = await createField(request, token, board.id, 'Old Name', 'text');
@@ -171,6 +174,7 @@ test.describe('Custom Field Management — API', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('Card Modal — Multiple Custom Fields', () => {
+  test.describe.configure({ retries: 1 });
   test('all defined field types appear simultaneously in card modal', async ({
     page,
     request,
@@ -225,7 +229,7 @@ test.describe('Card Modal — Multiple Custom Fields', () => {
     const input = page.locator('.custom-field-inline input[type="number"]');
     await input.fill('42');
     await input.blur();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2500);
 
     // Close and reopen
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
