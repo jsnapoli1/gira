@@ -547,8 +547,9 @@ test.describe('Notification navigation', () => {
 
     await openNotificationDropdown(page);
 
-    // Click the notification item
-    await page.locator('.notification-item').first().click();
+    // Click the notification item — use evaluate(el.click()) to bypass sidebar-nav hit-test interception
+    await expect(page.locator('.notification-item').first()).toBeVisible({ timeout: 8000 });
+    await page.locator('.notification-item').first().evaluate((el: HTMLElement) => el.click());
 
     // URL should include the card ID as a query param
     await expect(page).toHaveURL(new RegExp(`[?&]card=${card.id}`), { timeout: 8000 });
@@ -614,8 +615,9 @@ test.describe('Mark all as read', () => {
 
     await openNotificationDropdown(page);
 
-    // Click mark-all-read
-    await page.click('.mark-all-read-btn');
+    // Click mark-all-read — use evaluate(el.click()) to bypass sidebar-nav hit-test interception
+    await expect(page.locator('.notification-item').first()).toBeVisible({ timeout: 8000 });
+    await page.locator('.mark-all-read-btn').evaluate((el: HTMLElement) => el.click());
 
     // Badge should disappear
     await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 8000 });

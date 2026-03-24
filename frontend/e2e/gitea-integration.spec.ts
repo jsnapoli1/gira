@@ -443,9 +443,9 @@ test.describe('Swimlane without Gitea credentials', () => {
     await page.goto(`/boards/${board.id}`);
     await expect(page.locator('.board-page')).toBeVisible({ timeout: 10_000 });
 
-    // The card title should be visible
+    // The card title should be visible — use h4.card-title inside .card-item
     await expect(
-      page.locator('.card-item, .card-title').filter({ hasText: 'Card in uncredentialed swimlane' }),
+      page.locator('.card-item h4.card-title:has-text("Card in uncredentialed swimlane")'),
     ).toBeVisible({ timeout: 10_000 });
   });
 });
@@ -473,9 +473,10 @@ test.describe('Reports page — without Gitea', () => {
     // Wait for loading to finish
     await expect(page.locator('.loading')).not.toBeVisible({ timeout: 10_000 });
 
-    // With no boards, expect either an empty state or a "Select a board" prompt
+    // With no boards, expect either an empty state or a "Select a board" prompt.
+    // Use .first() to avoid strict mode failure if both match simultaneously.
     await expect(
-      page.locator('.empty-state, .reports-filters select'),
+      page.locator('.empty-state, .reports-filters select').first(),
     ).toBeVisible({ timeout: 10_000 });
   });
 

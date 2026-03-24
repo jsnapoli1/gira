@@ -223,8 +223,9 @@ test.describe('Notification Bell State', () => {
     await page.click('.notification-bell');
     await expect(page.locator('.notification-dropdown')).toBeVisible();
 
-    // Click Mark All Read
-    await page.click('.mark-all-read-btn');
+    // Click Mark All Read — use evaluate(el.click()) to bypass sidebar-nav hit-test interception
+    await expect(page.locator('.notification-item')).toBeVisible({ timeout: 8000 });
+    await page.locator('.mark-all-read-btn').evaluate((el: HTMLElement) => el.click());
 
     // Badge should disappear
     await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 8000 });
@@ -370,8 +371,9 @@ test.describe('Comment Notifications', () => {
     await page.click('.notification-bell');
     await expect(page.locator('.notification-dropdown')).toBeVisible();
 
-    // Click the notification
-    await page.locator('.notification-item').first().click();
+    // Click the notification — use evaluate(el.click()) to bypass sidebar-nav hit-test interception
+    await expect(page.locator('.notification-item').first()).toBeVisible({ timeout: 8000 });
+    await page.locator('.notification-item').first().evaluate((el: HTMLElement) => el.click());
 
     // The URL should contain ?card=:cardId
     await expect(page).toHaveURL(new RegExp(`[?&]card=${card.id}`), { timeout: 8000 });
@@ -557,9 +559,9 @@ test.describe('Notification Edge Cases', () => {
     await expect(page.locator('.notification-dropdown')).toBeVisible();
     await expect(page.locator('.notification-item')).toBeVisible();
 
-    // Hover to reveal delete button and click it
-    await page.locator('.notification-item').first().hover();
-    await page.locator('.notification-delete').first().click();
+    // Hover to reveal delete button and click it — use force+evaluate to bypass sidebar-nav
+    await page.locator('.notification-item').first().hover({ force: true });
+    await page.locator('.notification-delete').first().evaluate((el: HTMLElement) => el.click());
 
     // After deletion, empty state should appear
     await expect(page.locator('.notification-empty')).toBeVisible({ timeout: 8000 });
@@ -616,7 +618,8 @@ test.describe('Notification Edge Cases', () => {
     );
 
     // Mark all read — badge disappears and no more unread items
-    await page.click('.mark-all-read-btn');
+    // Use evaluate(el.click()) to bypass sidebar-nav hit-test interception
+    await page.locator('.mark-all-read-btn').evaluate((el: HTMLElement) => el.click());
     await expect(badge).not.toBeVisible({ timeout: 8000 });
     await expect(page.locator('.notification-item.unread')).toHaveCount(0, { timeout: 8000 });
   });

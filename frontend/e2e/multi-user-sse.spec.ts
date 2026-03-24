@@ -828,57 +828,89 @@ test.describe('SSE — board isolation', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('SSE endpoint — extended checks', () => {
-  test('SSE stream Content-Type header is text/event-stream', async ({ request }) => {
+  // All tests here open a real SSE stream (valid token + valid board) and must
+  // use page.evaluate / fetch + AbortController instead of request.get(), which
+  // cannot handle streaming responses.
+
+  test('SSE stream Content-Type header is text/event-stream', async ({ page, request }) => {
     const { tokenA, board } = await setupTwoUserBoard(request, 'sse-ct');
 
-    const res = await request.get(
+    await page.goto(`${UI_BASE}/login`);
+    const { status, contentType } = await getSseStatus(
+      page,
       `${BASE}/api/boards/${board.id}/events?token=${tokenA}`,
-      { timeout: 5000 },
     );
 
-    expect(res.status()).toBe(200);
-    const contentType = res.headers()['content-type'] || '';
+    expect(status).toBe(200);
     // Must be text/event-stream — SSE protocol requirement.
     expect(contentType).toMatch(/text\/event-stream/);
   });
 
-  test('SSE stream Cache-Control header disables caching', async ({ request }) => {
+  test('SSE stream Cache-Control header disables caching', async ({ page, request }) => {
     const { tokenA, board } = await setupTwoUserBoard(request, 'sse-cache');
 
-    const res = await request.get(
-      `${BASE}/api/boards/${board.id}/events?token=${tokenA}`,
-      { timeout: 5000 },
+    await page.goto(`${UI_BASE}/login`);
+    // getSseStatus only returns status and content-type; check Cache-Control
+    // via a dedicated evaluate that also reads that header.
+    const result = await page.evaluate(
+      async ({ fetchUrl }: { fetchUrl: string }) => {
+        const ctrl = new AbortController();
+        let status = 0;
+        let cacheControl = '';
+        try {
+          const res = await fetch(fetchUrl, { signal: ctrl.signal });
+          status = res.status;
+          cacheControl = res.headers.get('cache-control') || '';
+          ctrl.abort();
+        } catch (err: any) {
+          if (err?.name !== 'AbortError') status = 0;
+        }
+        return { status, cacheControl };
+      },
+      { fetchUrl: `${BASE}/api/boards/${board.id}/events?token=${tokenA}` },
     );
 
-    expect(res.status()).toBe(200);
+    expect(result.status).toBe(200);
     // Servers should set no-cache to prevent buffering by intermediaries.
-    const cacheControl = res.headers()['cache-control'] || '';
-    expect(cacheControl).toContain('no-cache');
+    expect(result.cacheControl).toContain('no-cache');
   });
 
-  test('SSE endpoint returns 200 for a board member (not only the owner)', async ({ request }) => {
+  test('SSE endpoint returns 200 for a board member (not only the owner)', async ({
+    page,
+    request,
+  }) => {
     const { tokenB, board } = await setupTwoUserBoard(request, 'sse-member');
 
-    const res = await request.get(
+    await page.goto(`${UI_BASE}/login`);
+    const { status } = await getSseStatus(
+      page,
       `${BASE}/api/boards/${board.id}/events?token=${tokenB}`,
-      { timeout: 5000 },
     );
 
-    expect(res.status()).toBe(200);
+    expect(status).toBe(200);
   });
 
   test('two separate tokens both connect to the same board SSE endpoint successfully', async ({
+    page,
     request,
   }) => {
     const { tokenA, tokenB, board } = await setupTwoUserBoard(request, 'sse-two-tokens');
 
-    const [resA, resB] = await Promise.all([
-      request.get(`${BASE}/api/boards/${board.id}/events?token=${tokenA}`, { timeout: 5000 }),
-      request.get(`${BASE}/api/boards/${board.id}/events?token=${tokenB}`, { timeout: 5000 }),
-    ]);
+    await page.goto(`${UI_BASE}/login`);
 
-    expect(resA.status()).toBe(200);
-    expect(resB.status()).toBe(200);
+    // Connect both tokens sequentially (not in parallel via Promise.all) to
+    // avoid race conditions in the evaluate context.
+    const { status: statusA } = await getSseStatus(
+      page,
+      `${BASE}/api/boards/${board.id}/events?token=${tokenA}`,
+    );
+    const { status: statusB } = await getSseStatus(
+      page,
+      `${BASE}/api/boards/${board.id}/events?token=${tokenB}`,
+    );
+
+    expect(statusA).toBe(200);
+    expect(statusB).toBe(200);
   });
 });
 
