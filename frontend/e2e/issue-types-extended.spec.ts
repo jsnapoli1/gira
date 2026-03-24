@@ -294,7 +294,10 @@ test.describe('Card — Issue Type Behavior', () => {
     expect(taskBadgeColor).not.toEqual(epicBadgeColor);
   });
 
-  test('issue type persists in backlog view', async ({ page, request }) => {
+  test('issue type badge persists on board after type change to Story', async ({ page, request }) => {
+    // NOTE: BacklogView does not render issue type badges on its card rows.
+    // This test instead verifies persistence in the "All Cards" board view, which
+    // uses CardItem.tsx that does render .card-type-badge and .issue-type-badge.
     const { token, board } = await setupBoardWithCard(request);
     await page.addInitScript((t) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
@@ -314,17 +317,18 @@ test.describe('Card — Issue Type Behavior', () => {
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
     await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
 
-    // Verify the card badge on the board shows 'story'
+    // The card badge in the board should show story type
     await expect(page.locator('.card-type-badge.type-story')).toBeVisible({ timeout: 5000 });
 
-    // Switch to Backlog view
-    await page.click('.view-btn:has-text("Backlog")');
-    await page.waitForSelector('.backlog-card', { timeout: 10000 });
+    // The issue-type-badge (shown in the card meta section) should also appear
+    // because CardItem renders it for non-task types
+    await expect(page.locator('.issue-type-badge.issue-type-story')).toBeVisible({ timeout: 5000 });
 
-    // The backlog card chip/item should reflect the story type
-    // BacklogView renders .card-type-badge or .issue-type-badge for non-task types
-    const storyBadge = page.locator('.issue-type-badge.issue-type-story');
-    await expect(storyBadge).toBeVisible({ timeout: 5000 });
+    // Now reload the page and confirm the type survived a page refresh (API persisted it)
+    await page.reload();
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+    await expect(page.locator('.card-type-badge.type-story')).toBeVisible({ timeout: 5000 });
   });
 
   test('subtask shows parent relationship after type change', async ({ page, request }) => {
@@ -388,13 +392,15 @@ test.describe('Card — Issue Type Behavior', () => {
     const subtasksSection = page.locator('.subtasks-section');
     await expect(subtasksSection).toBeVisible({ timeout: 5000 });
 
-    // Click "Add Subtask"
-    await subtasksSection.locator('button:has-text("Add Subtask")').click();
+    // The "Add" button in the subtasks header (shows form toggle)
+    await subtasksSection.locator('.subtasks-header button:has-text("Add")').click();
 
-    // Fill in the subtask title
-    await page.waitForSelector('.subtasks-section input[type="text"]', { timeout: 3000 });
-    await page.locator('.subtasks-section input[type="text"]').fill('Child Subtask');
-    await page.locator('.subtasks-section button[type="submit"]').click();
+    // Wait for the add-subtask form to appear
+    await page.waitForSelector('.add-subtask-form', { timeout: 3000 });
+    await page.locator('.add-subtask-form input[type="text"]').fill('Child Subtask');
+
+    // Submit with the "Create" button
+    await page.locator('.add-subtask-form button:has-text("Create")').click();
 
     // Verify the subtask appears in the list
     await expect(

@@ -13,6 +13,7 @@
  */
 
 import { test, expect } from '@playwright/test';
+import * as fs from 'fs';
 
 const PORT = process.env.PORT || '9002';
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -94,31 +95,25 @@ test.describe('Error States', () => {
     const board = await createBoard(request, token);
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
 
-    // Mock the board cards endpoint to return 500.
+    // Mock the board cards endpoint to return 500. Because BoardView uses
+    // Promise.all([boardsApi.get(), boardsApi.getCards(), ...]) a cards failure
+    // propagates to the whole load — the board stays null and the page renders
+    // "Board not found" via the `.error` div. That is the expected behaviour:
+    // the UI does not crash or show a blank screen.
     await page.route(`**/api/boards/${board.id}/cards`, (route) => {
       route.fulfill({ status: 500, body: 'Internal Server Error' });
     });
 
     await page.goto(`/boards/${board.id}`);
 
-    // Give the app time to load and attempt the cards fetch.
-    // The board itself should still load (separate endpoint); only cards fail.
-    // Expect either an error message or the board header is visible without crash.
-    // Either the board renders (empty/error state) or shows the board-not-found
-    // error — what we must NOT see is a completely blank body.
-    await page.waitForLoadState('domcontentloaded');
+    // Wait for the loading state to finish and something meaningful to render.
+    // The page must show either the .error div or at least have some UI visible.
+    await expect(page.locator('.loading')).not.toBeVisible({ timeout: 10000 });
 
-    // Wait a moment for React to render.
-    await expect(page.locator('body')).not.toBeEmpty();
-
-    // At minimum, either a .board-page, a .error, or a .loading element is visible.
-    const hasMeaningfulContent =
-      (await page.locator('.board-page').isVisible()) ||
-      (await page.locator('.error').isVisible()) ||
-      (await page.locator('.loading').isVisible()) ||
-      (await page.locator('.toast-error').isVisible());
-
-    expect(hasMeaningfulContent).toBe(true);
+    // After loading completes, an error element should be shown (board load
+    // failed due to the 500 on /cards). A blank white screen is not acceptable.
+    await expect(page.locator('.error')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.error')).toContainText('Board not found');
   });
 
   /**
@@ -265,7 +260,7 @@ test.describe('Error States', () => {
 
     // Write a small temp file and upload it via the hidden file input.
     const tmpFile = `/tmp/test-attach-fail-${Date.now()}.txt`;
-    require('fs').writeFileSync(tmpFile, 'fail me');
+    fs.writeFileSync(tmpFile, 'fail me');
     try {
       const fileInput = page.locator('.attachments-sidebar input[type="file"]');
       await fileInput.setInputFiles(tmpFile);
@@ -274,34 +269,51 @@ test.describe('Error States', () => {
       await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });
       await expect(page.locator('.toast-error')).toContainText('Failed to upload attachment');
     } finally {
-      require('fs').unlinkSync(tmpFile);
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
     }
   });
 
   /**
    * 8. Session expired mid-session redirects to login
    *
-   * While on the board page, manually remove the token from localStorage and
-   * then trigger an API call (e.g. open a card or navigate). The app should
-   * redirect to /login rather than showing a raw "401" error string.
+   * Simulate session expiry: load the board page normally with a valid token,
+   * then remove the token from localStorage and reload the page. On reload the
+   * AuthContext finds no token → user = null → PrivateRoute redirects to /login.
+   *
+   * NOTE: page.addInitScript re-executes on every navigation triggered by
+   * page.goto/page.reload. To avoid re-injecting the token on reload we must
+   * NOT use addInitScript. Instead we set the token via page.evaluate once the
+   * page has loaded, give React time to initialise, then reload to simulate
+   * a browser-level refresh after session expiry.
+   *
+   * The test pages through two full navigations:
+   *   1. page.goto('/boards/ID') — no token yet in localStorage
+   *      → PrivateRoute redirects to /login (this is expected)
+   *   2. From /login: evaluate to set token, then reload
+   *      → This time AuthContext finds the token, calls auth.me(), boards load
+   *   3. Evaluate to remove token, then reload
+   *      → AuthContext finds no token → /login redirect
    */
-  test('removing token while on board page redirects to login on next API call', async ({ page, request }) => {
+  test('clearing token and reloading redirects to login', async ({ page, request }) => {
     const { token } = await createUser(request);
-    const board = await createBoard(request, token, 'Session Expiry Board');
-    await createSwimlaneAndCard(request, token, board);
 
-    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${board.id}`);
-    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
-
-    // Remove the token — simulates session expiry.
-    await page.evaluate(() => localStorage.removeItem('token'));
-
-    // Navigate to a protected route that requires a fresh API call.
-    // Using page.goto triggers the auth guard which reads localStorage.
+    // Step 1: load with no token — lands on /login via PrivateRoute.
     await page.goto('/boards');
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
 
-    // The app should redirect to /login.
+    // Step 2: inject token and reload so the app picks it up.
+    await page.evaluate((t: string) => localStorage.setItem('token', t), token);
+    await page.reload();
+    // App should now be on boards page (PrivateRoute passes, PublicRoute for
+    // /login redirects to /dashboard since user is now set).
+    // It may redirect to /dashboard then show boards, or stay on a protected page.
+    await page.waitForURL(/\/(boards|dashboard)/, { timeout: 10000 });
+
+    // Step 3: remove the token (session expired) and reload.
+    await page.evaluate(() => localStorage.removeItem('token'));
+    await page.reload();
+
+    // Without a token PrivateRoute must redirect to /login.
     await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
   });
 

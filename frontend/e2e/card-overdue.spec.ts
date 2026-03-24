@@ -2,216 +2,397 @@ import { test, expect } from '@playwright/test';
 
 const BASE = `http://127.0.0.1:${process.env.PORT || 9002}`;
 
-test.describe('Card Overdue Display', () => {
-  let token: string;
-  let boardId: number;
-  let columns: any[];
-  let swimlaneId: number;
+// ---------------------------------------------------------------------------
+// Shared setup helpers
+// ---------------------------------------------------------------------------
 
-  test.beforeEach(async ({ request, page }) => {
-    const email = `test-overdue-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.com`;
-    const signupRes = await request.post(`${BASE}/api/auth/signup`, {
-      data: { email, password: 'password123', display_name: 'Due Date Tester' },
-    });
-    token = (await signupRes.json()).token;
+interface BoardSetup {
+  token: string;
+  boardId: number;
+  columnId: number;
+  swimlaneId: number;
+}
 
-    // Create board
-    const boardRes = await request.post(`${BASE}/api/boards`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Due Date Board' },
-    });
-    const board = await boardRes.json();
-    boardId = board.id;
-
-    // Fetch columns
-    const columnsRes = await request.get(`${BASE}/api/boards/${boardId}/columns`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    columns = await columnsRes.json();
-
-    // Create a swimlane
-    const swimlaneRes = await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Team', designator: 'TM' },
-    });
-    const swimlane = await swimlaneRes.json();
-    swimlaneId = swimlane.id;
-
-    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+async function setupBoard(
+  request: import('@playwright/test').APIRequestContext,
+  page: import('@playwright/test').Page,
+  prefix = 'overdue',
+): Promise<BoardSetup> {
+  const email = `test-${prefix}-${crypto.randomUUID()}@test.com`;
+  const signupRes = await request.post(`${BASE}/api/auth/signup`, {
+    data: { email, password: 'password123', display_name: 'Overdue Tester' },
   });
+  expect(signupRes.ok(), `signup failed: ${await signupRes.text()}`).toBeTruthy();
+  const token: string = (await signupRes.json()).token;
 
-  // Helper: create a card and update its due_date via PUT.
-  // The backend PUT handler expects due_date as YYYY-MM-DD (not full ISO).
-  async function createCardWithDueDate(
-    request: any,
-    title: string,
-    dueDateYMD: string | null,
-  ): Promise<any> {
-    const createRes = await request.post(`${BASE}/api/cards`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        title,
-        column_id: columns[0].id,
-        swimlane_id: swimlaneId,
-        board_id: boardId,
-      },
-    });
-    const card = await createRes.json();
-    if (dueDateYMD !== null) {
-      await request.put(`${BASE}/api/cards/${card.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: {
-          title: card.title,
-          description: card.description || '',
-          due_date: dueDateYMD,
-        },
-      });
-    }
-    return card;
-  }
-
-  // Format a Date as YYYY-MM-DD
-  function toYMD(d: Date): string {
-    return d.toISOString().slice(0, 10);
-  }
-
-  test('overdue card shows due date badge with overdue styling', async ({ request, page }) => {
-    await createCardWithDueDate(request, 'Overdue Card', '2020-01-01');
-
-    await page.goto(`/boards/${boardId}`);
-    await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
-    await page.locator('.view-btn', { hasText: /All Cards/i }).click();
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 10000 });
-
-    // The due date badge should be present with the overdue class
-    const dueBadge = page.locator('.card-item .card-due-date.overdue');
-    await expect(dueBadge).toBeVisible({ timeout: 8000 });
-    await expect(dueBadge).toContainText('Overdue');
+  const boardRes = await request.post(`${BASE}/api/boards`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: 'Overdue Test Board' },
   });
+  expect(boardRes.ok(), `createBoard failed: ${await boardRes.text()}`).toBeTruthy();
+  const boardId: number = (await boardRes.json()).id;
 
-  test('due-soon card shows due date badge with due-soon styling', async ({ request, page }) => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    await createCardWithDueDate(request, 'Due Soon Card', toYMD(tomorrow));
-
-    await page.goto(`/boards/${boardId}`);
-    await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
-    await page.locator('.view-btn', { hasText: /All Cards/i }).click();
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 10000 });
-
-    // The due date badge should have due-soon class (not overdue)
-    const dueBadge = page.locator('.card-item .card-due-date.due-soon');
-    await expect(dueBadge).toBeVisible({ timeout: 8000 });
+  const columnsRes = await request.get(`${BASE}/api/boards/${boardId}/columns`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
+  expect(columnsRes.ok()).toBeTruthy();
+  const columns: any[] = await columnsRes.json();
+  const columnId: number = columns[0].id;
 
-  test('card due next month shows neutral (not-urgent) due date badge', async ({ request, page }) => {
-    const nextMonth = new Date();
-    nextMonth.setDate(nextMonth.getDate() + 30);
-    await createCardWithDueDate(request, 'Future Card', toYMD(nextMonth));
-
-    await page.goto(`/boards/${boardId}`);
-    await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
-    await page.locator('.view-btn', { hasText: /All Cards/i }).click();
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 10000 });
-
-    // Should show a due date badge but without overdue or due-soon class
-    const dueBadge = page.locator('.card-item .card-due-date');
-    await expect(dueBadge).toBeVisible({ timeout: 8000 });
-    await expect(dueBadge).not.toHaveClass(/overdue/);
-    await expect(dueBadge).not.toHaveClass(/due-soon/);
+  const swimlaneRes = await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: 'Team', designator: 'TM-' },
   });
+  expect(swimlaneRes.ok(), `createSwimlane failed: ${await swimlaneRes.text()}`).toBeTruthy();
+  const swimlaneId: number = (await swimlaneRes.json()).id;
 
-  test('card with no due date shows no due date badge', async ({ request, page }) => {
-    // Create card with no due date
-    await request.post(`${BASE}/api/cards`, {
+  // Inject token before the page loads
+  await page.addInitScript((t) => localStorage.setItem('token', t), token);
+
+  return { token, boardId, columnId, swimlaneId };
+}
+
+/**
+ * Create a card and optionally set a due_date via PUT.
+ *
+ * The PUT handler parses due_date as YYYY-MM-DD (time.Parse("2006-01-02", ...)).
+ * Pass null for dueDateYMD to create a card with no due date.
+ */
+async function createCardWithDueDate(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  boardId: number,
+  columnId: number,
+  swimlaneId: number,
+  title: string,
+  dueDateYMD: string | null,
+): Promise<{ id: number; title: string }> {
+  const createRes = await request.post(`${BASE}/api/cards`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { title, column_id: columnId, swimlane_id: swimlaneId, board_id: boardId },
+  });
+  expect(createRes.ok(), `createCard failed: ${await createRes.text()}`).toBeTruthy();
+  const card = await createRes.json();
+
+  if (dueDateYMD !== null) {
+    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
-        title: 'No Due Date Card',
-        column_id: columns[0].id,
-        swimlane_id: swimlaneId,
-        board_id: boardId,
+        title: card.title,
+        description: card.description || '',
+        priority: card.priority || 'medium',
+        due_date: dueDateYMD,
       },
     });
+    expect(updateRes.ok(), `setDueDate failed: ${await updateRes.text()}`).toBeTruthy();
+  }
 
-    await page.goto(`/boards/${boardId}`);
-    await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
-    await page.locator('.view-btn', { hasText: /All Cards/i }).click();
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 10000 });
+  return { id: card.id, title: card.title };
+}
 
-    // No .card-due-date badge should exist
-    await expect(page.locator('.card-item .card-due-date')).toHaveCount(0);
+/** Return a YYYY-MM-DD string for a Date. */
+function toYMD(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** Navigate to board, switch to "All Cards" view, wait for expectedCount cards. */
+async function gotoBoardAllCards(
+  page: import('@playwright/test').Page,
+  boardId: number,
+  expectedCount: number,
+) {
+  await page.goto(`/boards/${boardId}`);
+  await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
+  await page.locator('.view-btn', { hasText: /All Cards/i }).click();
+  await expect(page.locator('.card-item')).toHaveCount(expectedCount, { timeout: 10000 });
+}
+
+// ---------------------------------------------------------------------------
+// 1. Overdue badge visible on board card
+// ---------------------------------------------------------------------------
+test('overdue card shows .card-due-date.overdue badge with "Overdue" text on board', async ({
+  request,
+  page,
+}) => {
+  const { token, boardId, columnId, swimlaneId } = await setupBoard(request, page, 'badge');
+  await createCardWithDueDate(request, token, boardId, columnId, swimlaneId, 'Overdue Card', '2020-01-01');
+
+  await gotoBoardAllCards(page, boardId, 1);
+
+  const dueBadge = page.locator('.card-item .card-due-date.overdue');
+  await expect(dueBadge).toBeVisible({ timeout: 8000 });
+  await expect(dueBadge).toContainText('Overdue');
+});
+
+// ---------------------------------------------------------------------------
+// 2. Overdue indicator in card modal
+// ---------------------------------------------------------------------------
+test('opening overdue card modal shows .card-due.overdue indicator in meta', async ({
+  request,
+  page,
+}) => {
+  const { token, boardId, columnId, swimlaneId } = await setupBoard(request, page, 'modal');
+  await createCardWithDueDate(
+    request, token, boardId, columnId, swimlaneId, 'Overdue Modal Card', '2018-06-15',
+  );
+
+  await gotoBoardAllCards(page, boardId, 1);
+
+  // Click the card to open the detail modal
+  await page.locator('.card-item').first().click();
+  await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
+
+  // The card-detail-meta should show the due date with the overdue class
+  const modalDue = page.locator('.card-detail-modal-unified .card-due.overdue');
+  await expect(modalDue).toBeVisible({ timeout: 8000 });
+});
+
+// ---------------------------------------------------------------------------
+// 3. Future due date shows no overdue indicator
+// ---------------------------------------------------------------------------
+test('card with future due date has a due badge but no overdue class', async ({
+  request,
+  page,
+}) => {
+  const { token, boardId, columnId, swimlaneId } = await setupBoard(request, page, 'future');
+  const futureDate = new Date();
+  futureDate.setDate(futureDate.getDate() + 2);
+  await createCardWithDueDate(
+    request, token, boardId, columnId, swimlaneId, 'Future Card', toYMD(futureDate),
+  );
+
+  await gotoBoardAllCards(page, boardId, 1);
+
+  // A due date badge should exist but must not carry the overdue class
+  await expect(page.locator('.card-item .card-due-date')).toBeVisible({ timeout: 8000 });
+  await expect(page.locator('.card-item .card-due-date.overdue')).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// 4. No due date shows no overdue indicator
+// ---------------------------------------------------------------------------
+test('card with no due date shows no .card-due-date badge at all', async ({ request, page }) => {
+  const { token, boardId, columnId, swimlaneId } = await setupBoard(request, page, 'nodate');
+
+  const createRes = await request.post(`${BASE}/api/cards`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: 'No Due Date Card',
+      column_id: columnId,
+      swimlane_id: swimlaneId,
+      board_id: boardId,
+    },
+  });
+  expect(createRes.ok()).toBeTruthy();
+
+  await gotoBoardAllCards(page, boardId, 1);
+
+  await expect(page.locator('.card-item .card-due-date')).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// 5. Overdue filter works — only past-due cards shown
+// ---------------------------------------------------------------------------
+test('overdue filter hides non-overdue cards and shows only overdue cards', async ({
+  request,
+  page,
+}) => {
+  const { token, boardId, columnId, swimlaneId } = await setupBoard(request, page, 'filter');
+
+  await createCardWithDueDate(
+    request, token, boardId, columnId, swimlaneId, 'Past Due Card', '2020-06-01',
+  );
+  const future = new Date();
+  future.setDate(future.getDate() + 30);
+  await createCardWithDueDate(
+    request, token, boardId, columnId, swimlaneId, 'Future Card', toYMD(future),
+  );
+
+  await gotoBoardAllCards(page, boardId, 2);
+
+  // Open the filter panel
+  await page.locator('.filter-toggle-btn').click();
+  await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 6000 });
+
+  // Activate the overdue filter
+  const overdueBtn = page.locator('.filter-overdue');
+  await expect(overdueBtn).toBeVisible();
+  await overdueBtn.click();
+
+  // Only the overdue card remains
+  await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
+  await expect(page.locator('.card-item').first()).toHaveAttribute('aria-label', 'Past Due Card');
+});
+
+// ---------------------------------------------------------------------------
+// 6. Overdue in backlog — opening overdue card from backlog shows indicator
+// ---------------------------------------------------------------------------
+test('overdue card opened from backlog view shows overdue indicator in modal', async ({
+  request,
+  page,
+}) => {
+  const { token, boardId, columnId, swimlaneId } = await setupBoard(request, page, 'backlog');
+  await createCardWithDueDate(
+    request, token, boardId, columnId, swimlaneId, 'Backlog Overdue Card', '2019-03-10',
+  );
+
+  await page.goto(`/boards/${boardId}`);
+  await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
+
+  // Switch to Backlog view
+  await page.locator('.view-btn', { hasText: /Backlog/i }).click();
+  await expect(page.locator('.backlog-card')).toHaveCount(1, { timeout: 10000 });
+
+  // Open card modal from backlog
+  await page.locator('.backlog-card').first().click();
+  await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
+
+  // Modal meta should show the overdue indicator
+  const modalDue = page.locator('.card-detail-modal-unified .card-due.overdue');
+  await expect(modalDue).toBeVisible({ timeout: 8000 });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Overdue count in dashboard — assigned overdue card shows overdue badge
+// ---------------------------------------------------------------------------
+test('overdue assigned card shows dashboard-due-overdue badge in My Cards kanban', async ({
+  request,
+  page,
+}) => {
+  const email = `test-dash-overdue-${crypto.randomUUID()}@test.com`;
+  const signupRes = await request.post(`${BASE}/api/auth/signup`, {
+    data: { email, password: 'password123', display_name: 'Dash Overdue Tester' },
+  });
+  expect(signupRes.ok(), `signup failed: ${await signupRes.text()}`).toBeTruthy();
+  const token: string = (await signupRes.json()).token;
+
+  const meRes = await request.get(`${BASE}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(meRes.ok()).toBeTruthy();
+  const userId: number = (await meRes.json()).id;
+
+  const boardRes = await request.post(`${BASE}/api/boards`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: 'Dashboard Overdue Board' },
+  });
+  const boardId: number = (await boardRes.json()).id;
+
+  const columnsRes = await request.get(`${BASE}/api/boards/${boardId}/columns`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const columnId: number = (await columnsRes.json())[0].id;
+
+  const swimlaneRes = await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: 'Main', designator: 'M-' },
+  });
+  const swimlaneId: number = (await swimlaneRes.json()).id;
+
+  const card = await createCardWithDueDate(
+    request, token, boardId, columnId, swimlaneId, 'Overdue Assigned Card', '2021-01-01',
+  );
+
+  const assignRes = await request.post(`${BASE}/api/cards/${card.id}/assignees`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { user_id: userId },
+  });
+  expect(assignRes.ok(), `assignCard failed: ${await assignRes.text()}`).toBeTruthy();
+
+  await page.addInitScript((t) => localStorage.setItem('token', t), token);
+  await page.goto('/dashboard');
+  await page.waitForSelector('.dashboard-kanban', { timeout: 10000 });
+
+  // The due date chip on the kanban card should carry the dashboard-due-overdue class
+  const overdueBadge = page.locator('.dashboard-kanban-card-due.dashboard-due-overdue');
+  await expect(overdueBadge).toBeVisible({ timeout: 8000 });
+  await expect(overdueBadge).toContainText('Overdue');
+});
+
+// ---------------------------------------------------------------------------
+// 8. Clearing due date removes overdue indicator
+// ---------------------------------------------------------------------------
+test('clearing the due date removes the overdue indicator from card and modal', async ({
+  request,
+  page,
+}) => {
+  const { token, boardId, columnId, swimlaneId } = await setupBoard(request, page, 'clear');
+  const card = await createCardWithDueDate(
+    request, token, boardId, columnId, swimlaneId, 'Clear Due Date Card', '2020-01-01',
+  );
+
+  await gotoBoardAllCards(page, boardId, 1);
+
+  // Verify overdue badge is visible before clearing
+  await expect(page.locator('.card-item .card-due-date.overdue')).toBeVisible({ timeout: 8000 });
+
+  // Open modal and enter edit mode
+  await page.locator('.card-item').first().click();
+  await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
+  await page.locator('.card-detail-actions button:has-text("Edit")').click();
+  await expect(page.locator('.card-detail-edit')).toBeVisible({ timeout: 5000 });
+
+  // Clear the due date field
+  await page.locator('.card-detail-edit input[type="date"]').fill('');
+
+  // Save and wait for the PUT response
+  const [saveResponse] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes(`/api/cards/${card.id}`) && r.request().method() === 'PUT',
+    ),
+    page.locator('.card-detail-actions button:has-text("Save")').click(),
+  ]);
+  expect(saveResponse.status()).toBe(200);
+
+  // Overdue indicator in modal should be gone after save
+  await expect(page.locator('.card-detail-modal-unified .card-due.overdue')).toHaveCount(0, {
+    timeout: 8000,
   });
 
-  test('overdue filter shows only overdue cards', async ({ request, page }) => {
-    // Create overdue card
-    await createCardWithDueDate(request, 'Overdue Card', '2020-06-01');
-    // Create future due card
-    const nextMonth = new Date();
-    nextMonth.setDate(nextMonth.getDate() + 30);
-    await createCardWithDueDate(request, 'Future Card', toYMD(nextMonth));
+  // Close modal and confirm the board card badge is also removed
+  await page.locator('.modal-close-btn').click();
+  await expect(page.locator('.card-item .card-due-date')).toHaveCount(0, { timeout: 8000 });
+});
 
-    await page.goto(`/boards/${boardId}`);
-    await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
-    await page.locator('.view-btn', { hasText: /All Cards/i }).click();
-    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 10000 });
+// ---------------------------------------------------------------------------
+// 9. Overdue card in sprint — indicator persists after assigning to sprint
+// ---------------------------------------------------------------------------
+test('overdue card in active sprint still shows overdue badge on the board', async ({
+  request,
+  page,
+}) => {
+  const { token, boardId, columnId, swimlaneId } = await setupBoard(request, page, 'sprint');
+  const card = await createCardWithDueDate(
+    request, token, boardId, columnId, swimlaneId, 'Sprint Overdue Card', '2020-06-01',
+  );
 
-    // Expand filters
-    await page.locator('.filter-toggle-btn').click();
-    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 6000 });
-
-    // Click the overdue filter button
-    const overdueBtn = page.locator('.filter-overdue');
-    await expect(overdueBtn).toBeVisible();
-    await overdueBtn.click();
-
-    // Only the overdue card should be visible
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
-    await expect(page.locator('.card-item').first()).toHaveAttribute('aria-label', 'Overdue Card');
+  // Create and start a sprint
+  const sprintRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: 'Overdue Sprint' },
   });
+  expect(sprintRes.ok(), `createSprint failed: ${await sprintRes.text()}`).toBeTruthy();
+  const sprintId: number = (await sprintRes.json()).id;
 
-  test('overdue warning in card modal', async ({ request, page }) => {
-    await createCardWithDueDate(request, 'Overdue Modal Card', '2018-03-15');
-
-    await page.goto(`/boards/${boardId}`);
-    await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
-    await page.locator('.view-btn', { hasText: /All Cards/i }).click();
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 10000 });
-
-    // Open the card modal by clicking the card
-    await page.locator('.card-item').first().click();
-
-    // The modal should be open — use the unified modal class
-    await expect(page.locator('.modal.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
-
-    // The due date in the modal header meta should have the overdue class
-    const modalDue = page.locator('.card-due.overdue');
-    await expect(modalDue).toBeVisible({ timeout: 8000 });
+  const startRes = await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
+  expect(startRes.ok(), `startSprint failed: ${await startRes.text()}`).toBeTruthy();
 
-  test('clearing overdue filter shows all cards again', async ({ request, page }) => {
-    // Create overdue and future cards
-    await createCardWithDueDate(request, 'Overdue Card', '2020-01-01');
-    const nextMonth = new Date();
-    nextMonth.setDate(nextMonth.getDate() + 30);
-    await createCardWithDueDate(request, 'Future Card', toYMD(nextMonth));
-
-    await page.goto(`/boards/${boardId}`);
-    await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
-    await page.locator('.view-btn', { hasText: /All Cards/i }).click();
-    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 10000 });
-
-    // Enable overdue filter
-    await page.locator('.filter-toggle-btn').click();
-    await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 6000 });
-    await page.locator('.filter-overdue').click();
-    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 8000 });
-
-    // Clear all filters via the clear button (X icon next to filter toggle)
-    const clearBtn = page.locator('.clear-filter');
-    await expect(clearBtn).toBeVisible({ timeout: 6000 });
-    await clearBtn.click();
-
-    // All 2 cards should be visible again
-    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
+  // Assign card to the sprint
+  const assignRes = await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { sprint_id: sprintId },
   });
+  expect(assignRes.ok(), `assignSprint failed: ${await assignRes.text()}`).toBeTruthy();
+
+  // Navigate to the board — active sprint is the default view, card should appear
+  await page.goto(`/boards/${boardId}`);
+  await expect(page.locator('.board-header')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 10000 });
+
+  // Overdue badge must still be present on the sprint card
+  const dueBadge = page.locator('.card-item .card-due-date.overdue');
+  await expect(dueBadge).toBeVisible({ timeout: 8000 });
+  await expect(dueBadge).toContainText('Overdue');
 });

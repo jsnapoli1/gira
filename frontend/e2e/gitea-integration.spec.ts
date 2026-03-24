@@ -6,10 +6,7 @@ const BASE = `http://127.0.0.1:${process.env.PORT || 9002}`;
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function createUser(
-  request: Parameters<Parameters<typeof test>[1]>[0]['request'],
-  prefix = 'gitea-user',
-) {
+async function createUser(request: any, prefix = 'gitea-user') {
   const email = `test-${prefix}-${crypto.randomUUID()}@test.com`;
   const res = await request.post(`${BASE}/api/auth/signup`, {
     data: { email, password: 'password123', display_name: 'Gitea Test User' },
@@ -22,9 +19,7 @@ async function createUser(
   };
 }
 
-async function createAdmin(
-  request: Parameters<Parameters<typeof test>[1]>[0]['request'],
-) {
+async function createAdmin(request: any) {
   const { token, user, email } = await createUser(request, 'gitea-admin');
   // First registered user auto-promotes, but promote explicitly here to be safe
   await request.post(`${BASE}/api/auth/promote-admin`, {
@@ -33,11 +28,7 @@ async function createAdmin(
   return { token, user, email };
 }
 
-async function createBoard(
-  request: Parameters<Parameters<typeof test>[1]>[0]['request'],
-  token: string,
-  name = 'Gitea Test Board',
-) {
+async function createBoard(request: any, token: string, name = 'Gitea Test Board') {
   const res = await request.post(`${BASE}/api/boards`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { name },
