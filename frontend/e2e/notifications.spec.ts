@@ -523,3 +523,279 @@ test.describe('Dropdown close behaviour', () => {
     await expect(page.locator('.notification-dropdown')).not.toBeVisible({ timeout: 5000 });
   });
 });
+
+// ===========================================================================
+// Additional API tests
+// ===========================================================================
+test.describe('Notifications API', () => {
+  // -------------------------------------------------------------------------
+  // GET /api/notifications returns 200
+  // -------------------------------------------------------------------------
+  test('API: GET /api/notifications returns 200', async ({ request }) => {
+    const { token } = await createUser(request, 'API 200', 'api200');
+
+    const res = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    expect(res.status()).toBe(200);
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/notifications returns object with notifications array
+  // -------------------------------------------------------------------------
+  test('API: GET /api/notifications returns object with notifications array and unread_count', async ({ request }) => {
+    const { token } = await createUser(request, 'API Shape', 'apishape');
+
+    const res = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    expect(Array.isArray(data.notifications)).toBe(true);
+    expect(typeof data.unread_count).toBe('number');
+  });
+
+  // -------------------------------------------------------------------------
+  // New unread notification has read=false
+  // -------------------------------------------------------------------------
+  test('API: new assignment notification has read=false', async ({ request }) => {
+    const { token, user } = await createUser(request, 'API Unread', 'apiunread');
+    const { token: tokenB } = await createUser(request, 'API Unread Trig', 'apiunreadtrig');
+    const { card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    const res = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    expect(data.notifications.length).toBeGreaterThan(0);
+    const ntf = data.notifications[0];
+    expect(ntf.read).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // PUT /api/notifications/:id sets read=true
+  // -------------------------------------------------------------------------
+  test('API: PUT /api/notifications/:id marks the notification as read', async ({ request }) => {
+    const { token, user } = await createUser(request, 'API Mark Read', 'apimarkread');
+    const { token: tokenB } = await createUser(request, 'API Mark Read Trig', 'apimarkreadtrig');
+    const { card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    const listRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listData = await listRes.json();
+    const ntfId: number = listData.notifications[0].id;
+
+    const putRes = await request.put(`${BASE}/api/notifications/${ntfId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(putRes.ok()).toBe(true);
+    const updated = await putRes.json();
+    expect(updated.read).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/notifications?action=mark-all-read marks all as read
+  // -------------------------------------------------------------------------
+  test('API: POST /api/notifications?action=mark-all-read returns 200', async ({ request }) => {
+    const { token, user } = await createUser(request, 'API MAR', 'apimar');
+    const { token: tokenB } = await createUser(request, 'API MAR Trig', 'apimartrig');
+    const { card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    const res = await request.post(`${BASE}/api/notifications?action=mark-all-read`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    expect(res.status()).toBe(200);
+
+    // Verify all notifications now have read=true
+    const listRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await listRes.json();
+    expect(data.unread_count).toBe(0);
+    for (const ntf of data.notifications) {
+      expect(ntf.read).toBe(true);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE /api/notifications/:id removes the notification
+  // -------------------------------------------------------------------------
+  test('API: DELETE /api/notifications/:id returns 204 and removes the notification', async ({ request }) => {
+    const { token, user } = await createUser(request, 'API Del', 'apidel');
+    const { token: tokenB } = await createUser(request, 'API Del Trig', 'apideltrig');
+    const { card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    const listRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listData = await listRes.json();
+    const ntfId: number = listData.notifications[0].id;
+
+    const delRes = await request.delete(`${BASE}/api/notifications/${ntfId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(delRes.status()).toBe(204);
+
+    // Verify it's gone from the list
+    const afterRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const afterData = await afterRes.json();
+    const found = afterData.notifications.find((n: any) => n.id === ntfId);
+    expect(found).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // After PUT mark read, notification.read is true in subsequent GET
+  // -------------------------------------------------------------------------
+  test('API: after marking a notification read via PUT, GET confirms read=true', async ({ request }) => {
+    const { token, user } = await createUser(request, 'API Confirm', 'apiconfirm');
+    const { token: tokenB } = await createUser(request, 'API Confirm Trig', 'apiconfirmtrig');
+    const { card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    const listRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listData = await listRes.json();
+    const ntfId: number = listData.notifications[0].id;
+
+    await request.put(`${BASE}/api/notifications/${ntfId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const afterRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const afterData = await afterRes.json();
+    const ntf = afterData.notifications.find((n: any) => n.id === ntfId);
+    expect(ntf).toBeDefined();
+    expect(ntf.read).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Notification has id, message, created_at, type fields
+  // -------------------------------------------------------------------------
+  test('API: notification object has id, type, title, message, link, read, and created_at', async ({ request }) => {
+    const { token, user } = await createUser(request, 'API Schema', 'apischema');
+    const { token: tokenB } = await createUser(request, 'API Schema Trig', 'apischematrig');
+    const { card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    const res = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    const ntf = data.notifications[0];
+
+    expect(typeof ntf.id).toBe('number');
+    expect(typeof ntf.type).toBe('string');
+    expect(typeof ntf.title).toBe('string');
+    expect(typeof ntf.message).toBe('string');
+    expect(typeof ntf.link).toBe('string');
+    expect(typeof ntf.read).toBe('boolean');
+    expect(ntf.created_at).toBeTruthy();
+    const d = new Date(ntf.created_at);
+    expect(d.getTime()).not.toBeNaN();
+  });
+
+  // -------------------------------------------------------------------------
+  // Unauthorized cannot access notifications
+  // -------------------------------------------------------------------------
+  test('API: GET /api/notifications without auth returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/notifications`);
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // Unauthorized cannot mark notification read
+  // -------------------------------------------------------------------------
+  test('API: PUT /api/notifications/:id without auth returns 401', async ({ request }) => {
+    const res = await request.put(`${BASE}/api/notifications/999`);
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // Unauthorized cannot delete notification
+  // -------------------------------------------------------------------------
+  test('API: DELETE /api/notifications/:id without auth returns 401', async ({ request }) => {
+    const res = await request.delete(`${BASE}/api/notifications/999`);
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // User cannot delete another user's notification (404)
+  // -------------------------------------------------------------------------
+  test('API: user cannot delete a notification belonging to another user (404)', async ({ request }) => {
+    const { token: tokenA, user: userA } = await createUser(request, 'Owner', 'ntfowner');
+    const { token: tokenB } = await createUser(request, 'Other', 'ntfother');
+    const { token: tokenC } = await createUser(request, 'Trigger', 'ntftrigger');
+
+    const { card } = await createBoardWithCard(request, tokenA);
+    await triggerAssignmentNotification(request, tokenC, card.id, userA.id);
+
+    const listRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    const listData = await listRes.json();
+    const ntfId: number = listData.notifications[0].id;
+
+    // Token B tries to delete a notification owned by user A
+    const delRes = await request.delete(`${BASE}/api/notifications/${ntfId}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect(delRes.status()).toBe(404);
+  });
+
+  // -------------------------------------------------------------------------
+  // Notification type for assignment is "assignment"
+  // -------------------------------------------------------------------------
+  test('API: assignment notification has type="assignment"', async ({ request }) => {
+    const { token, user } = await createUser(request, 'Assign Type', 'assigntype');
+    const { token: tokenB } = await createUser(request, 'Assign Trig', 'assigntrig');
+    const { card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    const res = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    expect(data.notifications.length).toBeGreaterThan(0);
+    expect(data.notifications[0].type).toBe('assignment');
+  });
+
+  // -------------------------------------------------------------------------
+  // Limit parameter on GET /api/notifications
+  // -------------------------------------------------------------------------
+  test('API: GET /api/notifications?limit=1 returns at most 1 notification', async ({ request }) => {
+    const { token, user } = await createUser(request, 'Limit Test', 'limitntf');
+    const { token: tokenB } = await createUser(request, 'Limit Trig', 'limittrig');
+    const { card } = await createBoardWithCard(request, token);
+
+    // Create two notifications
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+    await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+      data: { body: 'Limit comment' },
+    });
+
+    const res = await request.get(`${BASE}/api/notifications?limit=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    expect(data.notifications.length).toBeLessThanOrEqual(1);
+  });
+});
