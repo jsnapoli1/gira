@@ -869,4 +869,509 @@ test.describe('Card Cloning / Duplication', () => {
     expect(clone2.id).not.toBe(card.id);
     expect(clone1.id).not.toBe(clone2.id);
   });
+
+  // -------------------------------------------------------------------------
+  // API: clone has same priority as original
+  // -------------------------------------------------------------------------
+  test.fixme('API: cloned card has same priority as the original', async ({ request }) => {
+    const { token, card, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone priority test');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(201);
+    const cloned = await res.json();
+
+    expect(cloned.priority).toBe('high');
+  });
+
+  // -------------------------------------------------------------------------
+  // API: clone has same story_points as original
+  // -------------------------------------------------------------------------
+  test.fixme('API: cloned card has same story_points as the original', async ({ request }) => {
+    const { token, card, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone story_points test');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(201);
+    const cloned = await res.json();
+
+    expect(cloned.story_points).toBe(5);
+  });
+
+  // -------------------------------------------------------------------------
+  // API: cloned card has same board_id as original
+  // -------------------------------------------------------------------------
+  test.fixme('API: cloned card belongs to the same board as the original', async ({ request }) => {
+    const { token, card, board, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone board_id test');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(201);
+    const cloned = await res.json();
+
+    expect(cloned.board_id).toBe(board.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // API: clone does NOT copy comments — comment list is empty
+  // -------------------------------------------------------------------------
+  test.fixme('API: cloned card does NOT copy comments from the original', async ({ request }) => {
+    const { token, card, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone comments test');
+      return;
+    }
+
+    // Add a comment to the original card
+    await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { content: 'Original comment' },
+    });
+
+    // Clone
+    const cloneRes = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(cloneRes.status()).toBe(201);
+    const cloned = await cloneRes.json();
+
+    // Verify clone has no comments
+    const commentsRes = await request.get(`${BASE}/api/cards/${cloned.id}/comments`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(commentsRes.ok()).toBe(true);
+    const comments = await commentsRes.json();
+    expect(Array.isArray(comments)).toBe(true);
+    expect(comments).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // API: cloned card does NOT copy watchers from the original
+  // -------------------------------------------------------------------------
+  test.fixme('API: cloned card starts with no watchers', async ({ request }) => {
+    const { token, card, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone watchers test');
+      return;
+    }
+
+    // Watch the original card
+    await request.post(`${BASE}/api/cards/${card.id}/watch`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Clone
+    const cloneRes = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(cloneRes.status()).toBe(201);
+    const cloned = await cloneRes.json();
+
+    // Verify the clone has no watchers
+    const watchersRes = await request.get(`${BASE}/api/cards/${cloned.id}/watchers`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(watchersRes.ok()).toBe(true);
+    const watchers = await watchersRes.json();
+    expect(Array.isArray(watchers)).toBe(true);
+    expect(watchers).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // API: clone of a clone creates a grandchild card with unique ID
+  // -------------------------------------------------------------------------
+  test.fixme('API: clone of a clone creates a valid third distinct card', async ({ request }) => {
+    const { token, card, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone-of-clone test');
+      return;
+    }
+
+    // First clone
+    const res1 = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res1.status()).toBe(201);
+    const clone1 = await res1.json();
+
+    // Clone the clone
+    const res2 = await request.post(`${BASE}/api/cards/${clone1.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res2.status()).toBe(201);
+    const clone2 = await res2.json();
+
+    // All three IDs must be distinct
+    expect(clone1.id).not.toBe(card.id);
+    expect(clone2.id).not.toBe(card.id);
+    expect(clone2.id).not.toBe(clone1.id);
+
+    // Clone of clone should share the same column and swimlane
+    expect(clone2.column_id).toBe(card.column_id ?? clone1.column_id);
+  });
+
+  // -------------------------------------------------------------------------
+  // API: non-board-member cannot clone a card (403)
+  // -------------------------------------------------------------------------
+  test.fixme('API: non-board-member cannot clone a card — returns 403', async ({ request }) => {
+    const { token, card, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone 403 test');
+      return;
+    }
+
+    // Create a different user who is NOT a member of the board
+    const outsiderEmail = `test-clone-outsider-${crypto.randomUUID()}@test.com`;
+    const { token: outsiderToken } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email: outsiderEmail, password: 'password123', display_name: 'Clone Outsider' },
+      })
+    ).json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${outsiderToken}` },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  // -------------------------------------------------------------------------
+  // API: unauthenticated clone request returns 401
+  // -------------------------------------------------------------------------
+  test.fixme('API: unauthenticated duplicate request returns 401 (second variant)', async ({ request }) => {
+    const { token, card, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping unauth clone test');
+      return;
+    }
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/duplicate`);
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // API: cloned card created_at timestamp is recent
+  // -------------------------------------------------------------------------
+  test.fixme('API: cloned card created_at is set to the current time', async ({ request }) => {
+    const { token, card, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone timestamp test');
+      return;
+    }
+
+    const before = Date.now();
+    const res = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(201);
+    const after = Date.now();
+
+    const cloned = await res.json();
+    // Prefer getting the created_at via a GET to ensure it's stored
+    const getRes = await request.get(`${BASE}/api/cards/${cloned.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(getRes.ok()).toBe(true);
+    const fetched = await getRes.json();
+
+    if (fetched.created_at) {
+      const createdAtMs = new Date(fetched.created_at).getTime();
+      // The created_at should be within the test window (with a generous 30 s buffer)
+      expect(createdAtMs).toBeGreaterThanOrEqual(before - 30000);
+      expect(createdAtMs).toBeLessThanOrEqual(after + 30000);
+      // The cloned card should NOT have the same created_at as the original
+      if (card.created_at) {
+        expect(fetched.created_at).not.toBe(card.created_at);
+      }
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // API: clone does NOT inherit sprint assignment from original
+  // -------------------------------------------------------------------------
+  test.fixme('API: cloned card is not assigned to any sprint', async ({ request }) => {
+    const { token, card, board, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone sprint test');
+      return;
+    }
+
+    // Create a sprint and assign the original card to it
+    const sprintRes = await request.post(`${BASE}/api/boards/${board.id}/sprints`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Clone Test Sprint', start_date: '2026-04-01', end_date: '2026-04-14' },
+    });
+
+    if (sprintRes.ok()) {
+      const sprint = await sprintRes.json();
+      await request.put(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { sprint_id: sprint.id },
+      });
+    }
+
+    // Clone
+    const cloneRes = await request.post(`${BASE}/api/cards/${card.id}/duplicate`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(cloneRes.status()).toBe(201);
+    const cloned = await cloneRes.json();
+
+    // Clone should not be in a sprint
+    const getCloneRes = await request.get(`${BASE}/api/cards/${cloned.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(getCloneRes.ok()).toBe(true);
+    const clonedFetched = await getCloneRes.json();
+
+    // sprint_id should be null/undefined on the clone
+    expect(clonedFetched.sprint_id == null).toBeTruthy();
+  });
+
+  // -------------------------------------------------------------------------
+  // UI: clone button visible in card detail modal (second variant with setup)
+  // -------------------------------------------------------------------------
+  test.fixme('UI: duplicate button is present in the card detail modal action bar', async ({ page, request }) => {
+    const { token, board, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping UI clone button test');
+      return;
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // Broader selector to catch any reasonable implementation
+    const cloneBtn = page.locator([
+      '.card-detail-actions button:has-text("Duplicate")',
+      '.card-detail-actions button:has-text("Clone")',
+      '.card-detail-actions button:has-text("Copy")',
+      '.card-actions button:has-text("Duplicate")',
+      'button[data-action="duplicate"]',
+      'button[data-action="clone"]',
+    ].join(', '));
+    await expect(cloneBtn).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // UI: success toast shown after clone
+  // -------------------------------------------------------------------------
+  test.fixme('UI: a success toast or confirmation is shown after cloning a card', async ({ page, request }) => {
+    const { token, board, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping UI clone toast test');
+      return;
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await Promise.all([
+      page.waitForResponse(
+        (r: any) => r.url().includes('/duplicate') && r.request().method() === 'POST'
+      ),
+      page.click(
+        '.card-detail-actions button:has-text("Duplicate"), ' +
+        '.card-detail-actions button:has-text("Clone")'
+      ),
+    ]);
+
+    // A toast / notification should be visible indicating success
+    const toast = page.locator('.toast, .notification, .alert-success, [role="alert"]');
+    await expect(toast).toBeVisible({ timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // UI: card count increases by 1 after clone
+  // -------------------------------------------------------------------------
+  test.fixme('UI: card count on board increases by one after cloning', async ({ page, request }) => {
+    const { token, board, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping UI clone count test');
+      return;
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // Count cards before clone
+    const initialCount = await page.locator('.card-item').count();
+    expect(initialCount).toBe(1);
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await Promise.all([
+      page.waitForResponse(
+        (r: any) => r.url().includes('/duplicate') && r.request().method() === 'POST'
+      ),
+      page.click(
+        '.card-detail-actions button:has-text("Duplicate"), ' +
+        '.card-detail-actions button:has-text("Clone")'
+      ),
+    ]);
+    await page.click('.modal-close-btn');
+
+    // Count should now be 2
+    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // UI: board state remains functional after a clone operation
+  // -------------------------------------------------------------------------
+  test.fixme('UI: board state remains functional (can create another card) after clone', async ({ page, request }) => {
+    const { token, board, columns, swimlane, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping clone board-state test');
+      return;
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // Clone the original card
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await Promise.all([
+      page.waitForResponse(
+        (r: any) => r.url().includes('/duplicate') && r.request().method() === 'POST'
+      ),
+      page.click(
+        '.card-detail-actions button:has-text("Duplicate"), ' +
+        '.card-detail-actions button:has-text("Clone")'
+      ),
+    ]);
+    await page.click('.modal-close-btn');
+
+    // Board should still be interactive — create another card via API and reload
+    const newCardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Post-Clone Card',
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+        board_id: board.id,
+      },
+    });
+    if (!newCardRes.ok()) {
+      test.skip(true, 'Secondary card creation unavailable');
+      return;
+    }
+
+    await page.reload();
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // Should now have 3 cards total (original + clone + new)
+    await expect(page.locator('.card-item')).toHaveCount(3, { timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // UI: cloned card has "(copy)" or original title visible on board chip
+  // -------------------------------------------------------------------------
+  test.fixme('UI: cloned card shows "copy" or the original title text on the board chip', async ({ page, request }) => {
+    const { token, board, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping UI clone title chip test');
+      return;
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await Promise.all([
+      page.waitForResponse(
+        (r: any) => r.url().includes('/duplicate') && r.request().method() === 'POST'
+      ),
+      page.click(
+        '.card-detail-actions button:has-text("Duplicate"), ' +
+        '.card-detail-actions button:has-text("Clone")'
+      ),
+    ]);
+    await page.click('.modal-close-btn');
+
+    // The second card chip should show the original title (possibly with "(copy)")
+    const cardTitles = page.locator('.card-item h4, .card-item .card-title, .card-item .card-item-title');
+    const titles = await cardTitles.allTextContents();
+    const cloneTitleVisible = titles.some((t) => t.includes('Original Card'));
+    expect(cloneTitleVisible).toBeTruthy();
+  });
+
+  // -------------------------------------------------------------------------
+  // UI: error toast shown when clone API returns an error
+  // -------------------------------------------------------------------------
+  test.fixme('UI: error message shown when clone operation fails', async ({ page, request }) => {
+    const { token, board, cardCreated } = await setupBoardWithCard(request);
+    if (!cardCreated) {
+      test.skip(true, 'Card creation failed (Gitea 401) — skipping UI clone error test');
+      return;
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // Intercept the duplicate request and force a 500 error
+    await page.route('**/api/cards/*/duplicate', (route) => {
+      route.fulfill({ status: 500, body: JSON.stringify({ error: 'Server error' }) });
+    });
+
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await page.click(
+      '.card-detail-actions button:has-text("Duplicate"), ' +
+      '.card-detail-actions button:has-text("Clone")'
+    );
+
+    // An error toast or message should appear
+    const errorMsg = page.locator('.toast-error, .notification-error, .alert-error, [role="alert"]');
+    await expect(errorMsg).toBeVisible({ timeout: 5000 });
+
+    // Board should not crash — the original card should still be visible
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-item')).toHaveCount(1, { timeout: 5000 });
+  });
 });
