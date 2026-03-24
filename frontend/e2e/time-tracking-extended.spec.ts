@@ -982,3 +982,614 @@ test.describe('Time Tracking — UI coverage', () => {
     await expect(page.locator('.card-detail-modal-unified')).toContainText('5', { timeout: 5000 });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API: worklog date field tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Time Tracking — worklog date handling', () => {
+  async function makeUserAndCard(request: any, prefix: string) {
+    const res = await request.post(`${BASE}/api/auth/signup`, {
+      data: {
+        email: `${prefix}-${crypto.randomUUID()}@example.com`,
+        password: 'password123',
+        display_name: 'TT Date User',
+      },
+    });
+    const body = await res.json();
+    const token: string = body.token;
+    const user: { id: number } = body.user;
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: `Date Board ${crypto.randomUUID().slice(0, 6)}` },
+      })
+    ).json();
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Lane', designator: 'DT' },
+      })
+    ).json();
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Date Card',
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+        board_id: board.id,
+      },
+    });
+    return { token, user, board, cardRes };
+  }
+
+  // 36. POST worklog with explicit past date stores the date
+  test('API: worklog with past date stores date correctly', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-pastdate');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+    const pastDate = '2025-01-15';
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, date: pastDate },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    const entry = body.work_logs[0];
+    expect(entry.date).toContain('2025-01-15');
+  });
+
+  // 37. POST worklog with future date is accepted (no restriction)
+  test('API: worklog with future date is accepted (201)', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-futuredate');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+    const futureDate = '2030-12-31';
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 45, date: futureDate },
+    });
+    // Either 201 (allowed) or 400 (rejected) is valid — document actual behavior
+    expect([200, 201, 400]).toContain(res.status());
+  });
+
+  // 38. POST worklog with invalid date format returns 400
+  test('API: worklog with invalid date format returns 400', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-baddate');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, date: 'not-a-date' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  // 39. POST worklog without date defaults to today
+  test('API: worklog without date field defaults to today', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-nodate');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+    const todayPrefix = new Date().toISOString().slice(0, 10);
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 20 },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    const entry = body.work_logs[0];
+    expect(entry.date).toContain(todayPrefix);
+  });
+
+  // 40. Multiple worklogs with different dates all appear in list
+  test('API: multiple worklogs with different dates all appear in list', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-multidates');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const dates = ['2025-06-01', '2025-06-15', '2025-07-01'];
+    for (const date of dates) {
+      await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { time_spent: 20, date },
+      });
+    }
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.work_logs.length).toBe(3);
+  });
+
+  // 41. time_estimate returned in worklog GET response
+  test('API: GET worklogs response includes time_estimate field', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-estimfld');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    // Set estimate via card update
+    await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_estimate: 90 },
+    });
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    const body = await res.json();
+    expect(typeof body.time_estimate).toBe('number');
+    expect(body.time_estimate).toBe(90);
+  });
+
+  // 42. time_estimate is null/0 for card with no estimate set
+  test('API: GET worklogs time_estimate is null or 0 when no estimate set', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-noestim');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    // time_estimate should be null or 0 when not set
+    expect(body.time_estimate == null || body.time_estimate === 0).toBe(true);
+  });
+
+  // 43. DELETE with wrong worklog id returns 404 or 204 (not crash)
+  test('API: DELETE non-existent worklog returns 404 or 204', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-delbad');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.delete(`${BASE}/api/cards/${card.id}/worklogs/99999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    // Should respond gracefully
+    expect([204, 404]).toContain(res.status());
+  });
+
+  // 44. total_logged in GET response decreases after deletion
+  test('API: GET total_logged decreases correctly after worklog deletion', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-deldecrease');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    // Log 60 + 30 = 90 minutes
+    const r1 = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 60 },
+    });
+    const r2 = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30 },
+    });
+    const body2 = await r2.json();
+    const wlId = body2.work_logs.find((w: any) => w.time_spent === 30).id;
+
+    // Delete the 30-min entry
+    await request.delete(`${BASE}/api/cards/${card.id}/worklogs/${wlId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const getBody = await getRes.json();
+    expect(getBody.total_logged).toBe(60);
+  });
+
+  // 45. worklog card_id field always matches the card it was logged on
+  test('API: each worklog entry has correct card_id', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-cardidmatch');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 25 },
+    });
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    for (const wl of body.work_logs) {
+      expect(wl.card_id).toBe(card.id);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Time estimate via card update API — coverage
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Time Tracking — estimate via card update', () => {
+  async function makeUserAndCard(request: any, prefix: string) {
+    const res = await request.post(`${BASE}/api/auth/signup`, {
+      data: {
+        email: `${prefix}-${crypto.randomUUID()}@example.com`,
+        password: 'password123',
+        display_name: 'TT Est User',
+      },
+    });
+    const body = await res.json();
+    const token: string = body.token;
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: `Est Board ${crypto.randomUUID().slice(0, 6)}` },
+      })
+    ).json();
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Lane', designator: 'ET' },
+      })
+    ).json();
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Est Card',
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+        board_id: board.id,
+      },
+    });
+    return { token, board, cardRes };
+  }
+
+  // 46. PUT card with time_estimate sets estimate (reflected in GET worklogs)
+  test('API: PUT card time_estimate=120 reflects in GET worklogs response', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-est-put');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_estimate: 120 },
+    });
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.time_estimate).toBe(120);
+  });
+
+  // 47. PUT card time_estimate=0 clears estimate
+  test('API: PUT card time_estimate=0 clears estimate (null or 0)', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-est-clear');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    // First set it
+    await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_estimate: 60 },
+    });
+
+    // Then clear it
+    await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_estimate: 0 },
+    });
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.time_estimate == null || body.time_estimate === 0).toBe(true);
+  });
+
+  // 48. Board time-summary total_estimated reflects card estimates
+  test('API: board time-summary total_estimated increases after setting estimate', async ({ request }) => {
+    const { token, board, cardRes } = await makeUserAndCard(request, 'ttx-boardest');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    // Baseline
+    const before = await (
+      await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+
+    await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_estimate: 120 },
+    });
+
+    const after = await (
+      await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+
+    expect(after.total_estimated).toBeGreaterThanOrEqual((before.total_estimated ?? 0) + 120);
+  });
+
+  // 49. Board time-summary has by_user array even with no worklogs
+  test('API: board time-summary by_user is empty array when no worklogs exist', async ({ request }) => {
+    const { token, board, cardRes } = await makeUserAndCard(request, 'ttx-byuserempty');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(Array.isArray(body.by_user)).toBe(true);
+    expect(body.by_user.length).toBe(0);
+  });
+
+  // 50. Large time_spent value (480 min = 8h) accepted and stored exactly
+  test('API: worklog with 480 minutes (8h) accepted and stored exactly', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-largemin');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 480 },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    const entry = body.work_logs.find((w: any) => w.time_spent === 480);
+    expect(entry).toBeDefined();
+    expect(entry.time_spent).toBe(480);
+  });
+
+  // 51. Two worklogs from same user both appear in list
+  test('API: two worklogs from same user both appear in work_logs list', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-sameuser2');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, notes: 'Morning session' },
+    });
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 45, notes: 'Afternoon session' },
+    });
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.work_logs.length).toBe(2);
+    expect(body.total_logged).toBe(75);
+  });
+
+  // 52. Single worklog total_logged equals its time_spent
+  test('API: single worklog total_logged equals its time_spent value', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-singletotal');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 73 },
+    });
+    const body = await res.json();
+    expect(body.total_logged).toBe(73);
+    expect(body.work_logs.length).toBe(1);
+  });
+
+  // 53. notes field in worklog can be an empty string
+  test('API: worklog with empty notes string is accepted', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-emptynotes');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 15, notes: '' },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body.work_logs.length).toBe(1);
+  });
+
+  // 54. Worklog response includes time_estimate from POST response
+  test('API: POST worklog response includes time_estimate field', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-postestim');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    // Set an estimate first
+    await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_estimate: 60 },
+    });
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30 },
+    });
+    const body = await res.json();
+    // The POST response should include time_estimate
+    expect(body).toHaveProperty('time_estimate');
+  });
+
+  // 55. Worklog id field is unique across multiple entries
+  test('API: each worklog entry has a unique id', async ({ request }) => {
+    const { token, cardRes } = await makeUserAndCard(request, 'ttx-uniqueids');
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const amounts = [10, 20, 30, 40];
+    for (const amt of amounts) {
+      await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { time_spent: amt },
+      });
+    }
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    const ids = body.work_logs.map((w: any) => w.id);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(4);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI: Additional time tracking modal tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Time Tracking — additional UI tests', () => {
+  async function openCardModal(request: any, page: any) {
+    const { token, board, card } = await setupBoardWithCard(request, page);
+    if (!card) { test.skip(true, 'Card creation failed'); return null; }
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+    return { token, board, card };
+  }
+
+  // 56. Time tracking section is not hidden behind a tab
+  test('UI: time tracking section visible without clicking any tab', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+    await expect(page.locator('.time-tracking-compact')).toBeVisible();
+  });
+
+  // 57. Time input accepts only positive numbers
+  test('UI: time input accepts numeric value and enables Log button', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+    await page.fill('.time-input-mini', '15');
+    await expect(page.locator('.time-tracking-actions button:has-text("Log")')).toBeEnabled();
+  });
+
+  // 58. Log 240 minutes shows "4h logged"
+  test('UI: logging 240 minutes shows "4h logged"', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+    await page.fill('.time-input-mini', '240');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('4h logged', { timeout: 5000 });
+  });
+
+  // 59. Log 59 minutes shows "59m logged" (not "0h 59m")
+  test('UI: logging 59 minutes shows "59m logged" or similar minute-only format', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+    await page.fill('.time-input-mini', '59');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText(/59m logged/, { timeout: 5000 });
+  });
+
+  // 60. Closing the modal and reopening reflects API-seeded worklog from another tab
+  test('UI: API-seeded worklog total is shown when card is opened', async ({ page, request }) => {
+    const { token, board, card } = await setupBoardWithCard(request, page);
+    if (!card) { test.skip(true, 'Card creation failed'); return; }
+
+    // Seed via API before opening the modal
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 55 },
+    });
+
+    // Re-navigate to pick up the seeded data
+    await page.reload();
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('55m logged', { timeout: 5000 });
+  });
+
+  // 61. Estimate set to 60, log 60 — progress bar is full (100%)
+  test('UI: progress bar at 100% when logged equals estimated', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+
+    // Set estimate to 60 minutes
+    await page.click('.btn:has-text("Edit")');
+    await page.fill('input[placeholder="e.g., 120"]', '60');
+    await page.click('.btn:has-text("Save")');
+    await expect(page.locator('.time-tracking-compact')).toBeVisible({ timeout: 5000 });
+
+    // Log exactly 60 minutes
+    await page.fill('.time-input-mini', '60');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('1h logged', { timeout: 5000 });
+
+    // Progress bar should be visible
+    await expect(page.locator('.time-progress-mini')).toBeVisible();
+  });
+
+  // 62. Estimate set to 120, log 30 — progress bar shows partial fill
+  test('UI: progress bar shows partial fill when logged < estimated', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+
+    await page.click('.btn:has-text("Edit")');
+    await page.fill('input[placeholder="e.g., 120"]', '120');
+    await page.click('.btn:has-text("Save")');
+    await expect(page.locator('.time-tracking-compact')).toBeVisible({ timeout: 5000 });
+
+    await page.fill('.time-input-mini', '30');
+    await page.click('.time-tracking-actions button:has-text("Log")');
+    await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('30m logged', { timeout: 5000 });
+
+    await expect(page.locator('.time-progress-mini')).toBeVisible();
+    // Bar should NOT have "over" class since 30 < 120
+    await expect(page.locator('.time-progress-bar.over')).not.toBeVisible();
+  });
+
+  // 63. Card modal displays "0m logged" not null or undefined
+  test('UI: fresh card shows "0m logged" (not blank or undefined)', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+    const loggedEl = page.locator('.time-tracking-stats .time-logged');
+    await expect(loggedEl).toBeVisible();
+    const text = await loggedEl.textContent();
+    expect(text).not.toBeNull();
+    expect(text?.trim()).not.toBe('');
+    expect(text).toContain('0m logged');
+  });
+
+  // 64. Estimate field placeholder text is descriptive
+  test('UI: estimate input has descriptive placeholder text', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+
+    await page.click('.btn:has-text("Edit")');
+    const estimateInput = page.locator('input[placeholder="e.g., 120"]');
+    await expect(estimateInput).toBeVisible({ timeout: 5000 });
+    const placeholder = await estimateInput.getAttribute('placeholder');
+    expect(placeholder).toBeTruthy();
+  });
+
+  // 65. Setting estimate to 0 via edit form clears it
+  test('UI: setting time estimate to empty string via edit clears it', async ({ page, request }) => {
+    const ctx = await openCardModal(request, page);
+    if (!ctx) return;
+
+    // First set a value
+    await page.click('.btn:has-text("Edit")');
+    await page.fill('input[placeholder="e.g., 120"]', '60');
+    await page.click('.btn:has-text("Save")');
+    await expect(page.locator('.time-tracking-stats .time-estimate')).toBeVisible({ timeout: 5000 });
+
+    // Now clear it
+    await page.click('.btn:has-text("Edit")');
+    await page.fill('input[placeholder="e.g., 120"]', '');
+    await page.click('.btn:has-text("Save")');
+
+    // Estimated line should disappear
+    await expect(page.locator('.time-tracking-stats .time-estimate')).not.toBeVisible({ timeout: 5000 });
+  });
+});

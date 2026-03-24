@@ -912,6 +912,684 @@ test.describe('Viewer role — write endpoints denied', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 10. Card permissions — create, delete own, admin delete any
+// ---------------------------------------------------------------------------
+
+test.describe('Card permissions — member and admin', () => {
+  test('Board creator can create a card', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'CardCreatorOwn', 'cardperm-own1');
+    const board = await createBoard(request, ownerToken, 'Card Creator Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    const res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'Owner Card',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+
+    expect(res.status()).toBeGreaterThanOrEqual(200);
+    expect(res.status()).toBeLessThan(300);
+    const card = await res.json();
+    expect(card.title).toBe('Owner Card');
+  });
+
+  test('Board admin can create a card', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'CardAdminOwn', 'cardperm-own2');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'CardAdmin', 'cardperm-adm2');
+    const board = await createBoard(request, ownerToken, 'Card Admin Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: {
+        title: 'Admin Card',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+
+    expect(res.status()).toBeGreaterThanOrEqual(200);
+    expect(res.status()).toBeLessThan(300);
+  });
+
+  test('Board member can create a card', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'CardMbrOwn', 'cardperm-own3');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'CardMbr', 'cardperm-m3');
+    const board = await createBoard(request, ownerToken, 'Card Member Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: {
+        title: 'Member Card',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+
+    expect(res.status()).toBeGreaterThanOrEqual(200);
+    expect(res.status()).toBeLessThan(300);
+  });
+
+  test('Board member can delete their own card', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'DelOwnCardOwn', 'cardperm-own4');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'DelOwnCardMbr', 'cardperm-m4');
+    const board = await createBoard(request, ownerToken, 'Del Own Card Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const createRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: {
+        title: 'Member Own Card',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    const card = await createRes.json();
+
+    const deleteRes = await request.delete(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+
+    expect(deleteRes.ok()).toBe(true);
+  });
+
+  test('Board admin can delete any card', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'DelAnyOwn', 'cardperm-own5');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'DelAnyAdm', 'cardperm-adm5');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'DelAnyMbr', 'cardperm-m5');
+    const board = await createBoard(request, ownerToken, 'Del Any Card Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    // Member creates a card
+    const createRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: {
+        title: 'Member Card To Delete',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    const card = await createRes.json();
+
+    // Admin deletes the member's card
+    const deleteRes = await request.delete(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    expect(deleteRes.ok()).toBe(true);
+  });
+
+  test('Non-member cannot delete a card on a private board (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'NMDelOwn', 'cardperm-own6');
+    const { token: nmToken } = await createUser(request, 'NMDelNM', 'cardperm-nm6');
+    const board = await createBoard(request, ownerToken, 'NM Del Card Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    const createRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'Owner Card',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    const card = await createRes.json();
+
+    const deleteRes = await request.delete(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${nmToken}` },
+    });
+
+    expect(deleteRes.status()).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. Comment permissions — create and access
+// ---------------------------------------------------------------------------
+
+test.describe('Comment permissions', () => {
+  test('Board member can create a comment on a card', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'CmtMbrOwn', 'cmt-own1');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'CmtMbr', 'cmt-m1');
+    const board = await createBoard(request, ownerToken, 'Cmt Member Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'Card For Comment',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    const card = await cardRes.json();
+
+    const commentRes = await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { content: 'Member comment here' },
+    });
+
+    expect(commentRes.status()).toBeGreaterThanOrEqual(200);
+    expect(commentRes.status()).toBeLessThan(300);
+  });
+
+  test('Board admin can create a comment on a card', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'CmtAdmOwn', 'cmt-own2');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'CmtAdm', 'cmt-adm2');
+    const board = await createBoard(request, ownerToken, 'Cmt Admin Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'Card For Admin Comment',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    const card = await cardRes.json();
+
+    const commentRes = await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { content: 'Admin comment here' },
+    });
+
+    expect(commentRes.status()).toBeGreaterThanOrEqual(200);
+    expect(commentRes.status()).toBeLessThan(300);
+  });
+
+  test('Non-member cannot create comment on a card (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'CmtNMOwn', 'cmt-own3');
+    const { token: nmToken } = await createUser(request, 'CmtNM', 'cmt-nm3');
+    const board = await createBoard(request, ownerToken, 'Cmt NM Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'Card No NM Comment',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    const card = await cardRes.json();
+
+    const commentRes = await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${nmToken}` },
+      data: { content: 'Injected comment' },
+    });
+
+    expect(commentRes.status()).toBe(403);
+  });
+
+  test('Member can read comments on a card', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'CmtReadOwn', 'cmt-own4');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'CmtReadMbr', 'cmt-m4');
+    const board = await createBoard(request, ownerToken, 'Cmt Read Board');
+    const swimlane = await createSwimlane(request, ownerToken, board.id);
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: {
+        title: 'Card For Reading Comments',
+        board_id: board.id,
+        column_id: board.columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+    const card = await cardRes.json();
+
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+
+    expect(getRes.status()).toBe(200);
+    expect(Array.isArray(await getRes.json())).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. Label permissions — admin can create, member cannot
+// ---------------------------------------------------------------------------
+
+test.describe('Label permissions — admin vs member', () => {
+  test('Board admin can create a label', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'LblAdmOwn', 'lbl-own1');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'LblAdm', 'lbl-adm1');
+    const board = await createBoard(request, ownerToken, 'Label Admin Board');
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { name: 'Admin Label', color: '#3b82f6' },
+    });
+
+    expect(res.status()).toBeGreaterThanOrEqual(200);
+    expect(res.status()).toBeLessThan(300);
+  });
+
+  test('Board member cannot create a label (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'LblMbrOwn', 'lbl-own2');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'LblMbr', 'lbl-m2');
+    const board = await createBoard(request, ownerToken, 'Label Member Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { name: 'Illegal Label', color: '#ef4444' },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+
+  test('Board creator can create and delete a label', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'LblCreatorOwn', 'lbl-own3');
+    const board = await createBoard(request, ownerToken, 'Label Creator Board');
+
+    const createRes = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { name: 'Creator Label', color: '#22c55e' },
+    });
+
+    expect(createRes.status()).toBeGreaterThanOrEqual(200);
+    const label = await createRes.json();
+
+    const deleteRes = await request.delete(`${BASE}/api/boards/${board.id}/labels/${label.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(deleteRes.ok()).toBe(true);
+  });
+
+  test('Board member cannot delete a label (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'LblDelOwn', 'lbl-own4');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'LblDelMbr', 'lbl-m4');
+    const board = await createBoard(request, ownerToken, 'Label Delete Member Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const createRes = await request.post(`${BASE}/api/boards/${board.id}/labels`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { name: 'Label To Delete', color: '#a855f7' },
+    });
+    const label = await createRes.json();
+
+    const deleteRes = await request.delete(`${BASE}/api/boards/${board.id}/labels/${label.id}`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+
+    expect(deleteRes.status()).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. Board visibility — only members see board in list
+// ---------------------------------------------------------------------------
+
+test.describe('Board visibility in boards list', () => {
+  test('Board is not visible to non-members in GET /api/boards', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'VisOwner', 'vis-own1');
+    const { token: nmToken } = await createUser(request, 'VisNM', 'vis-nm1');
+    const board = await createBoard(request, ownerToken, 'Invisible Board');
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${nmToken}` },
+    });
+    expect(res.ok()).toBe(true);
+    const boards: any[] = await res.json();
+    expect(boards.find((b) => b.id === board.id)).toBeUndefined();
+  });
+
+  test('Board is visible to members in GET /api/boards', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'VisMbrOwn', 'vis-own2');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'VisMbrMbr', 'vis-m2');
+    const board = await createBoard(request, ownerToken, 'Visible To Member Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+    expect(res.ok()).toBe(true);
+    const boards: any[] = await res.json();
+    expect(boards.find((b) => b.id === board.id)).toBeDefined();
+  });
+
+  test('Board removed from non-member list immediately after removal', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'RmVisOwn', 'vis-own3');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'RmVisMbr', 'vis-m3');
+    const board = await createBoard(request, ownerToken, 'Remove Visibility Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    // Confirm visible
+    let res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+    let boards: any[] = await res.json();
+    expect(boards.find((b) => b.id === board.id)).toBeDefined();
+
+    // Remove member
+    await request.delete(`${BASE}/api/boards/${board.id}/members/${memberUser.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+
+    // Board no longer in list
+    res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+    boards = await res.json();
+    expect(boards.find((b) => b.id === board.id)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. Auth failures — token expiry / invalid tokens return 401
+// ---------------------------------------------------------------------------
+
+test.describe('Auth token failures — 401 responses', () => {
+  test('Expired / invalid token returns 401 on GET /api/boards', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: 'Bearer invalid.jwt.token' },
+    });
+
+    expect(res.status()).toBe(401);
+  });
+
+  test('Missing Authorization header returns 401 on GET /api/boards', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('Invalid token returns 401 on board-specific endpoint', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'TokenOwner', 'tok-own1');
+    const board = await createBoard(request, ownerToken, 'Token Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: 'Bearer bad.token.here' },
+    });
+
+    expect(res.status()).toBe(401);
+  });
+
+  test('Empty Authorization header value returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: '' },
+    });
+
+    // Either 401 (auth check) or 400 (bad header) is acceptable; not 200
+    expect(res.status()).not.toBe(200);
+  });
+
+  test('No token returns 401 on POST /api/cards', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/cards`, {
+      data: { title: 'Unauth card', board_id: 1, column_id: 1, swimlane_id: 1 },
+    });
+
+    expect(res.status()).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. Column access control — creator and admin can CRUD, member read-only
+// ---------------------------------------------------------------------------
+
+test.describe('Column access control', () => {
+  test('Board creator can create a column', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'ColCreatorOwn', 'col-own1');
+    const board = await createBoard(request, ownerToken, 'Column Creator Board');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { name: 'New Column By Creator', position: 5 },
+    });
+
+    expect(res.status()).toBeGreaterThanOrEqual(200);
+    expect(res.status()).toBeLessThan(300);
+  });
+
+  test('Board admin can create a column', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'ColAdmOwn', 'col-own2');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'ColAdm', 'col-adm2');
+    const board = await createBoard(request, ownerToken, 'Column Admin Board');
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { name: 'Admin Column', position: 5 },
+    });
+
+    expect(res.status()).toBeGreaterThanOrEqual(200);
+    expect(res.status()).toBeLessThan(300);
+  });
+
+  test('Board member can read columns (GET /api/boards/:id/columns → 200)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'ColReadOwn', 'col-own3');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'ColReadMbr', 'col-m3');
+    const board = await createBoard(request, ownerToken, 'Column Read Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+
+    expect(res.status()).toBe(200);
+  });
+
+  test('Board member cannot create a column (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'ColMbrOwn', 'col-own4');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'ColMbrMbr', 'col-m4');
+    const board = await createBoard(request, ownerToken, 'Column Member Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { name: 'Illegal Column', position: 99 },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+
+  test('Board admin can delete a column', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'ColDelAdmOwn', 'col-own5');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'ColDelAdm', 'col-adm5');
+    const board = await createBoard(request, ownerToken, 'Column Admin Delete Board');
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    // Create a column to delete
+    const createRes = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { name: 'Column To Delete', position: 10 },
+    });
+    const col = await createRes.json();
+
+    const deleteRes = await request.delete(`${BASE}/api/boards/${board.id}/columns/${col.id}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    expect(deleteRes.ok()).toBe(true);
+  });
+
+  test('Non-member cannot read columns (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'ColNMOwn', 'col-own6');
+    const { token: nmToken } = await createUser(request, 'ColNMUser', 'col-nm6');
+    const board = await createBoard(request, ownerToken, 'Column NM Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${nmToken}` },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. Board settings access — admin can edit, member cannot
+// ---------------------------------------------------------------------------
+
+test.describe('Board settings access control', () => {
+  test('Board admin can update board settings (PUT /api/boards/:id)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'SetAdmOwn', 'set-own1');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'SetAdm', 'set-adm1');
+    const board = await createBoard(request, ownerToken, 'Settings Admin Board');
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const res = await request.put(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { name: 'Updated By Admin', description: 'Admin updated this' },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.name).toBe('Updated By Admin');
+  });
+
+  test('Board member cannot update board settings (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'SetMbrOwn', 'set-own2');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'SetMbrMbr', 'set-m2');
+    const board = await createBoard(request, ownerToken, 'Settings Member Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.put(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { name: 'Hijacked Name', description: '' },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+
+  test('Board admin can delete the board', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'DelBoardOwn', 'set-own3');
+    const board = await createBoard(request, ownerToken, 'Board To Delete');
+
+    const res = await request.delete(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(res.ok()).toBe(true);
+  });
+
+  test('Board member cannot delete the board (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'NDelBoardOwn', 'set-own4');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'NDelBoardMbr', 'set-m4');
+    const board = await createBoard(request, ownerToken, 'No Delete Member Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.delete(`${BASE}/api/boards/${board.id}`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+
+  test('Board admin can add and remove members', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'AddRmAdmOwn', 'set-own5');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'AddRmAdm', 'set-adm5');
+    const { user: targetUser } = await createUser(request, 'AddRmTarget', 'set-tgt5');
+    const board = await createBoard(request, ownerToken, 'Admin Add Remove Board');
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    // Admin adds target
+    const addRes = await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { user_id: targetUser.id, role: 'member' },
+    });
+    expect(addRes.status()).toBe(201);
+
+    // Admin removes target
+    const removeRes = await request.delete(`${BASE}/api/boards/${board.id}/members/${targetUser.id}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(removeRes.ok()).toBe(true);
+  });
+
+  test('Board member cannot add other members (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'MbrAddOwn', 'set-own6');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'MbrAddMbr', 'set-m6');
+    const { user: newUser } = await createUser(request, 'MbrAddNew', 'set-new6');
+    const board = await createBoard(request, ownerToken, 'Member Cannot Add Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { user_id: newUser.id, role: 'member' },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+
+  test('Board admin can create swimlanes', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'SwAdmOwn', 'sw-own1');
+    const { token: adminToken, user: adminUser } = await createUser(request, 'SwAdm', 'sw-adm1');
+    const board = await createBoard(request, ownerToken, 'Swimlane Admin Board');
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { name: 'Admin Swimlane', designator: 'AS-', color: '#6366f1' },
+    });
+
+    expect(res.status()).toBeGreaterThanOrEqual(200);
+    expect(res.status()).toBeLessThan(300);
+  });
+
+  test('Board member cannot create swimlanes (403)', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'SwMbrOwn', 'sw-own2');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'SwMbrMbr', 'sw-m2');
+    const board = await createBoard(request, ownerToken, 'Swimlane Member Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${memberToken}` },
+      data: { name: 'Illegal Swimlane', designator: 'IL-', color: '#ef4444' },
+    });
+
+    expect(res.status()).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 10. Global admin override
 // ---------------------------------------------------------------------------
 

@@ -360,10 +360,14 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
     await expect(page.locator('.custom-fields-compact')).toBeVisible({ timeout: 8000 });
 
     const input = page.locator('.custom-field-inline input[type="text"]');
+    // Set up listener BEFORE fill so we can't miss the PUT response.
+    const savePromise = page.waitForResponse(
+      (r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT',
+      { timeout: 10000 },
+    ).catch(() => null);
     await input.fill('Acme Corporation');
-    // Wait for the save API response before closing to avoid races with SQLite
-    const savePromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
-    await input.blur();
+    // Press Tab to trigger the React onBlur save handler reliably.
+    await input.press('Tab');
     await savePromise;
 
     // Close modal
@@ -508,19 +512,26 @@ test.describe('Card Modal — Custom Field Value Persistence', () => {
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
     await expect(page.locator('.custom-fields-compact')).toBeVisible({ timeout: 8000 });
     const input = page.locator('.custom-field-inline input[type="text"]');
+    // Set up the listener BEFORE fill to guarantee we don't miss the PUT response.
+    const saveReloadPromise = page.waitForResponse(
+      (r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT',
+      { timeout: 10000 },
+    ).catch(() => null);
     await input.fill('ZIRA-42');
-    // Wait for the save API response before reloading to avoid races with SQLite
-    const saveReloadPromise = page.waitForResponse((r) => r.url().includes('/custom-fields/') && r.request().method() === 'PUT', { timeout: 8000 }).catch(() => null);
-    await input.blur();
+    // Press Tab to blur the field and trigger the React onBlur save handler.
+    await input.press('Tab');
     await saveReloadPromise;
+    // Brief settle time to ensure the DB write has committed before reloading.
+    await page.waitForTimeout(300);
 
-    // Full page reload
+    // Full page reload — token is re-injected via addInitScript on reload.
     await page.reload();
     await page.click('.view-btn:has-text("All Cards")');
     await page.waitForSelector('.card-item', { timeout: 10000 });
 
     await page.click('.card-item');
     await page.waitForSelector('.card-detail-modal-unified', { timeout: 5000 });
+    await expect(page.locator('.custom-fields-compact')).toBeVisible({ timeout: 8000 });
     await expect(async () => {
       await expect(page.locator('.custom-field-inline input[type="text"]')).toHaveValue('ZIRA-42');
     }).toPass({ timeout: 15000 });
