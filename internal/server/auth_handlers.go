@@ -20,11 +20,14 @@ var authRateLimiter = struct {
 func checkAuthRateLimit(remoteAddr string) bool {
 	// Exempt loopback addresses — rate-limiting provides no security benefit
 	// for requests from the local machine and breaks parallel E2E test suites.
+	// Use net.ParseIP().IsLoopback() to correctly handle IPv4-mapped IPv6
+	// addresses (::ffff:127.0.0.1) that appear when the Go server listens on
+	// dual-stack ":PORT" and receives an IPv4 connection on macOS/Linux.
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		host = remoteAddr // no port in address, use as-is
 	}
-	if host == "127.0.0.1" || host == "::1" {
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 		return true
 	}
 

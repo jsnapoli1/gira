@@ -44,15 +44,14 @@ async function promoteAdmin(
 }
 
 /**
- * Inject a JWT token into localStorage after a page.goto so that AuthContext
- * picks it up on the next navigation. Uses page.evaluate (not addInitScript)
- * as required by this project's test conventions.
+ * Inject a JWT token into localStorage so that AuthContext picks it up on the
+ * next navigation. Navigates to /login first to establish the origin context,
+ * then sets the token via evaluate.
  */
 async function injectToken(
   page: Parameters<Parameters<typeof test>[1]>[0]['page'],
   token: string,
 ): Promise<void> {
-  // Navigate to a public page first so localStorage is accessible
   await page.goto('/login');
   await page.evaluate((t: string) => localStorage.setItem('token', t), token);
 }

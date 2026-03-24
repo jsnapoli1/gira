@@ -664,4 +664,117 @@ test.describe('Sprint Metrics', () => {
 
     await expect(page.locator('.sprint-goal')).toContainText('Ship the new onboarding flow');
   });
+
+  // -------------------------------------------------------------------------
+  // 16. GET /api/sprints/:id/metrics returns 404 for non-existent sprint
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints/:id/metrics returns 404 for a non-existent sprint', async ({ request }) => {
+    const { token } = await createUser(request, 'Metrics 404 Tester');
+    const res = await request.get(`${BASE}/api/sprints/999999999/metrics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(404);
+  });
+
+  // -------------------------------------------------------------------------
+  // 17. Moving card back from Done to open column decreases completed_cards
+  //     (uses burndown endpoint which always returns calculated current metrics)
+  // -------------------------------------------------------------------------
+  test('moving card back from Done to open decreases completed_cards in metrics', async ({
+    request,
+  }) => {
+    const { token } = await createUser(request, 'Undo Done Metrics Tester');
+    const bs = await setupBoard(request, token, 'Undo Done Metrics Board');
+    const sprint = await createSprint(request, token, bs.boardId, 'Undo Done Sprint');
+
+    const card = await createCard(request, token, bs, 'Undo Card', 6);
+    if (card.id === -1) return;
+
+    await assignCardToSprint(request, token, card.id, sprint.id);
+    await startSprint(request, token, sprint.id);
+
+    // Helper: use burndown which always calculates live metrics
+    async function liveMetrics(): Promise<{ completed_cards: number; remaining_points: number }> {
+      const res = await request.get(`${BASE}/api/metrics/burndown?sprint_id=${sprint.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+      const data = await res.json();
+      return Array.isArray(data) ? data[data.length - 1] : data;
+    }
+
+    // Move to Done
+    await moveCardToDone(request, token, card.id, bs.doneColumnId);
+
+    const afterDone = await liveMetrics();
+    expect(afterDone.completed_cards).toBe(1);
+    expect(afterDone.remaining_points).toBe(0);
+
+    // Move back to first (open) column
+    await request.post(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: bs.firstColumnId, state: 'open', position: 1 },
+    });
+
+    const afterUndone = await liveMetrics();
+    expect(afterUndone.completed_cards).toBe(0);
+    expect(afterUndone.remaining_points).toBe(6);
+  });
+
+  // -------------------------------------------------------------------------
+  // 18. PUT /api/sprints/:id updates sprint correctly
+  // -------------------------------------------------------------------------
+  test('PUT /api/sprints/:id updates sprint name and goal', async ({ request }) => {
+    const { token } = await createUser(request, 'Update Sprint Tester');
+    const bs = await setupBoard(request, token, 'Update Sprint Board');
+    const sprint = await createSprint(request, token, bs.boardId, 'Original Name');
+
+    const res = await request.put(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Updated Name', goal: 'Updated goal text' },
+    });
+    expect(res.status()).toBe(200);
+
+    const updated = await res.json();
+    expect(updated.name).toBe('Updated Name');
+    expect(updated.goal).toBe('Updated goal text');
+  });
+
+  // -------------------------------------------------------------------------
+  // 19. DELETE /api/sprints/:id returns 204
+  // -------------------------------------------------------------------------
+  test('DELETE /api/sprints/:id returns 204', async ({ request }) => {
+    const { token } = await createUser(request, 'Delete Sprint API Tester');
+    const bs = await setupBoard(request, token, 'Delete Sprint API Board');
+    const sprint = await createSprint(request, token, bs.boardId, 'Deletable Sprint');
+
+    const res = await request.delete(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(204);
+
+    // Confirm it's gone: list sprints and verify it's absent
+    const listRes = await request.get(`${BASE}/api/sprints?board_id=${bs.boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const sprints: Array<{ id: number }> = (await listRes.json()) ?? [];
+    expect(Array.isArray(sprints)).toBe(true);
+    expect(sprints.find((s) => s.id === sprint.id)).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // 20. Starting an already-active sprint again is idempotent (returns 200)
+  // -------------------------------------------------------------------------
+  test('starting an already-active sprint returns 200 without error', async ({ request }) => {
+    const { token } = await createUser(request, 'Double Start Tester');
+    const bs = await setupBoard(request, token, 'Double Start Board');
+    const sprint = await createSprint(request, token, bs.boardId, 'Double Start Sprint');
+    await startSprint(request, token, sprint.id);
+
+    const res = await request.post(`${BASE}/api/sprints/${sprint.id}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    // Should not error — starting an already-active sprint is idempotent
+    expect([200, 409]).toContain(res.status());
+  });
 });

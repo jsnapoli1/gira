@@ -246,9 +246,10 @@ test.describe('Responsive Layout', () => {
     // The dim overlay should be present
     await expect(page.locator('.mobile-sidebar-overlay')).toBeVisible();
 
-    // Tapping the overlay should close the sidebar
-    await page.click('.mobile-sidebar-overlay');
-    await expect(page.locator('.sidebar.mobile-open')).toBeHidden();
+    // Tapping the overlay (right edge, outside the sidebar) should close the sidebar
+    // Click near the right edge to avoid the sidebar that sits on the left
+    await page.locator('.mobile-sidebar-overlay').click({ position: { x: 340, y: 300 }, force: true });
+    await expect(page.locator('.sidebar.mobile-open')).toBeHidden({ timeout: 5000 });
   });
 
   // 7. Board horizontal scroll — with 4+ columns the board-content is scrollable

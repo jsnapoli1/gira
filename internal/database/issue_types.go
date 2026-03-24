@@ -58,6 +58,19 @@ func (d *DB) CreateIssueType(boardID int64, name, icon, color string) (*models.I
 	}, nil
 }
 
+// GetIssueType returns a single issue type definition by ID.
+func (d *DB) GetIssueType(id int64) (*models.IssueTypeDefinition, error) {
+	var t models.IssueTypeDefinition
+	err := d.QueryRow(
+		`SELECT id, board_id, name, icon, color, position
+		 FROM issue_type_definitions
+		 WHERE id = ?`, id).Scan(&t.ID, &t.BoardID, &t.Name, &t.Icon, &t.Color, &t.Position)
+	if err != nil {
+		return nil, fmt.Errorf("get issue type: %w", err)
+	}
+	return &t, nil
+}
+
 // UpdateIssueType updates an existing issue type definition.
 func (d *DB) UpdateIssueType(id int64, name, icon, color string) error {
 	result, err := d.Exec(

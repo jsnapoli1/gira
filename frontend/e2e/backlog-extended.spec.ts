@@ -525,4 +525,189 @@ test.describe('Backlog Extended', () => {
       page.locator('.backlog-sprint-cards .card-title').filter({ hasText: 'Collapsible Card' }),
     ).toBeVisible({ timeout: 5000 });
   });
+
+  // -------------------------------------------------------------------------
+  // 15. Cards in closed (Done) columns are excluded from the backlog
+  // -------------------------------------------------------------------------
+  test('cards in closed columns are excluded from the swimlane backlog section', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await createUser(request, 'Closed Column Tester');
+    const boardRes = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Closed Column Board' },
+      })
+    ).json();
+    const boardId = boardRes.id;
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Test Lane', designator: 'CC-', color: '#6366f1' },
+      })
+    ).json();
+
+    const columns: Array<{ id: number; position: number; state: string }> = await (
+      await request.get(`${BASE}/api/boards/${boardId}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+
+    const sorted = [...columns].sort((a, b) => a.position - b.position);
+    const openColumn = sorted.find((c) => c.state !== 'closed') ?? sorted[0];
+    const doneColumn = sorted.find((c) => c.state === 'closed') ?? sorted[sorted.length - 1];
+
+    await createSprint(request, token, boardId, 'Sprint');
+
+    // Card in open column — should appear in backlog
+    const openCard = await createCard(request, token, boardId, swimlane.id, openColumn.id, 'Open Column Card');
+    // Card in Done column — should NOT appear in backlog
+    const doneCard = await createCard(request, token, boardId, swimlane.id, doneColumn.id, 'Done Column Card');
+
+    if (!openCard || !doneCard) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    await navigateToBacklog(page, token, boardId);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    // Open column card should be visible in backlog
+    await expect(
+      page.locator('.swimlane-backlog .card-title').filter({ hasText: 'Open Column Card' }),
+    ).toBeVisible({ timeout: 6000 });
+
+    // Done column card should NOT appear in backlog
+    await expect(
+      page.locator('.swimlane-backlog .card-title').filter({ hasText: 'Done Column Card' }),
+    ).not.toBeVisible({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 16. Cards in closed columns excluded from sprint panel too
+  // -------------------------------------------------------------------------
+  test('cards in closed columns are excluded from the sprint panel even if assigned to sprint', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await createUser(request, 'Sprint Closed Tester');
+    const boardRes = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Sprint Closed Board' },
+      })
+    ).json();
+    const boardId = boardRes.id;
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Test Lane', designator: 'SC-', color: '#6366f1' },
+      })
+    ).json();
+
+    const columns: Array<{ id: number; position: number; state: string }> = await (
+      await request.get(`${BASE}/api/boards/${boardId}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+
+    const sorted = [...columns].sort((a, b) => a.position - b.position);
+    const openColumn = sorted.find((c) => c.state !== 'closed') ?? sorted[0];
+    const doneColumn = sorted.find((c) => c.state === 'closed') ?? sorted[sorted.length - 1];
+
+    const sprint = await createSprint(request, token, boardId, 'Sprint');
+
+    // Card in open column assigned to sprint — should appear in sprint panel
+    const openCard = await createCard(request, token, boardId, swimlane.id, openColumn.id, 'Active Sprint Card');
+    // Card in Done column assigned to sprint — should NOT appear in sprint panel
+    const doneCard = await createCard(request, token, boardId, swimlane.id, doneColumn.id, 'Completed Sprint Card');
+
+    if (!openCard || !doneCard) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    await request.post(`${BASE}/api/cards/${openCard.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: sprint.id },
+    });
+    await request.post(`${BASE}/api/cards/${doneCard.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: sprint.id },
+    });
+
+    await navigateToBacklog(page, token, boardId);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    // Open column card should be in the sprint panel
+    await expect(
+      page.locator('.backlog-sprint-cards .card-title').filter({ hasText: 'Active Sprint Card' }),
+    ).toBeVisible({ timeout: 6000 });
+
+    // Done column card should NOT be in the sprint panel
+    await expect(
+      page.locator('.backlog-sprint-cards .card-title').filter({ hasText: 'Completed Sprint Card' }),
+    ).not.toBeVisible({ timeout: 3000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 17. GET /api/boards/:id/cards returns sprint_id for assigned cards
+  // -------------------------------------------------------------------------
+  test('GET /api/boards/:id/cards includes sprint_id on assigned cards', async ({ request }) => {
+    const { token } = await createUser(request, 'Cards Sprint ID Tester');
+    const { boardId, swimlaneId, firstColumnId } = await setupBoard(request, token, 'Cards Sprint ID Board');
+    const sprint = await createSprint(request, token, boardId, 'Sprint');
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Sprint Card With ID');
+    if (!card) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: sprint.id },
+    });
+
+    const res = await request.get(`${BASE}/api/boards/${boardId}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+
+    const cards = await res.json();
+    const found = cards.find((c: { id: number; sprint_id: number | null }) => c.id === card.id);
+    expect(found).toBeTruthy();
+    expect(found.sprint_id).toBe(sprint.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // 18. Backlog shows unassigned cards when there is no sprint at all
+  // -------------------------------------------------------------------------
+  test('backlog section shows unassigned cards even when board has no sprints', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await createUser(request, 'No Sprint Backlog Tester');
+    const { boardId, swimlaneId, firstColumnId } = await setupBoard(request, token, 'No Sprint Backlog Board');
+    // Deliberately create no sprints
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Unassigned Orphan Card');
+    if (!card) {
+      test.skip(true, 'Card creation unavailable');
+      return;
+    }
+
+    await navigateToBacklog(page, token, boardId);
+
+    // No-sprint empty panel is shown, and we need to scroll down to find the swimlane section
+    await expect(page.locator('.backlog-no-sprint')).toBeVisible({ timeout: 6000 });
+
+    // The card should still be visible in the swimlane backlog section below the sprint panels
+    await expect(
+      page.locator('.swimlane-backlog .card-title').filter({ hasText: 'Unassigned Orphan Card' }),
+    ).toBeVisible({ timeout: 6000 });
+  });
 });

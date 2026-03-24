@@ -486,4 +486,122 @@ test.describe('Sprints', () => {
     // No active sprint → empty state
     await expect(page.locator('.empty-swimlanes')).toBeVisible({ timeout: 8000 });
   });
+
+  // -------------------------------------------------------------------------
+  // 17. PUT /api/sprints/:id updates sprint name correctly (API shape)
+  // -------------------------------------------------------------------------
+  test('PUT /api/sprints/:id updates name and returns updated sprint', async ({ request }) => {
+    const { token } = await createUser(request, 'Update Sprint Tester');
+    const { boardId } = await setupBoard(request, token, 'Update Sprint Board');
+    const sprint = await createSprint(request, token, boardId, 'Old Name');
+
+    const res = await request.put(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'New Name', goal: 'New goal' },
+    });
+    expect(res.status()).toBe(200);
+
+    const updated = await res.json();
+    expect(updated.name).toBe('New Name');
+    expect(updated.goal).toBe('New goal');
+    expect(updated.id).toBe(sprint.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // 18. DELETE /api/sprints/:id returns 204
+  // -------------------------------------------------------------------------
+  test('DELETE /api/sprints/:id returns 204 and sprint no longer listed', async ({ request }) => {
+    const { token } = await createUser(request, 'Delete API Tester');
+    const { boardId } = await setupBoard(request, token, 'Delete API Board');
+    const sprint = await createSprint(request, token, boardId, 'Delete Me Sprint');
+
+    const res = await request.delete(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(204);
+
+    // Verify it's removed from list
+    const listRes = await request.get(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const sprints: Array<{ id: number }> = (await listRes.json()) ?? [];
+    expect(Array.isArray(sprints)).toBe(true);
+    expect(sprints.find((s) => s.id === sprint.id)).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // 19. Active sprint can still be deleted via API (no guard exists)
+  // -------------------------------------------------------------------------
+  test('active sprint can be deleted via API — board shows no active sprint after', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await createUser(request, 'Delete Active Tester');
+    const { boardId } = await setupBoard(request, token, 'Delete Active Board');
+    const sprint = await createSprint(request, token, boardId, 'Active Sprint To Delete');
+    await startSprint(request, token, sprint.id);
+
+    // Delete the active sprint directly via API
+    const delRes = await request.delete(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(delRes.status()).toBe(204);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+
+    // With no active sprint the board shows the empty state
+    await expect(page.locator('.empty-swimlanes')).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 20. GET /api/sprints/:id returns 404 for non-existent sprint
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints/:id returns 404 for a non-existent sprint', async ({ request }) => {
+    const { token } = await createUser(request, 'Sprint 404 Tester');
+    const res = await request.get(`${BASE}/api/sprints/999999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(404);
+  });
+
+  // -------------------------------------------------------------------------
+  // 21. Completing sprint updates status in GET /api/sprints?board_id
+  // -------------------------------------------------------------------------
+  test('completing a sprint changes its status to completed in list endpoint', async ({ request }) => {
+    const { token } = await createUser(request, 'Status Update Tester');
+    const { boardId } = await setupBoard(request, token, 'Status Update Board');
+    const sprint = await createSprint(request, token, boardId, 'Status Sprint');
+    await startSprint(request, token, sprint.id);
+    await completeSprint(request, token, sprint.id);
+
+    const res = await request.get(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const sprints = await res.json();
+    const found = sprints.find((s: { id: number; status: string }) => s.id === sprint.id);
+    expect(found).toBeTruthy();
+    expect(found.status).toBe('completed');
+  });
+
+  // -------------------------------------------------------------------------
+  // 22. Sprint edit — update goal via PUT persists to GET /api/sprints/:id
+  // -------------------------------------------------------------------------
+  test('updating sprint goal via PUT is reflected in GET /api/sprints/:id', async ({ request }) => {
+    const { token } = await createUser(request, 'Goal Update Tester');
+    const { boardId } = await setupBoard(request, token, 'Goal Update Board');
+    const sprint = await createSprint(request, token, boardId, 'Goal Sprint', { goal: 'Old goal' });
+
+    await request.put(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Goal Sprint', goal: 'Refactored goal' },
+    });
+
+    const getRes = await request.get(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const updated = await getRes.json();
+    expect(updated.goal).toBe('Refactored goal');
+  });
 });
