@@ -49,11 +49,11 @@ async function promoteAdmin(
  * navigation, including page.reload() calls.
  * Must be called before the first page.goto().
  */
-function injectToken(
+async function injectToken(
   page: Parameters<Parameters<typeof test>[1]>[0]['page'],
   token: string,
-): void {
-  page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+): Promise<void> {
+  await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ test.describe('Display name in sidebar navigation', () => {
 
     await injectToken(page, token);
     // Ensure sidebar is not collapsed so .user-name is rendered
-    await page.evaluate(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.addInitScript(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
     await page.goto('/dashboard');
 
     await expect(page.locator('.user-name')).toContainText('NavDisplayUser');
@@ -187,7 +187,7 @@ test.describe('Display name in sidebar navigation', () => {
     const { token } = await signupAPI(request, displayName, email);
 
     await injectToken(page, token);
-    await page.evaluate(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.addInitScript(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
     await page.goto('/dashboard');
 
     await expect(page.locator('.user-name')).toContainText(displayName);
@@ -263,7 +263,7 @@ test.describe('Session persistence', () => {
     const { token } = await signupAPI(request, 'PersistUser', email);
 
     await injectToken(page, token);
-    await page.evaluate(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.addInitScript(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
     await page.goto('/dashboard');
     await expect(page).toHaveURL(/\/dashboard/);
 
@@ -350,8 +350,7 @@ test.describe('Separate user sessions', () => {
     // Context A
     const ctxA = await browser.newContext();
     const pageA = await ctxA.newPage();
-    await pageA.goto('http://localhost:3000/login');
-    await pageA.evaluate((t: string) => localStorage.setItem('token', t), tokenA);
+    await pageA.addInitScript((t: string) => localStorage.setItem('token', t), tokenA);
     await pageA.goto('http://localhost:3000/settings');
     await expect(pageA.locator('.profile-info h3')).toContainText('UserAlpha');
     await ctxA.close();
@@ -359,8 +358,7 @@ test.describe('Separate user sessions', () => {
     // Context B
     const ctxB = await browser.newContext();
     const pageB = await ctxB.newPage();
-    await pageB.goto('http://localhost:3000/login');
-    await pageB.evaluate((t: string) => localStorage.setItem('token', t), tokenB);
+    await pageB.addInitScript((t: string) => localStorage.setItem('token', t), tokenB);
     await pageB.goto('http://localhost:3000/settings');
     await expect(pageB.locator('.profile-info h3')).toContainText('UserBeta');
     await ctxB.close();

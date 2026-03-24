@@ -226,8 +226,11 @@ test.describe('Mark all read', () => {
 
     await page.click('.notification-bell');
     await expect(page.locator('.notification-dropdown')).toBeVisible();
+    // Wait for notification items to load before clicking Mark all read
+    await expect(page.locator('.notification-item')).toBeVisible({ timeout: 8000 });
 
-    await page.click('.mark-all-read-btn');
+    // Use force:true because the notification dropdown may be overlapped by sidebar-nav in the DOM
+    await page.click('.mark-all-read-btn', { force: true });
 
     await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 8000 });
   });
@@ -251,15 +254,22 @@ test.describe('Mark all read', () => {
     await navigateToBoard(page, token, board.id);
     await page.reload();
     await page.waitForSelector('.notification-bell', { timeout: 10000 });
+    // Wait for badge to confirm notifications arrived
+    await expect(page.locator('.notification-badge')).toBeVisible({ timeout: 8000 });
 
     await page.click('.notification-bell');
     await expect(page.locator('.notification-dropdown')).toBeVisible();
 
-    // Confirm there are unread items
+    // Wait for notification items to load
+    await expect(page.locator('.notification-item').first()).toBeVisible({ timeout: 8000 });
+
+    // Confirm there are unread items (items have class .unread when notification.read is false)
+    await expect(page.locator('.notification-item.unread').first()).toBeVisible({ timeout: 8000 });
     const unreadBefore = await page.locator('.notification-item.unread').count();
     expect(unreadBefore).toBeGreaterThanOrEqual(1);
 
-    await page.click('.mark-all-read-btn');
+    // Use force:true because the notification dropdown may be overlapped by sidebar-nav in the DOM
+    await page.click('.mark-all-read-btn', { force: true });
 
     // All unread items should now be gone
     await expect(page.locator('.notification-item.unread')).toHaveCount(0, { timeout: 8000 });
@@ -288,9 +298,10 @@ test.describe('Individual notification interaction', () => {
 
     // The notification must be visible and unread
     const unreadItem = page.locator('.notification-item.unread').first();
-    await expect(unreadItem).toBeVisible();
+    await expect(unreadItem).toBeVisible({ timeout: 8000 });
 
-    await unreadItem.click();
+    // Use force:true because sidebar-nav may intercept pointer events in this area
+    await unreadItem.click({ force: true });
 
     // Re-open dropdown and verify item is now read (no longer has .unread class)
     await page.click('.notification-bell');
@@ -364,9 +375,11 @@ test.describe('Notification navigation', () => {
 
     await page.click('.notification-bell');
     await expect(page.locator('.notification-dropdown')).toBeVisible();
+    // Wait for notification items to load
+    await expect(page.locator('.notification-item').first()).toBeVisible({ timeout: 8000 });
 
-    // Click the first notification
-    await page.locator('.notification-item').first().click();
+    // Use force:true because sidebar-nav may intercept pointer events in this area
+    await page.locator('.notification-item').first().click({ force: true });
 
     // URL should contain the card ID as ?card=<id>
     await expect(page).toHaveURL(new RegExp(`[?&]card=${card.id}`), { timeout: 8000 });

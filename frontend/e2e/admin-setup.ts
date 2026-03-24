@@ -18,7 +18,8 @@ setup('create admin user', async ({ page, request }) => {
   await page.fill('#password', adminPassword);
   await page.fill('#confirmPassword', adminPassword);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/dashboard/, { timeout: 10000 });
+  // Signup redirects to /boards (not /dashboard)
+  await page.waitForURL(/\/boards/, { timeout: 10000 });
 
   // Get JWT token and promote to admin
   const token = await page.evaluate(() => localStorage.getItem('token'));

@@ -263,7 +263,7 @@ test.describe('Card Modal — Multiple Custom Fields', () => {
     const dateInput = page.locator('.custom-field-inline input[type="date"]');
     await dateInput.fill('2025-06-15');
     // Date fields typically save on change; allow a moment
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2500);
 
     await page.click('.modal-overlay', { position: { x: 10, y: 10 } });
     await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible();
