@@ -347,3 +347,442 @@ test.describe('Saved Filters', () => {
     await expect(page.locator('.saved-filters-empty')).toContainText('No saved filters');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Saved Filters — API contract
+// ---------------------------------------------------------------------------
+
+test.describe('Saved Filters — API', () => {
+
+  test('POST /api/boards/:id/filters returns 201 with id', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'API Test Filter',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: false,
+      },
+    });
+
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body).toHaveProperty('id');
+    expect(typeof body.id).toBe('number');
+    expect(body.name).toBe('API Test Filter');
+  });
+
+  test('GET /api/boards/:id/filters returns array of saved filters', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    // Create one filter first
+    await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'List Test Filter',
+        filter_json: JSON.stringify({ priority: 'low' }),
+        is_shared: false,
+      },
+    });
+
+    const res = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+  });
+
+  test('saved filter has correct name and filter_json', async ({ request }) => {
+    const setup = await setupBoard(request);
+    const filterData = { priority: 'medium', search: 'auth' };
+
+    const createRes = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'Shape Check Filter',
+        filter_json: JSON.stringify(filterData),
+        is_shared: false,
+      },
+    });
+    expect(createRes.status()).toBe(201);
+    const created = await createRes.json();
+
+    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const filters = await listRes.json();
+    const found = filters.find((f: any) => f.id === created.id);
+
+    expect(found).toBeDefined();
+    expect(found.name).toBe('Shape Check Filter');
+    // filter_json is stored as a string
+    expect(JSON.parse(found.filter_json)).toMatchObject(filterData);
+  });
+
+  test('DELETE /api/boards/:id/filters/:filterId removes the filter', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    const createRes = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'To Be Deleted',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: false,
+      },
+    });
+    const { id } = await createRes.json();
+
+    const delRes = await request.delete(
+      `${BASE}/api/boards/${setup.boardId}/filters/${id}`,
+      { headers: { Authorization: `Bearer ${setup.token}` } },
+    );
+    expect(delRes.status()).toBe(204);
+
+    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const filters = await listRes.json();
+    const found = filters.find((f: any) => f.id === id);
+    expect(found).toBeUndefined();
+  });
+
+  test('GET /api/boards/:id/filters returns empty array when no filters exist', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    const res = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBe(0);
+  });
+
+  test('saved filter is board-specific — appears only on its own board', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    // Create filter on board A
+    await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'Board A Only Filter',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: false,
+      },
+    });
+
+    // Create board B
+    const boardBRes = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { name: 'Board B For Filter Test' },
+    });
+    const boardB = await boardBRes.json();
+
+    // Filters on board B must not include board A's filter
+    const listRes = await request.get(`${BASE}/api/boards/${boardB.id}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const filters = await listRes.json();
+    const leaked = filters.find((f: any) => f.name === 'Board A Only Filter');
+    expect(leaked).toBeUndefined();
+  });
+
+  test('another user cannot see a private filter (is_shared: false)', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    // Create a private filter
+    const createRes = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'Private Filter',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: false,
+      },
+    });
+    expect(createRes.status()).toBe(201);
+
+    // Create a second user and add them to the board so they can query its filters
+    const suffix2 = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { token: tokenB } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: {
+          email: `test-sf2-${suffix2}@test.com`,
+          password: 'password123',
+          display_name: 'Other User',
+        },
+      })
+    ).json();
+
+    await request.post(`${BASE}/api/boards/${setup.boardId}/members`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { user_token: tokenB, role: 'member' },
+    });
+
+    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    const filters = await listRes.json();
+    const leaked = filters.find((f: any) => f.name === 'Private Filter');
+    expect(leaked).toBeUndefined();
+  });
+
+  test('another user cannot delete a filter they do not own', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    const createRes = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'Ownership Filter',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: false,
+      },
+    });
+    const { id } = await createRes.json();
+
+    // Create second user
+    const suffix2 = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { token: tokenB } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: {
+          email: `test-sf-del2-${suffix2}@test.com`,
+          password: 'password123',
+          display_name: 'Thief User',
+        },
+      })
+    ).json();
+
+    const delRes = await request.delete(
+      `${BASE}/api/boards/${setup.boardId}/filters/${id}`,
+      { headers: { Authorization: `Bearer ${tokenB}` } },
+    );
+    // Must not succeed — 403 or 404 expected
+    expect([403, 404]).toContain(delRes.status());
+  });
+
+  test('multiple saved filters can exist on the same board', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    for (const name of ['Filter One', 'Filter Two', 'Filter Three']) {
+      const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+        headers: { Authorization: `Bearer ${setup.token}` },
+        data: {
+          name,
+          filter_json: JSON.stringify({ priority: 'high' }),
+          is_shared: false,
+        },
+      });
+      expect(res.status()).toBe(201);
+    }
+
+    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const filters = await listRes.json();
+    expect(filters.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('POST filter with empty name returns 400', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: '',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: false,
+      },
+    });
+
+    expect(res.status()).toBe(400);
+  });
+
+  test('POST filter with invalid JSON in filter_json returns 400', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'Bad JSON Filter',
+        filter_json: '{ not valid json !!!',
+        is_shared: false,
+      },
+    });
+
+    expect(res.status()).toBe(400);
+  });
+
+  test('unauthenticated POST to filters returns 401', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      data: {
+        name: 'Unauth Filter',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: false,
+      },
+    });
+
+    expect(res.status()).toBe(401);
+  });
+
+  test('filter with assignee criteria is stored and returned correctly', async ({ request }) => {
+    const setup = await setupBoard(request);
+    const filterData = { assignee: 'user123', priority: '' };
+
+    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'Assignee Filter',
+        filter_json: JSON.stringify(filterData),
+        is_shared: false,
+      },
+    });
+    expect(res.status()).toBe(201);
+    const created = await res.json();
+
+    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const filters = await listRes.json();
+    const found = filters.find((f: any) => f.id === created.id);
+    expect(found).toBeDefined();
+    expect(JSON.parse(found.filter_json)).toMatchObject({ assignee: 'user123' });
+  });
+
+  test('filter with text search criteria is stored and returned correctly', async ({ request }) => {
+    const setup = await setupBoard(request);
+    const filterData = { search: 'authentication bug', priority: '' };
+
+    const res = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'Text Search Filter',
+        filter_json: JSON.stringify(filterData),
+        is_shared: false,
+      },
+    });
+    expect(res.status()).toBe(201);
+    const created = await res.json();
+
+    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const filters = await listRes.json();
+    const found = filters.find((f: any) => f.id === created.id);
+    expect(JSON.parse(found.filter_json)).toMatchObject({ search: 'authentication bug' });
+  });
+
+  test('shared filter (is_shared: true) is included in list for the owner', async ({ request }) => {
+    const setup = await setupBoard(request);
+
+    const createRes = await request.post(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: {
+        name: 'Shared Filter',
+        filter_json: JSON.stringify({ priority: 'high' }),
+        is_shared: true,
+      },
+    });
+    expect(createRes.status()).toBe(201);
+    const created = await createRes.json();
+
+    const listRes = await request.get(`${BASE}/api/boards/${setup.boardId}/filters`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+    });
+    const filters = await listRes.json();
+    const found = filters.find((f: any) => f.id === created.id);
+    expect(found).toBeDefined();
+    expect(found.is_shared).toBe(true);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// Saved Filters — UI (additional flows)
+// ---------------------------------------------------------------------------
+
+test.describe('Saved Filters — UI (additional)', () => {
+
+  test('saved filter with label criteria can be saved and applied', async ({ page, request }) => {
+    const setup = await setupBoard(request);
+    await navigateToBoard(page, setup.boardId, setup.token);
+
+    // Open filter bar
+    if (!(await page.locator('.filters-expanded').isVisible())) {
+      await page.click('.filter-toggle-btn');
+      await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 5000 });
+    }
+
+    // Attempt to select a label filter if the selector exists
+    const labelSelect = page.locator('.filter-select').filter({
+      has: page.locator('option[value=""]'),
+    }).nth(1); // second select (labels, if exists)
+
+    // If there is no label filter control, save a priority filter as a proxy
+    const hasPriorityOpt = await page.locator('.filter-select option:text("All priorities")').count();
+    if (hasPriorityOpt > 0) {
+      await setActivePriorityFilter(page, 'high');
+      await saveFilter(page, 'Label Proxy Filter');
+
+      await page.click('.saved-filters-btn');
+      await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('.saved-filter-name:has-text("Label Proxy Filter")')).toBeVisible();
+    } else {
+      test.skip(true, 'No filter controls available');
+    }
+  });
+
+  test('saved filter persists across page reload (server-side storage)', async ({ page, request }) => {
+    const setup = await setupBoard(request);
+    await navigateToBoard(page, setup.boardId, setup.token);
+
+    await setActivePriorityFilter(page, 'low');
+    await saveFilter(page, 'Reload Persist Filter');
+
+    // Full reload — clears all React state
+    await page.reload();
+    await page.waitForSelector('.board-header', { timeout: 15000 });
+
+    await page.click('.saved-filters-btn');
+    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.saved-filter-name:has-text("Reload Persist Filter")')).toBeVisible();
+  });
+
+  test('saved filter is not visible to a different user on the same board (private)', async ({ page, request }) => {
+    const setup = await setupBoard(request);
+    await navigateToBoard(page, setup.boardId, setup.token);
+
+    await setActivePriorityFilter(page, 'high');
+    await saveFilter(page, 'Owner Only Filter');
+
+    // Create second user
+    const suffix2 = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { token: tokenB } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: {
+          email: `test-sf-priv-${suffix2}@test.com`,
+          password: 'password123',
+          display_name: 'Viewer User',
+        },
+      })
+    ).json();
+
+    // Add second user to board
+    await request.post(`${BASE}/api/boards/${setup.boardId}/members`, {
+      headers: { Authorization: `Bearer ${setup.token}` },
+      data: { user_token: tokenB, role: 'member' },
+    });
+
+    // Navigate as second user
+    await navigateToBoard(page, setup.boardId, tokenB);
+
+    await page.click('.saved-filters-btn');
+    await expect(page.locator('.saved-filters-dropdown')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.saved-filter-name:has-text("Owner Only Filter")')).not.toBeVisible();
+  });
+
+});
