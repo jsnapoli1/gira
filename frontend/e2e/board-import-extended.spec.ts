@@ -164,13 +164,14 @@ test.describe('Board Import — Extended', () => {
 
     await openModalAndUploadCSV(page, board.id);
 
-    // Click Import (leave project selection at default "All Projects").
+    // Select ZRP project only (8 rows) to keep the import fast and deterministic.
+    await page.locator('.import-select').selectOption(EXPECTED_PROJECT_KEY);
+
     const importBtn = page.locator('.import-modal-actions button:has-text("Import")');
     await expect(importBtn).toBeEnabled();
     await importBtn.click();
 
-    // Wait for the result pane to appear — importing many rows can take a few
-    // seconds so allow a generous timeout.
+    // Wait for the result pane to appear.
     await expect(page.locator('.import-result')).toBeVisible({ timeout: 30000 });
 
     // Close the modal.

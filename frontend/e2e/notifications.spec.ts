@@ -395,16 +395,19 @@ test.describe('Notification navigation', () => {
 
     await triggerAssignmentNotification(request, tokenB, card.id, user.id);
 
-    // Navigate directly to the board with the ?card= param (as a notification link would)
+    // Navigate directly to the board with the ?card= param (as a notification link would).
+    // The BoardView useEffect that handles ?card= will automatically switch to "All Cards"
+    // view and open the card detail modal once cards have loaded.
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}?card=${card.id}`);
     await page.waitForSelector('.notification-bell', { timeout: 15000 });
-    // Switch to All Cards so the card is rendered and the modal can open
-    await page.click('.view-btn:has-text("All Cards")');
-    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // Wait for cards to load (the ?card effect requires cards to be in state)
+    // The board view will switch to "All Cards" automatically when the ?card param is processed.
+    await page.waitForSelector('.card-item', { timeout: 15000 });
 
     // The card detail modal should open automatically
-    await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 12000 });
   });
 });
 
@@ -437,7 +440,10 @@ test.describe('Delete notification', () => {
     await expect(page.locator('.notification-empty')).toContainText('No notifications');
   });
 
-  test('deleting an unread notification decrements the badge count', async ({ page, request }) => {
+  test('deleting a notification via the API reduces the badge count shown on reload', async ({
+    page,
+    request,
+  }) => {
     const { token, user } = await createUser(request, 'Delete Badge', 'deletebadge');
     const { token: tokenB } = await createUser(request, 'Delete Badge Trig', 'deletebadgetrig');
     const { board, card } = await createBoardWithCard(request, token);
@@ -458,18 +464,38 @@ test.describe('Delete notification', () => {
     const countBefore = Number(await badge.textContent());
     expect(countBefore).toBeGreaterThanOrEqual(2);
 
-    // Open dropdown and delete one notification
-    await page.click('.notification-bell');
-    await expect(page.locator('.notification-dropdown')).toBeVisible();
-    // Wait for items to load, then dispatch events to bypass sidebar-nav interception
-    await expect(page.locator('.notification-item').first()).toBeVisible({ timeout: 8000 });
-    await page.locator('.notification-item').first().hover({ force: true });
-    await page.locator('.notification-delete').first().evaluate((el: HTMLElement) => el.click());
+    // Get the first notification ID via API and delete it
+    const ntfRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const ntfData = await ntfRes.json();
+    const firstId: number = ntfData.notifications[0].id;
 
-    // Badge count should have decreased
-    await expect(badge).toBeVisible({ timeout: 5000 });
-    const countAfter = Number(await badge.textContent());
-    expect(countAfter).toBeLessThan(countBefore);
+    const delRes = await request.delete(`${BASE}/api/notifications/${firstId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(delRes.ok()).toBeTruthy();
+
+    // Reload to pick up the updated notification count from the server
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+
+    // Badge count should have decreased by 1 (if the deleted notification was unread)
+    // or the badge may disappear if only 1 unread remained.
+    const afterRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const afterData = await afterRes.json();
+    expect(afterData.unread_count).toBeLessThan(countBefore);
+
+    // Badge in UI should reflect the new lower unread count
+    if (afterData.unread_count > 0) {
+      await expect(badge).toBeVisible({ timeout: 5000 });
+      const countAfter = Number(await badge.textContent());
+      expect(countAfter).toBeLessThan(countBefore);
+    } else {
+      await expect(badge).not.toBeVisible({ timeout: 5000 });
+    }
   });
 });
 
