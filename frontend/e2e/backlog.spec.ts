@@ -1,35 +1,39 @@
 import { test, expect } from '@playwright/test';
 
+const PORT = process.env.PORT || 9002;
+const BASE = `http://127.0.0.1:${PORT}`;
+
 test.describe('Backlog', () => {
-  test.beforeEach(async ({ page }) => {
-    // Create a unique user, login, and create a board
-    const uniqueEmail = `test-backlog-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
-    await page.goto('/signup');
-    await page.fill('#displayName', 'Backlog Test User');
-    await page.fill('#email', uniqueEmail);
-    await page.fill('#password', 'password123');
-    await page.fill('#confirmPassword', 'password123');
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
-    await page.goto('/boards');
+  test.beforeEach(async ({ page, request }) => {
+    // Create a unique user via API
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: {
+        email: `test-backlog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`,
+        password: 'password123',
+        display_name: 'Backlog Test User',
+      },
+    })).json();
 
-    // Create a board
-    await page.click('text=Create Board');
-    await page.fill('#boardName', 'Backlog Test Board');
-    await page.click('button[type="submit"]:has-text("Create Board")');
-    // After creation the app navigates directly to the board detail page
-    await page.waitForURL(/\/boards\/\d+/);
+    // Create a board (response includes columns array)
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Backlog Test Board' },
+    })).json();
+
+    // Create a swimlane
+    await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Test Swimlane', designator: 'TS-' },
+    })).json();
+
+    // Set token in localStorage and navigate to board
+    await page.addInitScript((t) => {
+      localStorage.setItem('token', t);
+      // Expand filters so filter-select elements are in the DOM for any tests that need them
+      localStorage.setItem('zira-filters-expanded', 'true');
+    }, token);
+    await page.goto(`/boards/${board.id}`);
     await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
-
-    // Add a swimlane — required for the backlog section to render card rows
-    await page.click('button:has-text("Add Swimlane")');
-    await expect(page.locator('.modal h2')).toContainText('Add Swimlane');
-    await page.fill('input[placeholder="Frontend"]', 'Test Swimlane');
-    await page.fill('.modal input[placeholder="owner/repo"]', 'test/repo');
-    await page.fill('input[placeholder="FE-"]', 'TS-');
-    await page.locator('.color-picker .color-option').first().click();
-    await page.click('button[type="submit"]:has-text("Add Swimlane")');
-    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
     // Wait for the swimlane to be registered in the filter dropdown
     await page.waitForFunction(() => {
       const selects = Array.from(document.querySelectorAll('.filter-select'));

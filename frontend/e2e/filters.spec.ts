@@ -39,51 +39,38 @@ test.describe('Filter Bar', () => {
     const swimlane = await swimlaneRes.json();
     swimlanes = [swimlane];
 
-    // Create 3 cards with different priorities
-    const card1Res = await request.post(`http://localhost:${PORT}/api/cards`, {
+    // Create 3 cards with different priorities (include priority in the initial POST)
+    await request.post(`http://localhost:${PORT}/api/cards`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
         title: 'High Priority Card',
         column_id: columns[0].id,
         swimlane_id: swimlanes[0].id,
         board_id: boardId,
+        priority: 'high',
       },
     });
-    // API returns Card directly (not wrapped)
-    const card1 = await card1Res.json();
-    await request.put(`http://localhost:${PORT}/api/cards/${card1.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { priority: 'high' },
-    });
 
-    const card2Res = await request.post(`http://localhost:${PORT}/api/cards`, {
+    await request.post(`http://localhost:${PORT}/api/cards`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
         title: 'Low Priority Card',
         column_id: columns[0].id,
         swimlane_id: swimlanes[0].id,
         board_id: boardId,
+        priority: 'low',
       },
     });
-    const card2 = await card2Res.json();
-    await request.put(`http://localhost:${PORT}/api/cards/${card2.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { priority: 'low' },
-    });
 
-    const card3Res = await request.post(`http://localhost:${PORT}/api/cards`, {
+    await request.post(`http://localhost:${PORT}/api/cards`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
         title: 'Normal Card',
         column_id: columns[0].id,
         swimlane_id: swimlanes[0].id,
         board_id: boardId,
+        priority: 'medium',
       },
-    });
-    const card3 = await card3Res.json();
-    await request.put(`http://localhost:${PORT}/api/cards/${card3.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { priority: 'medium' },
     });
 
     // Inject token and navigate to board
@@ -210,18 +197,23 @@ test.describe('Filter Bar', () => {
       },
     });
     const overdueCard = await overdueCardRes.json();
+    // PUT requires full fields — title must be included or it gets wiped
     await request.put(`http://localhost:${PORT}/api/cards/${overdueCard.id}`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { due_date: '2020-01-01' },
+      data: { title: overdueCard.title, description: overdueCard.description || '', due_date: '2020-01-01' },
     });
 
-    // Reload page to pick up new card
+    // Reload page to pick up the new overdue card
     await page.reload();
+    // Wait for the board to load
+    await page.waitForSelector('.board-header', { timeout: 10000 });
+    await page.waitForSelector('.view-toggle', { timeout: 10000 });
+    // Switch to All Cards view
     await page.click('.view-btn:has-text("All Cards")');
-    await page.waitForSelector('.card-item', { timeout: 8000 });
+    await page.waitForSelector('.board-grid', { timeout: 10000 });
 
-    // All 4 cards should be present now
-    await expect(page.locator('.card-item')).toHaveCount(4, { timeout: 8000 });
+    // All 4 cards should be present now (3 from beforeEach + 1 overdue)
+    await expect(page.locator('.card-item')).toHaveCount(4, { timeout: 12000 });
 
     // Expand filters
     await page.click('.filter-toggle-btn');

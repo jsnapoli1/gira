@@ -14,16 +14,13 @@ test.describe('Work Logs (Time Tracking)', () => {
       },
     })).json();
 
-    // Create a board
+    // Create a board (response includes columns array)
     const board = await (await request.post(`${BASE}/api/boards`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: 'Worklog Test Board' },
     })).json();
 
-    // Get columns
-    const { columns } = await (await request.get(`${BASE}/api/boards/${board.id}/columns`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })).json();
+    const columns = board.columns;
 
     // Create a swimlane
     const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {

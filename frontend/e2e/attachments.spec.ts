@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import * as fs from 'fs';
 
+const PORT = process.env.PORT || 9002;
+const BASE = `http://127.0.0.1:${PORT}`;
+
 test.describe('Attachments', () => {
   // Use a unique temp file per worker to avoid parallel test collisions
   let testFilePath: string;
@@ -18,41 +21,47 @@ test.describe('Attachments', () => {
     }
   });
 
-  test.beforeEach(async ({ page }) => {
-    // Create a unique user and login
-    const uniqueEmail = `test-attachments-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
-    await page.goto('/signup');
-    await page.fill('#displayName', 'Attachment Test User');
-    await page.fill('#email', uniqueEmail);
-    await page.fill('#password', 'password123');
-    await page.fill('#confirmPassword', 'password123');
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
-    await page.goto('/boards');
+  test.beforeEach(async ({ page, request }) => {
+    // Create a unique user via API
+    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+      data: {
+        email: `test-attachments-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`,
+        password: 'password123',
+        display_name: 'Attachment Test User',
+      },
+    })).json();
 
-    // Create a board
-    await page.click('text=Create Board');
-    await page.fill('#boardName', 'Attachment Test Board');
-    await page.click('button[type="submit"]:has-text("Create Board")');
-    // After creation the app navigates directly to the board detail page
-    await page.waitForURL(/\/boards\/\d+/);
+    // Create a board (response includes columns array)
+    const board = await (await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Attachment Test Board' },
+    })).json();
 
-    // Add a swimlane (required for cards)
-    await page.click('.empty-swimlanes button:has-text("Add Swimlane")');
-    await page.waitForSelector('.modal', { timeout: 5000 });
-    await page.fill('input[placeholder="Frontend"]', 'Test Swimlane');
-    await page.fill('.modal input[placeholder="owner/repo"]', 'test/repo');
-    await page.fill('input[placeholder="FE-"]', 'TEST-');
-    await page.click('.modal .form-actions button:has-text("Add Swimlane")');
+    const columns = board.columns;
+
+    // Create a swimlane
+    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Test Swimlane', designator: 'TEST-' },
+    })).json();
+
+    // Create a card
+    await (await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Test Card for Attachments',
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+        board_id: board.id,
+      },
+    })).json();
+
+    // Set token in localStorage and navigate to board
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
     // Switch to All Cards view so swimlane headers are visible without a sprint
     await page.click('.view-btn:has-text("All Cards")');
-    await page.waitForSelector('.swimlane-header', { timeout: 5000 });
-
-    // Add a card via quick-add
-    await page.click('.add-card-btn');
-    await page.fill('.quick-add-form input', 'Test Card for Attachments');
-    await page.click('.quick-add-form button[type="submit"]');
-    await page.waitForSelector('.card-item', { timeout: 5000 });
+    await page.waitForSelector('.card-item', { timeout: 10000 });
   });
 
   test('should show empty attachments state', async ({ page }) => {

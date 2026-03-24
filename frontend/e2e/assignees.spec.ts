@@ -20,8 +20,12 @@ test.describe('Assignees', () => {
     // After creation the app navigates directly to the board detail page
     await page.waitForURL(/\/boards\/\d+/);
 
+    // Expand filters by clicking the filter toggle button
+    await page.waitForSelector('.filter-toggle-btn', { timeout: 5000 });
+    await page.click('.filter-toggle-btn');
+    await page.waitForSelector('.filter-select', { timeout: 5000 });
+
     // Check that the filter dropdown exists
-    await expect(page.locator('.board-header-filters')).toBeVisible();
     // Get the assignee filter (the one with "All assignees" as first option)
     const assigneeFilter = page.locator('.filter-select').filter({ has: page.locator('option:text("All assignees")') });
     await expect(assigneeFilter).toBeVisible();
@@ -46,6 +50,11 @@ test.describe('Assignees', () => {
     await page.click('button[type="submit"]:has-text("Create Board")');
     // After creation the app navigates directly to the board detail page
     await page.waitForURL(/\/boards\/\d+/);
+
+    // Expand filters by clicking the filter toggle button
+    await page.waitForSelector('.filter-toggle-btn', { timeout: 5000 });
+    await page.click('.filter-toggle-btn');
+    await page.waitForSelector('.filter-select', { timeout: 5000 });
 
     // Check that the user appears in filter dropdown
     const assigneeFilter = page.locator('.filter-select').filter({ has: page.locator('option:text("All assignees")') });

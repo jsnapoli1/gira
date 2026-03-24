@@ -30,12 +30,33 @@ test.describe('Cards', () => {
     await expect(page.locator('.empty-swimlanes p')).toContainText('Add a swimlane');
   });
 
-  test('should open add swimlane modal', async ({ page }) => {
+  test('should show Add Swimlane link on empty board', async ({ page }) => {
+    // The "Add Swimlane" element is now a link that navigates to board settings
+    await expect(page.locator('.empty-swimlanes a:has-text("Add Swimlane"), .empty-swimlanes .btn:has-text("Add Swimlane")')).toBeVisible();
+  });
+
+  test('should navigate to board settings when Add Swimlane is clicked', async ({ page }) => {
+    // Clicking "Add Swimlane" from empty state navigates to board settings
+    await page.click('.empty-swimlanes .btn');
+    await expect(page).toHaveURL(/\/boards\/\d+\/settings/, { timeout: 5000 });
+  });
+
+  test('should show Add Swimlane button on board settings page', async ({ page }) => {
+    // Navigate to board settings via the empty-swimlanes link
+    await page.click('.empty-swimlanes .btn');
+    await expect(page).toHaveURL(/\/boards\/\d+\/settings/, { timeout: 5000 });
+
+    // Board settings should have an "Add Swimlane" button that opens a modal
     await page.click('button:has-text("Add Swimlane")');
     await expect(page.locator('.modal h2')).toContainText('Add Swimlane');
   });
 
-  test('should show swimlane form fields', async ({ page }) => {
+  test('should show swimlane form fields in settings modal', async ({ page }) => {
+    // Navigate to board settings
+    await page.click('.empty-swimlanes .btn');
+    await expect(page).toHaveURL(/\/boards\/\d+\/settings/, { timeout: 5000 });
+
+    // Open the Add Swimlane modal from settings
     await page.click('button:has-text("Add Swimlane")');
 
     // Check form fields exist
@@ -45,7 +66,12 @@ test.describe('Cards', () => {
     await expect(page.locator('.color-picker')).toBeVisible();
   });
 
-  test('should cancel add swimlane modal', async ({ page }) => {
+  test('should cancel add swimlane modal in settings', async ({ page }) => {
+    // Navigate to board settings
+    await page.click('.empty-swimlanes .btn');
+    await expect(page).toHaveURL(/\/boards\/\d+\/settings/, { timeout: 5000 });
+
+    // Open the Add Swimlane modal
     await page.click('button:has-text("Add Swimlane")');
     await expect(page.locator('.modal')).toBeVisible();
 

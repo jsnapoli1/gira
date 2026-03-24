@@ -1,54 +1,55 @@
 import { test, expect } from '@playwright/test';
 
-// Helper: create a fresh user, login, create a board, and navigate to it.
-// Returns the page already positioned on the board view.
-async function setupBoard(page: any, prefix: string) {
-  const uniqueEmail = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
-  await page.goto('/signup');
-  await page.fill('#displayName', 'Multi Project User');
-  await page.fill('#email', uniqueEmail);
-  await page.fill('#password', 'password123');
-  await page.fill('#confirmPassword', 'password123');
-  await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
-  await page.goto('/boards');
+const PORT = process.env.PORT || 9002;
+const BASE = `http://127.0.0.1:${PORT}`;
 
-  await page.click('text=Create Board');
-  await page.fill('#boardName', 'Multi Project Board');
-  await page.click('button[type="submit"]:has-text("Create Board")');
-  // After creation the app navigates directly to the board detail page
-  await page.waitForURL(/\/boards\/\d+/);
+// Helper: create a fresh user, board via API, set token, and navigate to the board.
+async function setupBoard(page: any, request: any, prefix: string) {
+  const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+    data: {
+      email: `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`,
+      password: 'password123',
+      display_name: 'Multi Project User',
+    },
+  })).json();
+
+  const board = await (await request.post(`${BASE}/api/boards`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: 'Multi Project Board' },
+  })).json();
+
+  await page.addInitScript((t: string) => {
+    localStorage.setItem('token', t);
+    // Expand filters so filter-select elements are in the DOM
+    localStorage.setItem('zira-filters-expanded', 'true');
+  }, token);
+  await page.goto(`/boards/${board.id}`);
   await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+  return { token, board };
 }
 
-// Helper: add a swimlane via the "Add Swimlane" modal.
-// When Gitea is not configured the repo field is a freetext input (owner/repo).
+// Helper: add a swimlane via API, reload the page, and wait for its name to appear in the filter dropdown.
 async function addSwimlane(
   page: any,
+  request: any,
+  token: string,
+  boardId: number,
   name: string,
-  repo: string,
-  designator: string,
-  colorIndex = 0 // 0–7 indexes into the 8 preset color swatches
+  designator: string
 ) {
-  await page.click('button:has-text("Add Swimlane")');
-  await expect(page.locator('.modal h2')).toContainText('Add Swimlane');
+  const swimlane = await (await request.post(`${BASE}/api/boards/${boardId}/swimlanes`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name, designator },
+  })).json();
 
-  await page.fill('input[placeholder="Frontend"]', name);
-  await page.fill('.modal input[placeholder="owner/repo"]', repo);
-  await page.fill('input[placeholder="FE-"]', designator);
+  // Reload the page so the board fetches fresh data including the new swimlane.
+  // After reload, filtersExpanded is restored from localStorage (set to 'true' in setupBoard).
+  await page.reload();
+  await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
 
-  // Pick a color swatch by index (each is a .color-option button inside .color-picker)
-  const colorOptions = page.locator('.color-picker .color-option');
-  await colorOptions.nth(colorIndex).click();
-
-  await page.click('button[type="submit"]:has-text("Add Swimlane")');
-  // Wait for the modal to close
-  await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
-  // Wait for the swimlane name to appear in the filter dropdown options. This
-  // confirms the board state has been refreshed from the API before proceeding
-  // to the next addSwimlane call (refreshBoard() is fire-and-forget in the app).
+  // Wait for the swimlane name to appear in the filter dropdown options.
   await page.waitForFunction(
-    (swimlaneName) => {
+    (swimlaneName: string) => {
       const selects = Array.from(document.querySelectorAll('.filter-select'));
       return selects.some((sel) =>
         Array.from(sel.querySelectorAll('option')).some((opt) => opt.textContent?.includes(swimlaneName))
@@ -57,6 +58,7 @@ async function addSwimlane(
     name,
     { timeout: 8000 }
   );
+  return swimlane;
 }
 
 // Helper: create a backlog card for a given swimlane section in BacklogView.
@@ -82,24 +84,18 @@ test.describe('Multi-Project Board', () => {
 
   test.describe('Swimlane Management', () => {
     test('should create two swimlanes with different names, designators, and colors', async ({
-      page,
+      page, request,
     }) => {
-      await setupBoard(page, 'mp-create');
+      const { token, board } = await setupBoard(page, request, 'mp-create');
 
       // Board starts with no swimlanes
       await expect(page.locator('.empty-swimlanes')).toBeVisible();
 
-      // Add first swimlane — color index 0 (#6366f1 indigo)
-      await addSwimlane(page, 'Frontend', 'acme/frontend', 'FE-', 0);
+      // Add first swimlane via API
+      await addSwimlane(page, request, token, board.id, 'Frontend', 'FE-');
 
-      // After adding the first swimlane the board is still in "board" mode but
-      // requires an active sprint to show cards. We should at least see the
-      // swimlane header rendered once we switch away from the no-sprint empty state.
-      // NOTE: In Jira, swimlanes are independent projects; here they share a single
-      // sprint, which is board-scoped — not per-swimlane.
-
-      // Add second swimlane — color index 1 (#8b5cf6 violet)
-      await addSwimlane(page, 'Backend', 'acme/backend', 'BE-', 1);
+      // Add second swimlane via API
+      await addSwimlane(page, request, token, board.id, 'Backend', 'BE-');
 
       // The filter dropdown should now list both swimlanes
       const swimlaneFilter = page.locator('.filter-select').filter({
@@ -107,17 +103,17 @@ test.describe('Multi-Project Board', () => {
       });
       await expect(swimlaneFilter).toBeVisible();
       const options = await swimlaneFilter.locator('option').allTextContents();
-      expect(options.some((o) => o.includes('Frontend'))).toBeTruthy();
-      expect(options.some((o) => o.includes('Backend'))).toBeTruthy();
+      expect(options.some((o: string) => o.includes('Frontend'))).toBeTruthy();
+      expect(options.some((o: string) => o.includes('Backend'))).toBeTruthy();
     });
 
     test('should render swimlane headers on board when an active sprint exists', async ({
-      page,
+      page, request,
     }) => {
-      await setupBoard(page, 'mp-headers');
+      const { token, board } = await setupBoard(page, request, 'mp-headers');
 
-      await addSwimlane(page, 'Frontend', 'acme/frontend', 'FE-', 0);
-      await addSwimlane(page, 'Backend', 'acme/backend', 'BE-', 1);
+      await addSwimlane(page, request, token, board.id, 'Frontend', 'FE-');
+      await addSwimlane(page, request, token, board.id, 'Backend', 'BE-');
 
       // Switch to backlog, create a sprint, start it
       await page.click('.view-btn:has-text("Backlog")');
@@ -131,16 +127,16 @@ test.describe('Multi-Project Board', () => {
       await page.click('.view-btn:has-text("Board")');
       await expect(page.locator('.board-content')).toBeVisible({ timeout: 8000 });
 
-      const headers = page.locator('.swimlane-header h2');
+      const headers = page.locator('.swimlane-name');
       await expect(headers.filter({ hasText: 'Frontend' })).toBeVisible({ timeout: 8000 });
       await expect(headers.filter({ hasText: 'Backend' })).toBeVisible({ timeout: 8000 });
     });
 
-    test('should reorder swimlanes by dragging the color handle', async ({ page }) => {
-      await setupBoard(page, 'mp-reorder');
+    test('should reorder swimlanes by dragging the color handle', async ({ page, request }) => {
+      const { token, board } = await setupBoard(page, request, 'mp-reorder');
 
-      await addSwimlane(page, 'First', 'acme/first', 'F1-', 0);
-      await addSwimlane(page, 'Second', 'acme/second', 'F2-', 2);
+      await addSwimlane(page, request, token, board.id, 'First', 'F1-');
+      await addSwimlane(page, request, token, board.id, 'Second', 'F2-');
 
       // Start a sprint so the board renders swimlane rows
       await page.click('.view-btn:has-text("Backlog")');
@@ -152,17 +148,18 @@ test.describe('Multi-Project Board', () => {
       await page.click('.view-btn:has-text("Board")');
 
       // Wait for both swimlane headers to appear in the board view before reading order
-      await expect(page.locator('.swimlane-header h2').filter({ hasText: 'First' })).toBeVisible({ timeout: 8000 });
-      await expect(page.locator('.swimlane-header h2').filter({ hasText: 'Second' })).toBeVisible({ timeout: 8000 });
+      await expect(page.locator('.swimlane-name').filter({ hasText: 'First' })).toBeVisible({ timeout: 8000 });
+      await expect(page.locator('.swimlane-name').filter({ hasText: 'Second' })).toBeVisible({ timeout: 8000 });
 
       // Verify initial order: "First" comes before "Second"
-      const headersBefore = await page.locator('.swimlane-header h2').allTextContents();
+      const headersBefore = await page.locator('.swimlane-name').allTextContents();
       expect(headersBefore[0]).toBe('First');
       expect(headersBefore[1]).toBe('Second');
 
-      // Drag the color handle of the first swimlane down onto the second
-      const firstHandle = page.locator('.swimlane-drag-handle').first();
-      const secondHandle = page.locator('.swimlane-drag-handle').last();
+      // Drag the color ribbon of the first swimlane down onto the second
+      // In board view the drag handle is the .swimlane-ribbon (colored bar in the gutter)
+      const firstHandle = page.locator('.swimlane-ribbon').first();
+      const secondHandle = page.locator('.swimlane-ribbon').last();
 
       const firstBox = await firstHandle.boundingBox();
       const secondBox = await secondHandle.boundingBox();
@@ -185,16 +182,16 @@ test.describe('Multi-Project Board', () => {
       // NOTE: dnd-kit reorders optimistically; the API persists the new order.
       // If the backend PUT endpoint for swimlane reorder is missing this may
       // silently fail, but the optimistic UI update should still reflect the swap.
-      const headersAfter = await page.locator('.swimlane-header h2').allTextContents();
+      const headersAfter = await page.locator('.swimlane-name').allTextContents();
       expect(headersAfter[0]).toBe('Second');
       expect(headersAfter[1]).toBe('First');
     });
 
-    test('should delete a swimlane via board settings', async ({ page }) => {
-      await setupBoard(page, 'mp-delete');
+    test('should delete a swimlane via board settings', async ({ page, request }) => {
+      const { token, board } = await setupBoard(page, request, 'mp-delete');
 
-      await addSwimlane(page, 'ToDelete', 'acme/todelete', 'TD-', 3);
-      await addSwimlane(page, 'ToKeep', 'acme/tokeep', 'TK-', 4);
+      await addSwimlane(page, request, token, board.id, 'ToDelete', 'TD-');
+      await addSwimlane(page, request, token, board.id, 'ToKeep', 'TK-');
 
       // Navigate to board settings — use the board-specific settings link
       // (a[href*="/boards"][href*="/settings"]) to avoid matching the global
@@ -207,7 +204,7 @@ test.describe('Multi-Project Board', () => {
       await expect(page.locator('.settings-list-item').filter({ hasText: 'ToKeep' })).toBeVisible();
 
       // Accept the confirmation dialog for deletion
-      page.on('dialog', (dialog) => dialog.accept());
+      page.on('dialog', (dialog: any) => dialog.accept());
 
       // Click the delete button for "ToDelete"
       const toDeleteRow = page.locator('.settings-list-item').filter({ hasText: 'ToDelete' });
@@ -226,11 +223,11 @@ test.describe('Multi-Project Board', () => {
   // -----------------------------------------------------------------------
 
   test.describe('Per-Project Backlog', () => {
-    test('should show per-swimlane sections in the backlog view', async ({ page }) => {
-      await setupBoard(page, 'mp-backlog-sections');
+    test('should show per-swimlane sections in the backlog view', async ({ page, request }) => {
+      const { token, board } = await setupBoard(page, request, 'mp-backlog-sections');
 
-      await addSwimlane(page, 'Alpha', 'acme/alpha', 'AL-', 0);
-      await addSwimlane(page, 'Beta', 'acme/beta', 'BT-', 1);
+      await addSwimlane(page, request, token, board.id, 'Alpha', 'AL-');
+      await addSwimlane(page, request, token, board.id, 'Beta', 'BT-');
 
       await page.click('.view-btn:has-text("Backlog")');
       await expect(page.locator('.backlog-view')).toBeVisible();
@@ -244,11 +241,11 @@ test.describe('Multi-Project Board', () => {
       ).toBeVisible();
     });
 
-    test('should create backlog cards in different swimlanes', async ({ page }) => {
-      await setupBoard(page, 'mp-backlog-cards');
+    test('should create backlog cards in different swimlanes', async ({ page, request }) => {
+      const { token, board } = await setupBoard(page, request, 'mp-backlog-cards');
 
-      await addSwimlane(page, 'Alpha', 'acme/alpha', 'AL-', 0);
-      await addSwimlane(page, 'Beta', 'acme/beta', 'BT-', 1);
+      await addSwimlane(page, request, token, board.id, 'Alpha', 'AL-');
+      await addSwimlane(page, request, token, board.id, 'Beta', 'BT-');
 
       await page.click('.view-btn:has-text("Backlog")');
 
@@ -272,11 +269,11 @@ test.describe('Multi-Project Board', () => {
       ).not.toBeVisible();
     });
 
-    test('should collapse and expand a swimlane section in the backlog', async ({ page }) => {
-      await setupBoard(page, 'mp-backlog-collapse');
+    test('should collapse and expand a swimlane section in the backlog', async ({ page, request }) => {
+      const { token, board } = await setupBoard(page, request, 'mp-backlog-collapse');
 
-      await addSwimlane(page, 'Alpha', 'acme/alpha', 'AL-', 0);
-      await addSwimlane(page, 'Beta', 'acme/beta', 'BT-', 1);
+      await addSwimlane(page, request, token, board.id, 'Alpha', 'AL-');
+      await addSwimlane(page, request, token, board.id, 'Beta', 'BT-');
 
       await page.click('.view-btn:has-text("Backlog")');
       await addBacklogCard(page, 'Alpha', 'Collapse Test Card');
@@ -307,11 +304,13 @@ test.describe('Multi-Project Board', () => {
   // -----------------------------------------------------------------------
 
   test.describe('Sprint with Multiple Swimlanes', () => {
-    test('should move cards from different swimlanes into the same sprint', async ({ page }) => {
-      await setupBoard(page, 'mp-sprint-move');
+    test('should move cards from different swimlanes into the same sprint', async ({
+      page, request,
+    }) => {
+      const { token, board } = await setupBoard(page, request, 'mp-sprint-move');
 
-      await addSwimlane(page, 'Frontend', 'acme/frontend', 'FE-', 0);
-      await addSwimlane(page, 'Backend', 'acme/backend', 'BE-', 1);
+      await addSwimlane(page, request, token, board.id, 'Frontend', 'FE-');
+      await addSwimlane(page, request, token, board.id, 'Backend', 'BE-');
 
       await page.click('.view-btn:has-text("Backlog")');
 
@@ -337,12 +336,12 @@ test.describe('Multi-Project Board', () => {
     });
 
     test('should start a sprint and show cards from all swimlanes on the board', async ({
-      page,
+      page, request,
     }) => {
-      await setupBoard(page, 'mp-sprint-start');
+      const { token, board } = await setupBoard(page, request, 'mp-sprint-start');
 
-      await addSwimlane(page, 'Frontend', 'acme/frontend', 'FE-', 0);
-      await addSwimlane(page, 'Backend', 'acme/backend', 'BE-', 1);
+      await addSwimlane(page, request, token, board.id, 'Frontend', 'FE-');
+      await addSwimlane(page, request, token, board.id, 'Backend', 'BE-');
 
       await page.click('.view-btn:has-text("Backlog")');
 
@@ -367,19 +366,21 @@ test.describe('Multi-Project Board', () => {
       await expect(page.locator('.board-content')).toBeVisible();
 
       // Both swimlane headers should appear
-      await expect(page.locator('.swimlane-header h2').filter({ hasText: 'Frontend' })).toBeVisible();
-      await expect(page.locator('.swimlane-header h2').filter({ hasText: 'Backend' })).toBeVisible();
+      await expect(page.locator('.swimlane-name').filter({ hasText: 'Frontend' })).toBeVisible();
+      await expect(page.locator('.swimlane-name').filter({ hasText: 'Backend' })).toBeVisible();
 
       // Cards should be visible on the board in their respective swimlane rows
       await expect(page.locator('.card-title:has-text("FE Board Card")')).toBeVisible();
       await expect(page.locator('.card-title:has-text("BE Board Card")')).toBeVisible();
     });
 
-    test('should complete a sprint with cards from multiple swimlanes', async ({ page }) => {
-      await setupBoard(page, 'mp-sprint-complete');
+    test('should complete a sprint with cards from multiple swimlanes', async ({
+      page, request,
+    }) => {
+      const { token, board } = await setupBoard(page, request, 'mp-sprint-complete');
 
-      await addSwimlane(page, 'Frontend', 'acme/frontend', 'FE-', 0);
-      await addSwimlane(page, 'Backend', 'acme/backend', 'BE-', 1);
+      await addSwimlane(page, request, token, board.id, 'Frontend', 'FE-');
+      await addSwimlane(page, request, token, board.id, 'Backend', 'BE-');
 
       await page.click('.view-btn:has-text("Backlog")');
 
@@ -391,7 +392,7 @@ test.describe('Multi-Project Board', () => {
       await expect(page.locator('.sprint-status-badge.active')).toBeVisible({ timeout: 5000 });
 
       // Accept confirm dialog for completion
-      page.on('dialog', (dialog) => dialog.accept());
+      page.on('dialog', (dialog: any) => dialog.accept());
 
       await page.click('button:has-text("Complete Sprint")');
 
@@ -405,16 +406,16 @@ test.describe('Multi-Project Board', () => {
   // -----------------------------------------------------------------------
 
   test.describe('Card Management Across Projects', () => {
-    test('should show designator prefix based on swimlane in backlog', async ({ page }) => {
-      await setupBoard(page, 'mp-designator');
+    test('should show designator prefix based on swimlane in backlog', async ({ page, request }) => {
+      const { token, board } = await setupBoard(page, request, 'mp-designator');
 
       // NOTE: Zira assigns designators via the swimlane field, not per-card.
       // In Jira each issue has a project-prefixed key (e.g. "PROJ-1").
       // In Zira the designator is stored on the swimlane and the card's
       // gitea_issue_id provides the numeric suffix. Cards created without a
       // Gitea issue will show the designator alone (no number).
-      await addSwimlane(page, 'Alpha', 'acme/alpha', 'AL-', 0);
-      await addSwimlane(page, 'Beta', 'acme/beta', 'BT-', 1);
+      await addSwimlane(page, request, token, board.id, 'Alpha', 'AL-');
+      await addSwimlane(page, request, token, board.id, 'Beta', 'BT-');
 
       await page.click('.view-btn:has-text("Backlog")');
       await addBacklogCard(page, 'Alpha', 'Alpha Prefix Card');
@@ -440,12 +441,12 @@ test.describe('Multi-Project Board', () => {
     });
 
     test('should quick-add a card in a specific swimlane column on the board', async ({
-      page,
+      page, request,
     }) => {
-      await setupBoard(page, 'mp-quickadd');
+      const { token, board } = await setupBoard(page, request, 'mp-quickadd');
 
-      await addSwimlane(page, 'Frontend', 'acme/frontend', 'FE-', 0);
-      await addSwimlane(page, 'Backend', 'acme/backend', 'BE-', 1);
+      await addSwimlane(page, request, token, board.id, 'Frontend', 'FE-');
+      await addSwimlane(page, request, token, board.id, 'Backend', 'BE-');
 
       // Start a sprint so the board renders swimlane rows
       await page.click('.view-btn:has-text("Backlog")');
@@ -460,7 +461,7 @@ test.describe('Multi-Project Board', () => {
       // Find the Frontend swimlane row and use the first .board-column inside it.
       // DroppableColumn renders as .board-column (not .droppable-column).
       const frontendSwimlane = page.locator('.swimlane').filter({
-        has: page.locator('.swimlane-header h2:has-text("Frontend")'),
+        has: page.locator('.swimlane-name').filter({ hasText: 'Frontend' }),
       });
       await expect(frontendSwimlane).toBeVisible({ timeout: 8000 });
 
@@ -483,12 +484,12 @@ test.describe('Multi-Project Board', () => {
     });
 
     test('should filter board to show only one swimlane using the swimlane filter', async ({
-      page,
+      page, request,
     }) => {
-      await setupBoard(page, 'mp-filter');
+      const { token, board } = await setupBoard(page, request, 'mp-filter');
 
-      await addSwimlane(page, 'Frontend', 'acme/frontend', 'FE-', 0);
-      await addSwimlane(page, 'Backend', 'acme/backend', 'BE-', 1);
+      await addSwimlane(page, request, token, board.id, 'Frontend', 'FE-');
+      await addSwimlane(page, request, token, board.id, 'Backend', 'BE-');
 
       // Start a sprint so swimlane rows are rendered
       await page.click('.view-btn:has-text("Backlog")');
@@ -499,8 +500,8 @@ test.describe('Multi-Project Board', () => {
       await page.click('.view-btn:has-text("Board")');
 
       // Both swimlane rows are visible before filtering
-      await expect(page.locator('.swimlane-header h2').filter({ hasText: 'Frontend' })).toBeVisible();
-      await expect(page.locator('.swimlane-header h2').filter({ hasText: 'Backend' })).toBeVisible();
+      await expect(page.locator('.swimlane-name').filter({ hasText: 'Frontend' })).toBeVisible();
+      await expect(page.locator('.swimlane-name').filter({ hasText: 'Backend' })).toBeVisible();
 
       // Apply the swimlane filter for "Frontend"
       const swimlaneFilter = page.locator('.filter-select').filter({
@@ -512,9 +513,9 @@ test.describe('Multi-Project Board', () => {
       // does NOT hide the swimlane row itself — the row stays but shows empty columns.
       // In Jira, filtering by project would show only that project's rows.
       // This is a known UX gap in Zira.
-      await expect(page.locator('.swimlane-header h2').filter({ hasText: 'Frontend' })).toBeVisible();
+      await expect(page.locator('.swimlane-name').filter({ hasText: 'Frontend' })).toBeVisible();
       // Backend row is still rendered (even if empty) when filter is active
-      await expect(page.locator('.swimlane-header h2').filter({ hasText: 'Backend' })).toBeVisible();
+      await expect(page.locator('.swimlane-name').filter({ hasText: 'Backend' })).toBeVisible();
     });
   });
 });
