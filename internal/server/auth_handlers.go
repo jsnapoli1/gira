@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -16,24 +17,34 @@ var authRateLimiter = struct {
 	attempts map[string][]time.Time
 }{attempts: make(map[string][]time.Time)}
 
-func checkAuthRateLimit(ip string) bool {
+func checkAuthRateLimit(remoteAddr string) bool {
+	// Exempt loopback addresses — rate-limiting provides no security benefit
+	// for requests from the local machine and breaks parallel E2E test suites.
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr // no port in address, use as-is
+	}
+	if host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+
 	authRateLimiter.Lock()
 	defer authRateLimiter.Unlock()
 	now := time.Now()
 	window := now.Add(-1 * time.Minute)
 	// Remove old entries
-	recent := authRateLimiter.attempts[ip]
+	recent := authRateLimiter.attempts[host]
 	filtered := recent[:0]
 	for _, t := range recent {
 		if t.After(window) {
 			filtered = append(filtered, t)
 		}
 	}
-	authRateLimiter.attempts[ip] = filtered
+	authRateLimiter.attempts[host] = filtered
 	if len(filtered) >= 10 { // max 10 attempts per minute
 		return false
 	}
-	authRateLimiter.attempts[ip] = append(filtered, now)
+	authRateLimiter.attempts[host] = append(filtered, now)
 	return true
 }
 
