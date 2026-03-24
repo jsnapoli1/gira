@@ -260,8 +260,10 @@ test.describe('Comments Extended', () => {
   // 7. @mention inserts user into textarea
   // -------------------------------------------------------------------------
   test('@mention selects a user and inserts their name into the textarea', async ({ page, request }) => {
-    const uniqueSuffix = crypto.randomUUID().slice(0, 8);
-    const uniqueName = `Zqx${uniqueSuffix}`;
+    // Use the full UUID to guarantee this user's name is unique across all test runs.
+    // We type all 8 chars after "@" so the dropdown filters to exactly one user.
+    const uniqueSuffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const uniqueName = `Ment${uniqueSuffix}`;
     const setup = await setupBoardWithCard(request, uniqueName);
     if (!setup) {
       test.skip(true, 'Card setup unavailable: POST /api/cards failed');
@@ -271,7 +273,8 @@ test.describe('Comments Extended', () => {
 
     const textarea = page.locator('.comment-form-compact textarea');
     await textarea.click();
-    await textarea.pressSequentially('@Zqx');
+    // Type the full unique name after "@" so only this user matches the filter.
+    await textarea.pressSequentially(`@${uniqueName}`);
 
     await expect(page.locator('.mention-dropdown')).toBeVisible({ timeout: 8000 });
     const mentionItem = page.locator('.mention-item').filter({ hasText: uniqueName });

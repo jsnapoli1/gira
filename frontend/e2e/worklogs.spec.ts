@@ -892,3 +892,409 @@ test.describe('Worklogs UI — edge cases', () => {
     await expect(page.locator('.time-tracking-stats .time-logged')).toContainText('45m logged', { timeout: 5000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// API: POST /api/cards/:id/worklogs — core contract tests
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs API — POST contract', () => {
+  // 1. POST with time_spent=60 returns 201 (or 200) and body with work_logs
+  test('API: POST worklog with time_spent=60 returns success status', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-post-60');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 60 },
+    });
+    expect([200, 201]).toContain(res.status());
+    const body = await res.json();
+    expect(body.work_logs).toBeDefined();
+  });
+
+  // 2. Worklog response has id, card_id, user_id, time_spent
+  test('API: worklog response has id, card_id, user_id, time_spent fields', async ({ request }) => {
+    const { token, user } = await createUser(request, 'wl-fields-check');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 60 },
+    });
+    const body = await res.json();
+    const entry = body.work_logs[0];
+    expect(typeof entry.id).toBe('number');
+    expect(entry.card_id).toBe(card.id);
+    expect(entry.user_id).toBe(user.id);
+    expect(entry.time_spent).toBe(60);
+  });
+
+  // 3. Worklog response entry has a date / created_at timestamp
+  test('API: worklog response entry has a date timestamp', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-date-field');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 45 },
+    });
+    const body = await res.json();
+    const entry = body.work_logs[0];
+    // The API uses `date` as the JSON key
+    const timestamp = entry.date ?? entry.created_at;
+    expect(timestamp).toBeTruthy();
+    expect(new Date(timestamp).getTime()).not.toBeNaN();
+  });
+
+  // 4. POST worklog with description/notes field stores it
+  test('API: POST worklog with notes/description field stores and returns it', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-desc-store');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const notes = 'Investigated performance bottleneck';
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30, notes },
+    });
+    const body = await res.json();
+    const entry = body.work_logs.find((w: any) => w.notes === notes);
+    expect(entry).toBeDefined();
+    expect(entry.notes).toBe(notes);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API: GET /api/cards/:id/worklogs — list contract tests
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs API — GET list contract', () => {
+  // 5. GET /api/cards/:id/worklogs returns array
+  test('API: GET worklogs returns work_logs array', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-get-array');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    const body = await res.json();
+    expect(Array.isArray(body.work_logs)).toBe(true);
+  });
+
+  // 6. GET worklogs includes newly created worklog
+  test('API: GET worklogs includes newly created worklog by id', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-get-includes');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const createRes = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 42 },
+    });
+    const createBody = await createRes.json();
+    const newId = createBody.work_logs.find((w: any) => w.time_spent === 42)?.id;
+    expect(newId).toBeDefined();
+
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const getBody = await getRes.json();
+    const found = getBody.work_logs.some((w: any) => w.id === newId);
+    expect(found).toBe(true);
+  });
+
+  // 7. Multiple worklogs summed: 30+45=75 minutes in total_logged
+  test('API: GET total_logged = 30+45=75 after two worklogs', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-sum-75');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 30 },
+    });
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 45 },
+    });
+
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const getBody = await getRes.json();
+    expect(getBody.total_logged).toBe(75);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API: DELETE /api/cards/:id/worklogs/:id — delete contract tests
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs API — DELETE contract', () => {
+  // 8. DELETE returns 204
+  test('API: DELETE worklog returns 204 no-content', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-del-204-2');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const createRes = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 25 },
+    });
+    const wlId = (await createRes.json()).work_logs[0].id;
+
+    const delRes = await request.delete(`${BASE}/api/cards/${card.id}/worklogs/${wlId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(delRes.status()).toBe(204);
+  });
+
+  // 9. After delete, worklog not in GET list
+  test('API: after DELETE the worklog is absent from GET list', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-del-absent');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const createRes = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 55 },
+    });
+    const wlId = (await createRes.json()).work_logs[0].id;
+
+    await request.delete(`${BASE}/api/cards/${card.id}/worklogs/${wlId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const getBody = await getRes.json();
+    expect(getBody.work_logs.some((w: any) => w.id === wlId)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API: Authorization tests
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs API — authorization', () => {
+  // 10. Unauthorized POST returns 401
+  test('API: POST worklog without token returns 401', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-auth-post-401');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      data: { time_spent: 30 },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  // 11. Unauthorized GET returns 401
+  test('API: GET worklogs without token returns 401', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-auth-get-401');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.get(`${BASE}/api/cards/${card.id}/worklogs`);
+    expect(res.status()).toBe(401);
+  });
+
+  // 12. Non-member cannot log time (403)
+  test('API: non-member POST worklog returns 403', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'wl-auth-403-own2');
+    const { cardRes } = await createBoardAndCard(request, ownerToken);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const { token: nonMemberToken } = await createUser(request, 'wl-auth-403-nm2');
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${nonMemberToken}` },
+      data: { time_spent: 30 },
+    });
+    expect(res.status()).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API: Validation edge cases
+// ---------------------------------------------------------------------------
+
+test.describe('Worklogs API — validation edge cases', () => {
+  // 13. POST worklog with 0 minutes — validates actual behavior (expect 400)
+  test('API: POST worklog with time_spent=0 is rejected with 400', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-val-zero-2');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 0 },
+    });
+    // The API rejects zero time_spent with 400
+    expect(res.status()).toBe(400);
+  });
+
+  // POST worklog with negative time_spent — should be rejected
+  test('API: POST worklog with negative time_spent is rejected with 400', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-val-neg');
+    const { cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: -10 },
+    });
+    expect(res.status()).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API: GET /api/boards/:id/time-summary tests
+// ---------------------------------------------------------------------------
+
+test.describe('Board time-summary API', () => {
+  // 14. GET /api/boards/:id/time-summary returns 200
+  test('API: GET board time-summary returns 200', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-tsum-200');
+    const { board, cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+  });
+
+  // 15. Time summary has total_logged field
+  test('API: board time-summary response has total_logged field', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-tsum-fields');
+    const { board, cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(typeof body.total_logged).toBe('number');
+    expect(Array.isArray(body.by_user)).toBe(true);
+  });
+
+  // 16. Time summary shows 0 with no worklogs
+  test('API: board time-summary total_logged is 0 with no worklogs', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-tsum-zero');
+    const { board, cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(body.total_logged).toBe(0);
+  });
+
+  // 17. Time summary increases after worklog is posted
+  test('API: board time-summary total_logged increases after posting a worklog', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-tsum-increase');
+    const { board, cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    // Baseline
+    const beforeRes = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const beforeBody = await beforeRes.json();
+    const before = beforeBody.total_logged as number;
+
+    // Log 90 minutes
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 90 },
+    });
+
+    const afterRes = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const afterBody = await afterRes.json();
+    expect(afterBody.total_logged).toBe(before + 90);
+  });
+
+  // time-summary also has total_estimated field
+  test('API: board time-summary response has total_estimated field', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-tsum-est');
+    const { board, cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(typeof body.total_estimated).toBe('number');
+  });
+
+  // time-summary: by_user has user_id and time_spent entries after logging
+  test('API: board time-summary by_user contains entry with user_id and time_spent after logging', async ({ request }) => {
+    const { token, user } = await createUser(request, 'wl-tsum-byuser');
+    const { board, cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+    const card = await cardRes.json();
+
+    await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { time_spent: 60 },
+    });
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    expect(Array.isArray(body.by_user)).toBe(true);
+    const entry = body.by_user.find((e: any) => e.user_id === user.id);
+    expect(entry).toBeDefined();
+    expect(entry.time_spent).toBeGreaterThanOrEqual(60);
+  });
+
+  // time-summary: non-member gets 403
+  test('API: non-member GET board time-summary returns 403', async ({ request }) => {
+    const { token: ownerToken } = await createUser(request, 'wl-tsum-403own');
+    const { board, cardRes } = await createBoardAndCard(request, ownerToken);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+
+    const { token: strangerToken } = await createUser(request, 'wl-tsum-403str');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/time-summary`, {
+      headers: { Authorization: `Bearer ${strangerToken}` },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  // time-summary: unauthenticated gets 401
+  test('API: unauthenticated GET board time-summary returns 401', async ({ request }) => {
+    const { token } = await createUser(request, 'wl-tsum-unauth');
+    const { board, cardRes } = await createBoardAndCard(request, token);
+    if (!cardRes.ok()) { test.skip(true, 'Card creation failed'); return; }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/time-summary`);
+    expect(res.status()).toBe(401);
+  });
+});

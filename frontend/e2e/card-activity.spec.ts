@@ -596,7 +596,7 @@ test.describe('Card Activity — API', () => {
     const card = await cardRes.json();
 
     // Move card to second column
-    await request.put(`${BASE}/api/cards/${card.id}/move`, {
+    await request.post(`${BASE}/api/cards/${card.id}/move`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { column_id: columns[1].id, swimlane_id: swimlane.id },
     });
