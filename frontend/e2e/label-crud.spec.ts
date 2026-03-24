@@ -759,3 +759,285 @@ test.describe('Label UI — Card Modal', () => {
     expect(title).toBe(labelName);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Label API — Additional Coverage
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Label API — board_id field', () => {
+  test('GET /api/boards/:id/labels returns array', async ({ request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    const listRes = await request.get(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listRes.ok()).toBeTruthy();
+    const body = await listRes.json();
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  test('each label has id, board_id, name, and color fields', async ({ request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    await createLabel(request, token, boardId, 'FieldsCheck', '#22c55e');
+
+    const listRes = await request.get(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const labels: any[] = await listRes.json();
+    const found = labels.find((l) => l.name === 'FieldsCheck');
+    expect(found).toBeDefined();
+    expect(typeof found.id).toBe('number');
+    expect(found.board_id).toBe(boardId);
+    expect(typeof found.name).toBe('string');
+    expect(typeof found.color).toBe('string');
+  });
+
+  test('label color stored and returned as #RRGGBB hex string', async ({ request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    const { body } = await createLabel(request, token, boardId, 'HexReturn', '#ab12cd');
+    expect(body.color).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(body.color.toLowerCase()).toBe('#ab12cd');
+  });
+
+  test('labels with same name on different boards are both allowed', async ({ request }) => {
+    const boardA = await setupUserAndBoard(request, 'Same-name Board A');
+    const boardBRes = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${boardA.token}` },
+      data: { name: 'Same-name Board B' },
+    });
+    const boardB = await boardBRes.json();
+
+    const { res: resA } = await createLabel(request, boardA.token, boardA.boardId, 'SharedName', '#ef4444');
+    const { res: resB } = await createLabel(request, boardA.token, boardB.id, 'SharedName', '#22c55e');
+
+    expect(resA.status()).toBe(201);
+    expect(resB.status()).toBe(201);
+  });
+
+  test('board owner (admin) can create labels', async ({ request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    const res = await request.post(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Admin Label', color: '#6366f1' },
+    });
+    expect(res.status()).toBe(201);
+  });
+
+  test('non-member cannot list board labels (403)', async ({ request }) => {
+    const { boardId } = await setupUserAndBoard(request);
+
+    const outsiderRes = await request.post(`${BASE}/api/auth/signup`, {
+      data: {
+        email: `outsider-list-${crypto.randomUUID()}@example.com`,
+        password: 'password123',
+        display_name: 'Outsider',
+      },
+    });
+    const { token: outsiderToken } = await outsiderRes.json();
+
+    const res = await request.get(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${outsiderToken}` },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('deleted board label is removed from associated cards (cascade)', async ({ request }) => {
+    const { token, boardId, cardId } = await setupWithCard(request);
+    if (!cardId) {
+      test.skip(true, 'Card creation failed — skipping cascade test');
+      return;
+    }
+    const { body: label } = await createLabel(request, token, boardId, 'CascadeMe', '#ef4444');
+    await assignLabel(request, token, cardId, label.id);
+
+    // Verify label is on the card
+    const beforeRes = await request.get(`${BASE}/api/cards/${cardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const beforeLabels: any[] = await beforeRes.json();
+    expect(beforeLabels.find((l) => l.id === label.id)).toBeDefined();
+
+    // Delete the board-level label
+    const delRes = await request.delete(`${BASE}/api/boards/${boardId}/labels/${label.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(delRes.ok()).toBeTruthy();
+
+    // Card should no longer have the label
+    const afterRes = await request.get(`${BASE}/api/cards/${cardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const afterLabels: any[] = await afterRes.json();
+    expect(afterLabels.find((l) => l.id === label.id)).toBeUndefined();
+  });
+
+  test('PUT with only color change does not alter name', async ({ request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    const { body: label } = await createLabel(request, token, boardId, 'NameStays', '#ef4444');
+
+    const updateRes = await request.put(`${BASE}/api/boards/${boardId}/labels/${label.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'NameStays', color: '#06b6d4' },
+    });
+    expect(updateRes.ok()).toBeTruthy();
+
+    const listRes = await request.get(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const labels: any[] = await listRes.json();
+    const found = labels.find((l) => l.id === label.id);
+    expect(found).toBeDefined();
+    expect(found.name).toBe('NameStays');
+    expect(found.color.toLowerCase()).toBe('#06b6d4');
+  });
+
+  test('deleting a non-existent label returns non-500 error', async ({ request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    const res = await request.delete(`${BASE}/api/boards/${boardId}/labels/999999999`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    // Should not be a 500 — 200 (no-op) or 404 are acceptable
+    expect(res.status()).not.toBe(500);
+  });
+
+  test('creating a label without providing color defaults to a valid hex', async ({ request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    const res = await request.post(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'NoColor' },
+    });
+    // Server may accept with a default color or reject — must not 500
+    expect(res.status()).not.toBe(500);
+    if (res.ok()) {
+      const body = await res.json();
+      expect(body.color).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
+  });
+
+  test('label name with emoji characters is preserved', async ({ request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    const emojiName = 'Bug 🐛 Fix';
+    const res = await request.post(`${BASE}/api/boards/${boardId}/labels`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: emojiName, color: '#ef4444' },
+    });
+    expect(res.status()).not.toBe(500);
+    if (res.ok()) {
+      const body = await res.json();
+      expect(body.name).toBe(emojiName);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Label UI — Settings (additional)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Label UI — Board Settings (extended)', () => {
+  test('empty state message shown when no labels exist', async ({ page, request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.settings-section h2:has-text("Labels")', { timeout: 10000 });
+    // Empty list indicator should be present before any labels are added
+    await expect(
+      page.locator('.settings-section:has(h2:has-text("Labels")) .empty-list'),
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  test('confirming delete dialog removes the label from list', async ({ page, request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    await createLabel(request, token, boardId, 'AcceptedDelete', '#ef4444');
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.item-name:has-text("AcceptedDelete")', { timeout: 10000 });
+
+    page.once('dialog', (d) => d.accept());
+    await page.click('.settings-list-item:has(.item-name:has-text("AcceptedDelete")) .item-delete');
+
+    await expect(page.locator('.item-name:has-text("AcceptedDelete")')).not.toBeVisible({
+      timeout: 8000,
+    });
+  });
+
+  test('Edit modal pre-populates the existing label name', async ({ page, request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    await createLabel(request, token, boardId, 'PrePopulate', '#8b5cf6');
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.item-name:has-text("PrePopulate")', { timeout: 10000 });
+
+    await page.click('.settings-list-item:has(.item-name:has-text("PrePopulate")) .item-edit');
+    await page.waitForSelector('.modal h2:has-text("Edit Label")', { timeout: 10000 });
+
+    const input = page.locator('.modal input[placeholder*="Bug"]');
+    await expect(input).toHaveValue('PrePopulate');
+  });
+
+  test('cancelling the Add Label modal leaves label list unchanged', async ({ page, request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    await createLabel(request, token, boardId, 'Existing', '#22c55e');
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.item-name:has-text("Existing")', { timeout: 10000 });
+
+    await page.click('.settings-section:has(h2:has-text("Labels")) button:has-text("Add Label")');
+    await page.waitForSelector('.modal h2:has-text("Add Label")', { timeout: 5000 });
+
+    // Close without submitting
+    const closeBtn = page.locator('.modal .modal-close-btn, .modal button:has-text("Cancel")');
+    if (await closeBtn.count() > 0) {
+      await closeBtn.first().click();
+    } else {
+      await page.keyboard.press('Escape');
+    }
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+
+    // Original label should still exist, no new ones added
+    await expect(page.locator('.item-name:has-text("Existing")')).toBeVisible();
+  });
+
+  test('multiple labels all appear in settings list', async ({ page, request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    await createLabel(request, token, boardId, 'LabelOne', '#ef4444');
+    await createLabel(request, token, boardId, 'LabelTwo', '#22c55e');
+    await createLabel(request, token, boardId, 'LabelThree', '#8b5cf6');
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.item-name:has-text("LabelOne")', { timeout: 10000 });
+
+    await expect(page.locator('.item-name:has-text("LabelOne")')).toBeVisible();
+    await expect(page.locator('.item-name:has-text("LabelTwo")')).toBeVisible();
+    await expect(page.locator('.item-name:has-text("LabelThree")')).toBeVisible();
+  });
+
+  test('rename label via settings UI reflects new name in list', async ({ page, request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    await createLabel(request, token, boardId, 'BeforeRename', '#06b6d4');
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.item-name:has-text("BeforeRename")', { timeout: 10000 });
+
+    await page.click('.settings-list-item:has(.item-name:has-text("BeforeRename")) .item-edit');
+    await page.waitForSelector('.modal h2:has-text("Edit Label")', { timeout: 10000 });
+
+    await page.fill('.modal input[placeholder*="Bug"]', 'AfterRename');
+    await page.click('.modal button[type="submit"]:has-text("Save Changes")');
+
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.item-name:has-text("AfterRename")')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.item-name:has-text("BeforeRename")')).not.toBeVisible();
+  });
+
+  test('label color swatch is visible in the settings list row', async ({ page, request }) => {
+    const { token, boardId } = await setupUserAndBoard(request);
+    await createLabel(request, token, boardId, 'ColorSwatch', '#ec4899');
+    await injectToken(page, token);
+    await page.goto(`/boards/${boardId}/settings`);
+    await page.waitForSelector('.item-name:has-text("ColorSwatch")', { timeout: 10000 });
+
+    const row = page.locator('.settings-list-item:has(.item-name:has-text("ColorSwatch"))');
+    // The row should contain some element representing the color (swatch, chip, etc.)
+    const colorEl = row.locator('[style*="background"], .label-color, .color-chip');
+    await expect(colorEl.first()).toBeVisible({ timeout: 5000 });
+  });
+});

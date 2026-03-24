@@ -750,4 +750,211 @@ test.describe('Board Members — UI Extended', () => {
 
     await expect(page.locator('[class*="board"]').filter({ hasText: 'Dashboard Visible Board' })).toBeVisible({ timeout: 8000 });
   });
+
+  test('UI: Settings page Members section shows member list', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'SettingsListOwner', 'ui-setlist-own');
+    const { user: u1 } = await createUser(request, 'SettingsListU1', 'ui-setlist-u1');
+    const { user: u2 } = await createUser(request, 'SettingsListU2', 'ui-setlist-u2');
+    const board = await createBoard(request, ownerToken, 'Settings List Board');
+
+    await addMember(request, ownerToken, board.id, u1.id, 'member');
+    await addMember(request, ownerToken, board.id, u2.id, 'admin');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    // All three members (owner + u1 + u2) should appear
+    await expect(membersSection.locator('.settings-list-item')).toHaveCount(3, { timeout: 8000 });
+  });
+
+  test('UI: member list shows display name and role for each entry', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'DisplayNameOwner', 'ui-dispname-own');
+    const { user: memberUser } = await createUser(request, 'DisplayNameMember', 'ui-dispname-m');
+    const board = await createBoard(request, ownerToken, 'Display Name Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("DisplayNameMember")')).toBeVisible({ timeout: 8000 });
+
+    const memberRow = membersSection.locator('.settings-list-item').filter({ hasText: 'DisplayNameMember' });
+    await expect(memberRow.locator('.item-meta')).toBeVisible();
+    const roleText = await memberRow.locator('.item-meta').textContent();
+    expect(roleText?.toLowerCase()).toMatch(/member|admin|viewer/);
+  });
+
+  test('UI: "Add Member" button opens a member selection modal', async ({ page, request }) => {
+    const { token } = await createUser(request, 'AddBtnOwner', 'ui-addbtn-own');
+    const board = await createBoard(request, token, 'Add Btn Board');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await membersSection.locator('button:has-text("Add Member")').click();
+
+    // A modal or dialog should appear
+    await expect(page.locator('.modal, [role="dialog"]').first()).toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: add member modal contains a user dropdown', async ({ page, request }) => {
+    const { token } = await createUser(request, 'DropdownOwner', 'ui-dropdown-own');
+    const board = await createBoard(request, token, 'Dropdown Board');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await membersSection.locator('button:has-text("Add Member")').click();
+
+    // Modal select (dropdown) should be present
+    await expect(page.locator('.modal select, [role="dialog"] select').first()).toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: new member added via modal appears in the list', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'UIAddModal', 'ui-modal-own');
+    const { user: newUser } = await createUser(request, 'UIAddModalNew', 'ui-modal-new');
+    const board = await createBoard(request, ownerToken, 'Modal Add Board');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await membersSection.locator('button:has-text("Add Member")').click();
+
+    await page.locator('.modal select').first().selectOption({ label: `${newUser.display_name} (${newUser.email})` });
+    await page.locator('.modal button[type="submit"]:has-text("Add Member")').click();
+
+    await expect(page.locator('.modal')).not.toBeVisible({ timeout: 8000 });
+    await expect(membersSection.locator('.item-name:has-text("UIAddModalNew")')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: remove member shows confirm dialog before deletion', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'ConfirmOwner', 'ui-confirm-own');
+    const { user: memberUser } = await createUser(request, 'ConfirmMember', 'ui-confirm-m');
+    const board = await createBoard(request, ownerToken, 'Confirm Delete Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("ConfirmMember")')).toBeVisible({ timeout: 8000 });
+
+    // Dismiss dialog to confirm it was shown
+    let dialogShown = false;
+    page.once('dialog', (d) => {
+      dialogShown = true;
+      d.dismiss();
+    });
+
+    const memberRow = membersSection.locator('.settings-list-item').filter({ hasText: 'ConfirmMember' });
+    await memberRow.locator('.item-delete').click();
+
+    expect(dialogShown).toBe(true);
+  });
+
+  test('UI: member removed from list after accepting confirm dialog', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'RmConfirmOwner', 'ui-rmconf-own');
+    const { user: memberUser } = await createUser(request, 'RmConfirmMember', 'ui-rmconf-m');
+    const board = await createBoard(request, ownerToken, 'Remove Confirm Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("RmConfirmMember")')).toBeVisible({ timeout: 8000 });
+
+    page.once('dialog', (d) => d.accept());
+
+    const memberRow = membersSection.locator('.settings-list-item').filter({ hasText: 'RmConfirmMember' });
+    await memberRow.locator('.item-delete').click();
+
+    await expect(membersSection.locator('.item-name:has-text("RmConfirmMember")')).not.toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: role badge shows "Admin" for admin member', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'RoleBadgeOwner', 'ui-rolebadge-own');
+    const { user: adminUser } = await createUser(request, 'RoleBadgeAdmin', 'ui-rolebadge-adm');
+    const board = await createBoard(request, ownerToken, 'Role Badge Board');
+
+    await addMember(request, ownerToken, board.id, adminUser.id, 'admin');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("RoleBadgeAdmin")')).toBeVisible({ timeout: 8000 });
+
+    const adminRow = membersSection.locator('.settings-list-item').filter({ hasText: 'RoleBadgeAdmin' });
+    const metaText = await adminRow.locator('.item-meta').textContent();
+    expect(metaText?.toLowerCase()).toMatch(/admin/);
+  });
+
+  test('UI: role badge shows "Member" for member role', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'RoleBadgeMbrOwner', 'ui-rolebmbr-own');
+    const { user: memberUser } = await createUser(request, 'RoleBadgeMember', 'ui-rolebmbr-m');
+    const board = await createBoard(request, ownerToken, 'Role Badge Member Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("RoleBadgeMember")')).toBeVisible({ timeout: 8000 });
+
+    const memberRow = membersSection.locator('.settings-list-item').filter({ hasText: 'RoleBadgeMember' });
+    const metaText = await memberRow.locator('.item-meta').textContent();
+    expect(metaText?.toLowerCase()).toMatch(/member/);
+  });
+
+  test('UI: board admin sees delete buttons for non-owner members', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'DelBtnOwner', 'ui-delbtn-own');
+    const { user: memberUser } = await createUser(request, 'DelBtnMember', 'ui-delbtn-m');
+    const board = await createBoard(request, ownerToken, 'Delete Btn Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), ownerToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("DelBtnMember")')).toBeVisible({ timeout: 8000 });
+
+    const memberRow = membersSection.locator('.settings-list-item').filter({ hasText: 'DelBtnMember' });
+    // A delete/remove button should be visible for non-owner members when viewed by admin
+    await expect(memberRow.locator('.item-delete')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: non-admin member does not see delete buttons for other members', async ({ page, request }) => {
+    const { token: ownerToken } = await createUser(request, 'NoBtnOwner', 'ui-nobtn-own');
+    const { token: memberToken, user: memberUser } = await createUser(request, 'NoBtnMember', 'ui-nobtn-m');
+    const { user: otherUser } = await createUser(request, 'NoBtnOther', 'ui-nobtn-o');
+    const board = await createBoard(request, ownerToken, 'No Delete Btn Board');
+
+    await addMember(request, ownerToken, board.id, memberUser.id, 'member');
+    await addMember(request, ownerToken, board.id, otherUser.id, 'member');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), memberToken);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    const membersSection = page.locator('.settings-section').filter({ hasText: 'Members' });
+    await expect(membersSection.locator('.item-name:has-text("NoBtnOther")')).toBeVisible({ timeout: 8000 });
+
+    // When viewed as a regular member, delete buttons for other members should not be present
+    const otherRow = membersSection.locator('.settings-list-item').filter({ hasText: 'NoBtnOther' });
+    const deleteBtn = otherRow.locator('.item-delete');
+    const count = await deleteBtn.count();
+    if (count > 0) {
+      await expect(deleteBtn.first()).toBeDisabled();
+    }
+  });
 });
