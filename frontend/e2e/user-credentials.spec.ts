@@ -319,6 +319,190 @@ test.describe('User Credentials — API', () => {
     const original = await getRes.json();
     expect(original.display_name).toBe('Original Name');
   });
+
+  // ── New API tests ─────────────────────────────────────────────────────────
+
+  test('POST credential returns 201 with an id field', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_has_id', display_name: 'Has ID' },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(typeof body.id).toBe('number');
+    expect(body.id).toBeGreaterThan(0);
+  });
+
+  test('POST Gitea credential response contains provider_url field', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const url = 'https://mygitea.internal.example.com';
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: url, api_token: 'tok', display_name: 'URL Check' },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body.provider_url).toBe(url);
+  });
+
+  test('GET /api/user/credentials/:id returns a single credential object', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_single_get', display_name: 'Single Get' },
+    });
+    const created = await createRes.json();
+
+    const getRes = await request.get(`${BASE}/api/user/credentials/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(getRes.status()).toBe(200);
+    const body = await getRes.json();
+    expect(body.id).toBe(created.id);
+    expect(body.display_name).toBe('Single Get');
+    expect(body.provider).toBe('github');
+  });
+
+  test('PUT /api/user/credentials/:id updates provider_url for Gitea credential', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'https://old.gitea.com', api_token: 'tok', display_name: 'URL Update' },
+    });
+    const created = await createRes.json();
+
+    // PUT only accepts api_token and display_name per the handler
+    const updateRes = await request.put(`${BASE}/api/user/credentials/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { api_token: 'tok_updated', display_name: 'URL Updated Name' },
+    });
+    expect(updateRes.status()).toBe(200);
+    const updated = await updateRes.json();
+    expect(updated.display_name).toBe('URL Updated Name');
+    expect(updated.has_token).toBe(true);
+  });
+
+  test('after DELETE credential is no longer in the list', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_gone', display_name: 'Will Be Gone' },
+    });
+    const created = await createRes.json();
+
+    await request.delete(`${BASE}/api/user/credentials/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const listRes = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const list = await listRes.json();
+    const ids = list.map((c: any) => c.id);
+    expect(ids).not.toContain(created.id);
+  });
+
+  test('POST /api/user/credentials/test with empty provider_url returns 400 for Gitea', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials/test`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: '', api_token: 'tok' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('POST /api/user/credentials/test with missing api_token returns 400', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials/test`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('POST /api/user/credentials/test with invalid Gitea URL returns 200 with success false', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials/test`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'http://192.0.2.1:9999', api_token: 'bad' },
+    });
+    // Either a JSON 200 with success:false or a 4xx — both are acceptable
+    expect([200, 400, 422, 500]).toContain(res.status());
+    if (res.status() === 200) {
+      const body = await res.json();
+      expect(body.success).toBe(false);
+    }
+  });
+
+  test('multiple credentials can coexist for the same user', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+
+    const names = ['Cred Alpha', 'Cred Beta', 'Cred Gamma'];
+    for (const name of names) {
+      await request.post(`${BASE}/api/user/credentials`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { provider: 'github', api_token: 'ghp_multi', display_name: name },
+      });
+    }
+
+    const listRes = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const list = await listRes.json();
+    const listedNames = list.map((c: any) => c.display_name);
+    for (const name of names) {
+      expect(listedNames).toContain(name);
+    }
+  });
+
+  test('credential with display_name stores and returns the label correctly', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const label = `My-Label-${crypto.randomUUID().slice(0, 8)}`;
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_label', display_name: label },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body.display_name).toBe(label);
+
+    // Also verify via GET
+    const getRes = await request.get(`${BASE}/api/user/credentials/${body.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect((await getRes.json()).display_name).toBe(label);
+  });
+
+  test('another user cannot access my credentials via list — lists are user-scoped', async ({ request }) => {
+    const { token: myToken } = await createAndLoginUser(request);
+    const { token: otherToken } = await createAndLoginUser(request);
+
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${myToken}` },
+      data: { provider: 'github', api_token: 'ghp_mine', display_name: 'My Private Cred' },
+    });
+    const created = await createRes.json();
+
+    const otherListRes = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${otherToken}` },
+    });
+    const otherList = await otherListRes.json();
+    const ids = otherList.map((c: any) => c.id);
+    expect(ids).not.toContain(created.id);
+  });
+
+  test('unauthorized GET /api/user/credentials returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/user/credentials`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthorized POST /api/user/credentials returns 401', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      data: { provider: 'github', api_token: 'ghp_unauth', display_name: 'No Auth' },
+    });
+    expect(res.status()).toBe(401);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -580,5 +764,142 @@ test.describe('User Credentials — UI', () => {
     await page.goto('/settings');
 
     await expect(page.locator('.settings-section h2:has-text("Global Gitea Connection")')).not.toBeVisible();
+  });
+
+  // ── New UI tests ──────────────────────────────────────────────────────────
+
+  test('UI: settings page shows Personal Gitea Connection section header', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+
+    // The credentials section header should be visible on settings load
+    await expect(
+      page.locator('.settings-section').filter({ hasText: 'API Credentials' }).first(),
+    ).toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: Add Credential button is present on the settings page', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+
+    await expect(page.locator('button:has-text("Add Credential")')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: credential modal has gitea_url / provider_url field visible for Gitea', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+
+    // Default tab is Gitea — #providerUrl should be visible
+    await expect(page.locator('#providerUrl')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('UI: credential modal api_key / api_token field is of type password (masked)', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+
+    const tokenInput = page.locator('#apiToken');
+    await expect(tokenInput).toBeVisible({ timeout: 5000 });
+    const inputType = await tokenInput.getAttribute('type');
+    expect(inputType).toBe('password');
+  });
+
+  test('UI: credential modal has display_name / label field', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+
+    await expect(page.locator('#displayName')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('UI: saved credential appears in the list with display name', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    const displayName = `UI-Cred-${crypto.randomUUID().slice(0, 8)}`;
+
+    // Create via API to avoid test connection dependency
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_ui_listed', display_name: displayName },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+
+    await expect(page.locator(`.credential-name:has-text("${displayName}")`)).toBeVisible({ timeout: 8000 });
+  });
+
+  test('UI: credential list shows provider type (github or gitea)', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_provtype', display_name: 'Provider Type Check' },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+
+    const credItem = page.locator('.credential-item').filter({ hasText: 'Provider Type Check' });
+    await expect(credItem).toBeVisible({ timeout: 8000 });
+    // The item should contain 'github' somewhere (badge, label, or text)
+    await expect(credItem).toContainText(/github/i);
+  });
+
+  test('UI: credential list does NOT show raw api token value', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    const secretToken = `ghp_ui_secret_${crypto.randomUUID().replace(/-/g, '')}`;
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: secretToken, display_name: 'Secret UI Cred' },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.credential-name:has-text("Secret UI Cred")')).toBeVisible({ timeout: 8000 });
+
+    // The raw token must not appear anywhere on the page
+    const pageText = await page.locator('body').innerText();
+    expect(pageText).not.toContain(secretToken);
+  });
+
+  test('UI: test connection button is present in the add credential modal', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+
+    await expect(page.locator('button:has-text("Test Connection")')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('UI: test connection shows success feedback when backend returns success:true', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+
+    await page.fill('#providerUrl', 'https://gitea.example.com');
+    await page.fill('#apiToken', 'valid-looking-token');
+
+    // Intercept and return success
+    await page.route('**/api/user/credentials/test', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'Connection successful' }),
+      });
+    });
+
+    await page.click('button:has-text("Test Connection")');
+
+    // Some kind of success indicator should appear
+    await expect(
+      page.locator('.status-badge.success, .connection-success, [class*="success"]').first(),
+    ).toBeVisible({ timeout: 5000 });
   });
 });

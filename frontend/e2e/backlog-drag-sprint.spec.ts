@@ -532,4 +532,307 @@ test.describe('Backlog DnD: Sprint Assignment', () => {
       page.locator('.backlog-sprint-cards .card-title').filter({ hasText: 'Collapse Sprint Card' }),
     ).toBeVisible({ timeout: 5000 });
   });
+
+  // -------------------------------------------------------------------------
+  // 13. API: POST /api/cards/:id/assign-sprint sets sprint_id on the card
+  // -------------------------------------------------------------------------
+  test('API: POST assign-sprint sets sprint_id on the card', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'API Set Sprint',
+    );
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'API Sprint Card');
+    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+
+    const assignRes = await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: sprintId },
+    });
+    expect(assignRes.ok()).toBeTruthy();
+
+    // Verify sprint_id is set on the card via board cards endpoint
+    const boardCardsRes = await request.get(`${BASE}/api/boards/${boardId}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boardCards = await boardCardsRes.json();
+    const found = boardCards.find((c: any) => c.id === card.id);
+    expect(found).toBeTruthy();
+    expect(found.sprint_id).toBe(sprintId);
+  });
+
+  // -------------------------------------------------------------------------
+  // 14. API: POST assign-sprint with sprint_id: null removes sprint assignment
+  // -------------------------------------------------------------------------
+  test('API: POST assign-sprint with sprint_id null removes sprint assignment', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'API Remove Sprint',
+    );
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Remove Sprint Card');
+    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+
+    // Assign then remove
+    await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: sprintId },
+    });
+
+    const removeRes = await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: null },
+    });
+    expect(removeRes.ok()).toBeTruthy();
+
+    const boardCardsRes = await request.get(`${BASE}/api/boards/${boardId}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boardCards = await boardCardsRes.json();
+    const found = boardCards.find((c: any) => c.id === card.id);
+    expect(found).toBeTruthy();
+    expect(found.sprint_id).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // 15. API: GET /api/boards/:id/cards shows sprint_id for assigned cards
+  // -------------------------------------------------------------------------
+  test('GET /api/boards/:id/cards shows correct sprint_id for assigned cards', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'Cards Sprint ID',
+    );
+
+    const assigned = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Assigned Card');
+    const unassigned = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Unassigned Card');
+    if (!assigned || !unassigned) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await assignCardToSprint(request, token, assigned.id, sprintId);
+
+    const res = await request.get(`${BASE}/api/boards/${boardId}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBeTruthy();
+    const cards = await res.json();
+
+    const foundAssigned = cards.find((c: any) => c.id === assigned.id);
+    const foundUnassigned = cards.find((c: any) => c.id === unassigned.id);
+
+    expect(foundAssigned.sprint_id).toBe(sprintId);
+    expect(foundUnassigned.sprint_id).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // 16. API: multiple cards assigned to same sprint
+  // -------------------------------------------------------------------------
+  test('multiple cards can be assigned to the same sprint', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'Multi Card Sprint',
+    );
+
+    const c1 = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Multi Card A');
+    const c2 = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Multi Card B');
+    const c3 = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Multi Card C');
+    if (!c1 || !c2 || !c3) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await assignCardToSprint(request, token, c1.id, sprintId);
+    await assignCardToSprint(request, token, c2.id, sprintId);
+    await assignCardToSprint(request, token, c3.id, sprintId);
+
+    // All three should appear via sprint cards endpoint
+    const sprintCardsRes = await request.get(`${BASE}/api/sprints/${sprintId}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(sprintCardsRes.ok()).toBeTruthy();
+    const sprintCards = await sprintCardsRes.json();
+    const sprintCardIds = sprintCards.map((c: any) => c.id);
+    expect(sprintCardIds).toContain(c1.id);
+    expect(sprintCardIds).toContain(c2.id);
+    expect(sprintCardIds).toContain(c3.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // 17. API: GET /api/sprints/:id/cards returns cards assigned to that sprint
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints/:id/cards returns cards assigned to the sprint', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'Sprint Cards Endpoint',
+    );
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Sprint Endpoint Card');
+    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+    await assignCardToSprint(request, token, card.id, sprintId);
+
+    const res = await request.get(`${BASE}/api/sprints/${sprintId}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBeTruthy();
+    const cards = await res.json();
+    expect(Array.isArray(cards)).toBe(true);
+    const ids = cards.map((c: any) => c.id);
+    expect(ids).toContain(card.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // 18. API: Unassigned card has sprint_id: null in board cards response
+  // -------------------------------------------------------------------------
+  test('unassigned card has sprint_id null in GET /api/boards/:id/cards', async ({ request }) => {
+    const { token, boardId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'Null Sprint',
+    );
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'No Sprint Card');
+    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+
+    const res = await request.get(`${BASE}/api/boards/${boardId}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const cards = await res.json();
+    const found = cards.find((c: any) => c.id === card.id);
+    expect(found).toBeTruthy();
+    expect(found.sprint_id).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // 19. API: assign card to non-existent sprint returns 4xx
+  // -------------------------------------------------------------------------
+  test('assigning card to non-existent sprint returns 4xx error', async ({ request }) => {
+    const { token, boardId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'Bad Sprint Assign',
+    );
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Bad Sprint Card');
+    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+
+    const res = await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: 9999999 },
+    });
+    // Should return a client error (4xx), not succeed
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+    expect(res.status()).toBeLessThan(500);
+  });
+
+  // -------------------------------------------------------------------------
+  // 20. UI: backlog view shows sprint section headers for active sprints
+  // -------------------------------------------------------------------------
+  test('backlog view renders a sprint section header for each sprint', async ({ page, request }) => {
+    const { token, boardId } = await setupBoardWithSprint(request, 'Visible Sprint Header');
+
+    await navigateToBacklog(page, token, boardId);
+
+    await expect(page.locator('.backlog-sprint-header')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 21. UI: cards assigned via API appear in sprint section on page load
+  // -------------------------------------------------------------------------
+  test('card assigned to sprint via API appears in sprint section on page load', async ({ page, request }) => {
+    const { token, boardId, sprintId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'Load Sprint',
+    );
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Load Sprint Card');
+    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+    await assignCardToSprint(request, token, card.id, sprintId);
+
+    await navigateToBacklog(page, token, boardId);
+
+    await expect(
+      page.locator('.backlog-sprint-cards .card-title').filter({ hasText: 'Load Sprint Card' }),
+    ).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 22. UI: sprint section displays card count that matches assigned cards
+  // -------------------------------------------------------------------------
+  test('sprint section card count matches number of assigned cards', async ({ page, request }) => {
+    const { token, boardId, sprintId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'Count Check Sprint',
+    );
+
+    const c1 = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Count A');
+    const c2 = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'Count B');
+    if (!c1 || !c2) { test.skip(true, 'Card creation unavailable'); return; }
+
+    await assignCardToSprint(request, token, c1.id, sprintId);
+    await assignCardToSprint(request, token, c2.id, sprintId);
+
+    await navigateToBacklog(page, token, boardId);
+
+    await expect(page.locator('.sprint-card-count')).toContainText('2');
+  });
+
+  // -------------------------------------------------------------------------
+  // 23. UI: backlog "No Sprint" section shows unassigned cards
+  // -------------------------------------------------------------------------
+  test('unassigned cards appear in the swimlane backlog section not under any sprint', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId, swimlaneId, firstColumnId } = await setupBoardWithSprint(
+      request,
+      'Unassigned Section Sprint',
+    );
+
+    const card = await createCard(request, token, boardId, swimlaneId, firstColumnId, 'No Sprint Backlog Card');
+    if (!card) { test.skip(true, 'Card creation unavailable'); return; }
+    // Intentionally do NOT assign to sprint
+
+    await navigateToBacklog(page, token, boardId);
+
+    await expect(
+      page.locator('.swimlane-backlog .card-title').filter({ hasText: 'No Sprint Backlog Card' }),
+    ).toBeVisible();
+    // Should NOT appear under sprint cards
+    await expect(
+      page.locator('.backlog-sprint-cards .card-title').filter({ hasText: 'No Sprint Backlog Card' }),
+    ).not.toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 24. UI: sprint name displayed in sprint section header
+  // -------------------------------------------------------------------------
+  test('sprint section header displays the sprint name', async ({ page, request }) => {
+    const sprintName = `Named Sprint ${crypto.randomUUID().slice(0, 6)}`;
+    const { token, boardId } = await setupBoardWithSprint(request, sprintName);
+
+    await navigateToBacklog(page, token, boardId);
+
+    await expect(
+      page.locator('.backlog-sprint-header').filter({ hasText: sprintName }),
+    ).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 25. UI: multiple sprints each have their own sprint section
+  // -------------------------------------------------------------------------
+  test('multiple sprints each have their own section in the backlog view', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId } = await setupBoardWithSprint(request, 'Alpha Sprint');
+
+    // Create a second sprint
+    await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Beta Sprint' },
+    });
+
+    await navigateToBacklog(page, token, boardId);
+
+    await expect(page.locator('.backlog-sprint-header')).toHaveCount(2);
+    await expect(
+      page.locator('.backlog-sprint-header').filter({ hasText: 'Alpha Sprint' }),
+    ).toBeVisible();
+    await expect(
+      page.locator('.backlog-sprint-header').filter({ hasText: 'Beta Sprint' }),
+    ).toBeVisible();
+  });
 });
