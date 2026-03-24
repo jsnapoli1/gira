@@ -203,6 +203,122 @@ test.describe('User Credentials — API', () => {
     const res = await request.get(`${BASE}/api/user/credentials`);
     expect(res.status()).toBe(401);
   });
+
+  // ── Security: token never returned in GET single credential ──────────────
+
+  test('GET /api/user/credentials/:id does not return api_token', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_secret_never_return', display_name: 'Secret Cred' },
+    });
+    expect(createRes.status()).toBe(201);
+    const cred = await createRes.json();
+
+    const getRes = await request.get(`${BASE}/api/user/credentials/${cred.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(getRes.status()).toBe(200);
+    const body = await getRes.json();
+
+    // Raw token must never be returned
+    expect(body.api_token).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('ghp_secret_never_return');
+    // but has_token must be true
+    expect(body.has_token).toBe(true);
+  });
+
+  // ── Security: token not returned in list or update response ──────────────
+
+  test('GET /api/user/credentials list never contains raw api_token values', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_list_secret_abc', display_name: 'List Secret' },
+    });
+
+    const listRes = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listRes.status()).toBe(200);
+    const raw = await listRes.text();
+
+    expect(raw).not.toContain('ghp_list_secret_abc');
+    const list = JSON.parse(raw);
+    for (const item of list) {
+      expect(item.api_token).toBeUndefined();
+    }
+  });
+
+  test('PUT /api/user/credentials/:id update response does not echo raw token', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_original_secret', display_name: 'Update Echo' },
+    });
+    const cred = await createRes.json();
+
+    const updateRes = await request.put(`${BASE}/api/user/credentials/${cred.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { api_token: 'ghp_new_secret_never_return', display_name: 'Updated Echo' },
+    });
+    expect(updateRes.status()).toBe(200);
+    const body = await updateRes.json();
+
+    expect(body.api_token).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('ghp_new_secret_never_return');
+    expect(body.has_token).toBe(true);
+    expect(body.display_name).toBe('Updated Echo');
+  });
+
+  // ── Security: IDOR — cannot read another user's credential by ID ─────────
+
+  test('cannot read another user credential via GET /api/user/credentials/:id — returns 404', async ({ request }) => {
+    const { token: ownerToken } = await createAndLoginUser(request);
+    const { token: attackerToken } = await createAndLoginUser(request);
+
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { provider: 'github', api_token: 'ghp_idor_victim', display_name: "Owner's Secret" },
+    });
+    const cred = await createRes.json();
+
+    // Attacker tries to access owner's credential by ID
+    const attackRes = await request.get(`${BASE}/api/user/credentials/${cred.id}`, {
+      headers: { Authorization: `Bearer ${attackerToken}` },
+    });
+    // Returns 404 (not found for this user) — not 200 and not 403 (no info leak)
+    expect(attackRes.status()).toBe(404);
+  });
+
+  // ── Security: cannot update another user's credential via PUT ────────────
+
+  test('cannot update another user credential — returns 404', async ({ request }) => {
+    const { token: ownerToken } = await createAndLoginUser(request);
+    const { token: attackerToken } = await createAndLoginUser(request);
+
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+      data: { provider: 'github', api_token: 'ghp_update_idor', display_name: "Original Name" },
+    });
+    const cred = await createRes.json();
+
+    const attackRes = await request.put(`${BASE}/api/user/credentials/${cred.id}`, {
+      headers: { Authorization: `Bearer ${attackerToken}` },
+      data: { display_name: 'HIJACKED', api_token: 'ghp_hijacked' },
+    });
+    expect(attackRes.status()).toBe(404);
+
+    // Verify original credential was not modified
+    const getRes = await request.get(`${BASE}/api/user/credentials/${cred.id}`, {
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+    const original = await getRes.json();
+    expect(original.display_name).toBe('Original Name');
+  });
 });
 
 // ---------------------------------------------------------------------------
