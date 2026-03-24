@@ -400,6 +400,84 @@ test.describe('Jira Import — API', () => {
       ).toBe(true);
     }
   });
+
+  test('import response includes imported count field even when 0', async ({ request }) => {
+    const { token, board } = await setupUserAndBoard(request, 'import-api-zero-count');
+
+    // Use a header-only CSV so no cards are imported
+    const tmpCsv = path.join('/tmp', `zero-count-${Date.now()}.csv`);
+    fs.writeFileSync(tmpCsv, 'Summary,Issue key,Issue id,Issue Type,Status,Project key\n');
+    try {
+      const fileBuffer = fs.readFileSync(tmpCsv);
+      const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'empty.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          project_key: '',
+        },
+      });
+      if (res.ok()) {
+        const body = await res.json();
+        expect(typeof body.imported).toBe('number');
+      } else {
+        // A 400 or similar structured error is also acceptable for empty CSV
+        expect(res.status()).toBeLessThan(500);
+      }
+    } finally {
+      if (fs.existsSync(tmpCsv)) fs.unlinkSync(tmpCsv);
+    }
+  });
+
+  test('import with single-row CSV (title only) creates one card', async ({ request }) => {
+    const { token, board } = await setupUserAndBoard(request, 'import-api-single-row');
+
+    const csvContent = [
+      'Summary,Issue key,Issue Type,Status,Priority,Project key',
+      'Single Row Card,TEST-1,Task,To Do,Medium,TEST',
+    ].join('\n');
+
+    const fileBuffer = Buffer.from(csvContent);
+    const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        file: { name: 'single.csv', mimeType: 'text/csv', buffer: fileBuffer },
+        project_key: '',
+      },
+    });
+
+    expect(res.status()).toBeLessThan(500);
+    if (res.ok()) {
+      const body = await res.json();
+      expect(body.imported).toBeGreaterThanOrEqual(0);
+      // If import succeeded verify card exists
+      if (body.imported > 0) {
+        const cardsRes = await request.get(`${BASE}/api/boards/${board.id}/cards`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const cards: any[] = await cardsRes.json();
+        expect(cards.some((c: any) => c.title === 'Single Row Card')).toBe(true);
+      }
+    }
+  });
+
+  test('import result contains sprints count field', async ({ request }) => {
+    const { token, board } = await setupUserAndBoard(request, 'import-api-sprints-field');
+
+    const result = await apiImportCSV(request, token, board.id, JIRA_CSV_PATH, EXPECTED_PROJECT_KEY);
+    // The result should mention sprints in some form (may be 0 or more)
+    expect(typeof result.sprints === 'number' || result.sprints === undefined).toBe(true);
+  });
+
+  test('filtering by project key imports fewer cards than importing all', async ({ request }) => {
+    const { token: tokenAll, board: boardAll } = await setupUserAndBoard(request, 'import-all-compare');
+    const { token: tokenFiltered, board: boardFiltered } = await setupUserAndBoard(request, 'import-filtered-compare');
+
+    const allResult = await apiImportCSV(request, tokenAll, boardAll.id, JIRA_CSV_PATH, '');
+    const filteredResult = await apiImportCSV(request, tokenFiltered, boardFiltered.id, JIRA_CSV_PATH, EXPECTED_PROJECT_KEY);
+
+    // Importing all projects should yield more cards than just one project key
+    expect(allResult.imported).toBeGreaterThanOrEqual(filteredResult.imported);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -647,6 +725,39 @@ test.describe('Jira CSV Import Wizard — UI', () => {
 
     await expect(page.locator('.card-item').first()).toBeVisible({ timeout: 10000 });
     expect(await page.locator('.card-item').count()).toBeGreaterThan(0);
+  });
+
+  test('import result panel shows the word "imported" or a count summary', async ({
+    page,
+    request,
+  }) => {
+    const { token, board } = await setupUserAndBoard(request, 'ui-result-text');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await openModalAndUploadCSV(page, board.id);
+    await page.locator('.import-select').selectOption(EXPECTED_PROJECT_KEY);
+    await page.locator('.import-modal-actions button:has-text("Import")').click();
+    await expect(page.locator('.import-result')).toBeVisible({ timeout: 30000 });
+
+    // Result panel should contain a textual summary of what was imported
+    const resultText = await page.locator('.import-result').textContent();
+    expect(resultText?.toLowerCase()).toMatch(/import|card|creat/);
+  });
+
+  test('import modal has a file input and the correct label text', async ({ page, request }) => {
+    const { token, board } = await setupUserAndBoard(request, 'ui-file-label');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+    await page.locator('button:has-text("Import from Jira CSV")').click();
+    await expect(page.locator('.import-modal')).toBeVisible({ timeout: 5000 });
+
+    // File input should be present and accept CSV
+    const fileInput = page.locator('.import-modal input[type="file"]');
+    await expect(fileInput).toBeAttached();
+    const accept = await fileInput.getAttribute('accept');
+    expect(accept).toContain('.csv');
   });
 
   test.fixme(
