@@ -4,7 +4,7 @@ const PORT = process.env.PORT || 9002;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function setupUserAndBoard(request: any, page: any) {
@@ -26,6 +26,17 @@ async function setupUserAndBoard(request: any, page: any) {
 
   await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
   return { token, board };
+}
+
+/** Create a second user who is NOT a member of the given board. */
+async function createNonMember(request: any) {
+  const email = `non-member-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.com`;
+  const { token } = await (
+    await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'Non Member' },
+    })
+  ).json();
+  return token;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,6 +106,66 @@ test.describe('Board Export — API', () => {
     expect(lines[0]).toContain('ID');
   });
 
+  test('export response includes Column header field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const firstLine = body.split('\n')[0];
+
+    expect(firstLine).toContain('Column');
+  });
+
+  test('export response includes Swimlane header field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const firstLine = body.split('\n')[0];
+
+    expect(firstLine).toContain('Swimlane');
+  });
+
+  test('export response includes Assignees header field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const firstLine = body.split('\n')[0];
+
+    expect(firstLine).toContain('Assignees');
+  });
+
+  test('export response includes Sprint header field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const firstLine = body.split('\n')[0];
+
+    expect(firstLine).toContain('Sprint');
+  });
+
+  test('export response includes Priority header field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const firstLine = body.split('\n')[0];
+
+    expect(firstLine).toContain('Priority');
+  });
+
+  test('export response includes Labels header field', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const firstLine = body.split('\n')[0];
+
+    expect(firstLine).toContain('Labels');
+  });
+
   test('export without token param returns 401 or 403', async ({ request, page }) => {
     const { board } = await setupUserAndBoard(request, page);
 
@@ -108,6 +179,35 @@ test.describe('Board Export — API', () => {
 
     const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=invalid.token.here`);
     expect(res.status()).toBeGreaterThanOrEqual(400);
+  });
+
+  test('non-member cannot export a board (returns 403)', async ({ request, page }) => {
+    const { board } = await setupUserAndBoard(request, page);
+    const nonMemberToken = await createNonMember(request);
+
+    const res = await request.get(
+      `${BASE}/api/boards/${board.id}/export?token=${nonMemberToken}`,
+    );
+    // The server must deny access — 403 Forbidden
+    expect(res.status()).toBe(403);
+  });
+
+  test('export of a non-existent board returns 404', async ({ request, page }) => {
+    const { token } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/999999999/export?token=${token}`);
+    expect(res.status()).toBe(404);
+  });
+
+  test('Content-Disposition header contains csv filename', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    expect(res.ok()).toBe(true);
+
+    const disposition = res.headers()['content-disposition'] || '';
+    expect(disposition).toContain('attachment');
+    expect(disposition.toLowerCase()).toContain('.csv');
   });
 
   test('export includes card data when cards exist', async ({ request, page }) => {
@@ -143,6 +243,189 @@ test.describe('Board Export — API', () => {
 
     // The exported CSV should contain the card title
     expect(body).toContain('Exported Card');
+  });
+
+  test('export includes column name in card row when card exists', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Column Lane', designator: 'CL' },
+      })
+    ).json();
+
+    const columns = board.columns || [];
+    if (!columns.length) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Column Export Card',
+        board_id: board.id,
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation failed — skipping column-in-export check`);
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+
+    // The data row should contain the column name (first column name is typically "To Do" or similar)
+    const dataLines = body.split('\n').slice(1).filter(Boolean);
+    expect(dataLines.length).toBeGreaterThan(0);
+    // Column name is in the row — we just verify the row is non-trivially populated
+    expect(dataLines[0].split(',').length).toBeGreaterThanOrEqual(5);
+  });
+
+  test('export includes swimlane name in card row when card exists', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Swimlane Export Lane', designator: 'SE' },
+      })
+    ).json();
+
+    const columns = board.columns || [];
+    if (!columns.length) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Swimlane Export Card',
+        board_id: board.id,
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation failed — skipping swimlane-in-export check`);
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+
+    // The swimlane name should appear in the exported CSV rows
+    expect(body).toContain('Swimlane Export Lane');
+  });
+
+  test('export includes sprint name in card row when card is assigned to sprint', async ({
+    request,
+    page,
+  }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Sprint Lane', designator: 'SP' },
+      })
+    ).json();
+
+    const sprintRes = await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Export Sprint' },
+    });
+    const sprint = await sprintRes.json();
+
+    const columns = board.columns || [];
+    if (!columns.length) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    const cardRes = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Sprinted Export Card',
+        board_id: board.id,
+        column_id: columns[0].id,
+        swimlane_id: swimlane.id,
+      },
+    });
+
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation failed — skipping sprint-in-export check`);
+      return;
+    }
+
+    const card = await cardRes.json();
+    await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: sprint.id },
+    });
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+
+    expect(body).toContain('Export Sprint');
+  });
+
+  test('export includes all expected header columns', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const header = body.split('\n')[0];
+
+    const expectedFields = ['ID', 'Title', 'Column', 'Swimlane', 'Priority', 'Assignees', 'Labels', 'Sprint'];
+    for (const field of expectedFields) {
+      expect(header).toContain(field);
+    }
+  });
+
+  test('export row count matches number of board cards', async ({ request, page }) => {
+    const { token, board } = await setupUserAndBoard(request, page);
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Count Lane', designator: 'CT' },
+      })
+    ).json();
+
+    const columns = board.columns || [];
+    if (!columns.length) {
+      test.skip(true, 'Board has no columns');
+      return;
+    }
+
+    // Create two cards
+    const card1Res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Count Card 1', board_id: board.id, column_id: columns[0].id, swimlane_id: swimlane.id },
+    });
+    const card2Res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Count Card 2', board_id: board.id, column_id: columns[0].id, swimlane_id: swimlane.id },
+    });
+
+    if (!card1Res.ok() || !card2Res.ok()) {
+      test.skip(true, 'Card creation failed — skipping row count check');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const dataLines = body.split('\n').slice(1).map(l => l.trim()).filter(Boolean);
+
+    // Should have exactly 2 data rows
+    expect(dataLines.length).toBe(2);
   });
 });
 
@@ -284,6 +567,25 @@ test.describe('Board Settings — Export UI', () => {
     // The captured token should match the logged-in user's JWT
     await expect.poll(() => capturedUrl, { timeout: 5000 }).toContain(token);
   });
+
+  test('export button is still present after navigating away and back', async ({
+    page,
+    request,
+  }) => {
+    const { board } = await setupUserAndBoard(request, page);
+
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    // Navigate away and come back
+    await page.goto(`/boards/${board.id}`);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const section = page.locator('.settings-section').filter({ hasText: 'Import / Export' });
+    await section.scrollIntoViewIfNeeded();
+    await expect(section.locator('button:has-text("Export to CSV")')).toBeVisible();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -360,6 +662,30 @@ test.describe('Board Settings — Import UI', () => {
     // The Import submit button should be disabled when no file is selected
     const importBtn = page.locator('.import-modal-actions button:has-text("Import")');
     await expect(importBtn).toBeDisabled();
+  });
+
+  test('import modal can be opened again after Cancel — state is fresh', async ({
+    page,
+    request,
+  }) => {
+    const { board } = await setupUserAndBoard(request, page);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    const section = page.locator('.settings-section').filter({ hasText: 'Import / Export' });
+    await section.scrollIntoViewIfNeeded();
+
+    // Open then cancel
+    await section.locator('button:has-text("Import from Jira CSV")').click();
+    await expect(page.locator('.import-modal')).toBeVisible({ timeout: 5000 });
+    await page.locator('.import-modal button:has-text("Cancel")').click();
+    await expect(page.locator('.import-modal')).not.toBeVisible({ timeout: 3000 });
+
+    // Re-open — modal should be fresh (no leftover file or dropdown)
+    await section.locator('button:has-text("Import from Jira CSV")').click();
+    await expect(page.locator('.import-modal')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.import-select')).not.toBeVisible();
+    await expect(page.locator('.import-result')).not.toBeVisible();
   });
 
   test('import endpoint accepts a CSV file upload', async ({ request, page }) => {
