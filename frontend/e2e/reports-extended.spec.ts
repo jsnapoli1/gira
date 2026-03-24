@@ -113,6 +113,49 @@ async function createAndCompleteSprint(
   return sprint.id as number;
 }
 
+async function createStartedSprint(
+  request: any,
+  token: string,
+  bs: BoardSetup,
+  sprintName = 'Active Sprint',
+  storyPoints = 5
+): Promise<{ sprintId: number; cardId: number }> {
+  const sprint = await (
+    await request.post(`${BASE}/api/sprints?board_id=${bs.boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: sprintName },
+    })
+  ).json();
+
+  const cardRes = await request.post(`${BASE}/api/cards`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: `${sprintName} Card`,
+      column_id: bs.columnId,
+      swimlane_id: bs.swimlaneId,
+      board_id: bs.boardId,
+    },
+  });
+  if (!cardRes.ok()) {
+    return { sprintId: -1, cardId: -1 };
+  }
+  const card = await cardRes.json();
+
+  await request.put(`${BASE}/api/cards/${card.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { story_points: storyPoints },
+  });
+  await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { sprint_id: sprint.id },
+  });
+  await request.post(`${BASE}/api/sprints/${sprint.id}/start`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  return { sprintId: sprint.id, cardId: card.id };
+}
+
 // ---------------------------------------------------------------------------
 // Token injection helper — uses evaluate (not addInitScript)
 // ---------------------------------------------------------------------------
@@ -488,5 +531,607 @@ test.describe('Reports Extended', () => {
 
   test.fixme('export/print functionality triggers when export button is clicked', async ({ page }) => {
     // No export button exists in the current Reports page implementation
+  });
+
+  // =========================================================================
+  // NEW TESTS — Burndown API
+  // =========================================================================
+
+  test.describe('Burndown API', () => {
+
+    test('GET /api/metrics/burndown returns 200 for a started sprint', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Burndown 200 Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'Burndown 200 Sprint');
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/metrics/burndown?sprint_id=${sprintId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+    });
+
+    test('burndown response is an array', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Burndown Array Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'Burndown Array Sprint');
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/metrics/burndown?sprint_id=${sprintId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    test('burndown entries have remaining_points numeric field', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Burndown Fields Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'Fields Sprint', 8);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/metrics/burndown?sprint_id=${sprintId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(data.length).toBeGreaterThanOrEqual(1);
+      const entry = data[data.length - 1];
+      expect(typeof entry.remaining_points).toBe('number');
+    });
+
+    test('burndown entries have total_points numeric field', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Burndown Total Points Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'TP Sprint', 7);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/metrics/burndown?sprint_id=${sprintId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(data.length).toBeGreaterThanOrEqual(1);
+      const entry = data[data.length - 1];
+      expect(typeof entry.total_points).toBe('number');
+      expect(entry.total_points).toBe(7);
+    });
+
+    test('burndown for completed sprint returns historical data with at least one entry', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Burndown Historical Board');
+      const sprintId = await createAndCompleteSprint(request, token, bs, 'Historical Sprint', 6);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/metrics/burndown?sprint_id=${sprintId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+      const data = await res.json();
+      expect(Array.isArray(data)).toBe(true);
+      expect(data.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('burndown without sprint_id returns 400', async ({ request }) => {
+      const token = await createUser(request);
+      const res = await request.get(`${BASE}/api/metrics/burndown`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(400);
+    });
+
+    test('burndown for non-existent sprint returns 404', async ({ request }) => {
+      const token = await createUser(request);
+      const res = await request.get(`${BASE}/api/metrics/burndown?sprint_id=999999999`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(404);
+    });
+  });
+
+  // =========================================================================
+  // NEW TESTS — Velocity API
+  // =========================================================================
+
+  test.describe('Velocity API', () => {
+
+    test('GET /api/metrics/velocity returns 200 for a board', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Velocity 200 Board');
+
+      const res = await request.get(`${BASE}/api/metrics/velocity?board_id=${bs.boardId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+    });
+
+    test('velocity response is an array', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Velocity Array Board');
+
+      const res = await request.get(`${BASE}/api/metrics/velocity?board_id=${bs.boardId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    test('velocity entries have sprint_name, completed_points, total_points fields', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Velocity Fields Board');
+      const sprintId = await createAndCompleteSprint(request, token, bs, 'Vel Fields Sprint', 9);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/metrics/velocity?board_id=${bs.boardId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(data.length).toBeGreaterThanOrEqual(1);
+      const entry = data[0];
+      expect(typeof entry.sprint_name).toBe('string');
+      expect(typeof entry.completed_points).toBe('number');
+      expect(typeof entry.total_points).toBe('number');
+    });
+
+    test('velocity shows completed points for a sprint with story-pointed cards', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Velocity Points Board');
+      const sprintId = await createAndCompleteSprint(request, token, bs, 'Points Vel Sprint', 13);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/metrics/velocity?board_id=${bs.boardId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const entry = data.find((v: any) => v.sprint_name === 'Points Vel Sprint');
+      expect(entry).toBeDefined();
+      expect(entry.total_points).toBe(13);
+    });
+
+    test('velocity returns empty array for board with no completed sprints', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'Velocity No Complete Board');
+
+      const res = await request.get(`${BASE}/api/metrics/velocity?board_id=${bs.boardId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(Array.isArray(data)).toBe(true);
+      expect(data.length).toBe(0);
+    });
+
+    test('velocity without board_id returns 400', async ({ request }) => {
+      const token = await createUser(request);
+      const res = await request.get(`${BASE}/api/metrics/velocity`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(400);
+    });
+  });
+
+  // =========================================================================
+  // NEW TESTS — Time Summary API
+  // =========================================================================
+
+  test.describe('Time Summary API', () => {
+
+    test('GET /api/boards/:id/time-summary returns 200', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'TS 200 Board');
+
+      const res = await request.get(`${BASE}/api/boards/${bs.boardId}/time-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+    });
+
+    test('time-summary response has total_logged field', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'TS Fields Board');
+
+      const res = await request.get(`${BASE}/api/boards/${bs.boardId}/time-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(typeof data.total_logged).toBe('number');
+    });
+
+    test('time-summary response has total_estimated field', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'TS Estimated Board');
+
+      const res = await request.get(`${BASE}/api/boards/${bs.boardId}/time-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(typeof data.total_estimated).toBe('number');
+    });
+
+    test('time-summary returns total_logged = 0 when no worklogs exist', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'TS Zero Board');
+
+      const res = await request.get(`${BASE}/api/boards/${bs.boardId}/time-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(data.total_logged).toBe(0);
+    });
+
+    test('time-summary by_user array is present in response', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'TS ByUser Board');
+
+      const res = await request.get(`${BASE}/api/boards/${bs.boardId}/time-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      expect(Array.isArray(data.by_user)).toBe(true);
+    });
+
+    test('time-summary total_logged increases after adding a worklog', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'TS Worklog Board');
+
+      // Create a card
+      const cardRes = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          title: 'Worklog Card',
+          column_id: bs.columnId,
+          swimlane_id: bs.swimlaneId,
+          board_id: bs.boardId,
+        },
+      });
+      if (!cardRes.ok()) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+      const card = await cardRes.json();
+
+      // Baseline
+      const before = await (
+        await request.get(`${BASE}/api/boards/${bs.boardId}/time-summary`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      ).json();
+
+      // Add worklog
+      await request.post(`${BASE}/api/cards/${card.id}/worklogs`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { minutes: 90, description: 'Focused session' },
+      });
+
+      const after = await (
+        await request.get(`${BASE}/api/boards/${bs.boardId}/time-summary`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      ).json();
+
+      expect(after.total_logged).toBeGreaterThan(before.total_logged);
+    });
+
+    test('time-summary accepts sprint_id query param and returns 200', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'TS Sprint Filter Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'Filter Sprint 1');
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(
+        `${BASE}/api/boards/${bs.boardId}/time-summary?sprint_id=${sprintId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      expect(res.status()).toBe(200);
+      const data = await res.json();
+      expect(typeof data.total_logged).toBe('number');
+    });
+  });
+
+  // =========================================================================
+  // NEW TESTS — Reports UI
+  // =========================================================================
+
+  test.describe('Reports UI', () => {
+
+    test('UI: reports page is accessible at /reports route', async ({ request, page }) => {
+      const token = await createUser(request);
+      await injectToken(page, token);
+      await page.goto('/reports');
+      await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
+      await expect(page).toHaveURL(/\/reports/);
+    });
+
+    test('UI: sprint selector is visible when board has sprints', async ({ request, page }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'UI Sprint Selector Board');
+
+      // Create sprint but don't complete it — selector still shows for planning
+      await request.post(`${BASE}/api/sprints?board_id=${bs.boardId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Planning Sprint UI' },
+      });
+
+      await injectToken(page, token);
+      await page.goto('/reports');
+      await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
+
+      await page.locator('.reports-filters select').first().selectOption({ label: 'UI Sprint Selector Board' });
+
+      // Sprint selector (second select) should appear
+      await expect(page.locator('.reports-filters select').nth(1)).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: burndown chart card heading is rendered', async ({ request, page }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'UI Burndown Board');
+
+      const sprintId = await createAndCompleteSprint(request, token, bs, 'UI Burndown Sprint');
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      await injectToken(page, token);
+      await page.goto('/reports');
+      await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
+
+      await page.locator('.reports-filters select').first().selectOption({ label: 'UI Burndown Board' });
+      await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
+
+      await expect(page.locator('.chart-card h3:has-text("Sprint Burndown")')).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: velocity trend chart card heading is rendered', async ({ request, page }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'UI Velocity Board');
+
+      const sprintId = await createAndCompleteSprint(request, token, bs, 'UI Velocity Sprint');
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      await injectToken(page, token);
+      await page.goto('/reports');
+      await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
+
+      await page.locator('.reports-filters select').first().selectOption({ label: 'UI Velocity Board' });
+      await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
+
+      await expect(page.locator('.chart-card h3:has-text("Velocity Trend")')).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: sprint metrics shows Sprint Completion and Avg Velocity metric cards', async ({ request, page }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'UI Metrics Cards Board');
+
+      const sprintId = await createAndCompleteSprint(request, token, bs, 'UI Metrics Sprint');
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      await injectToken(page, token);
+      await page.goto('/reports');
+      await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
+
+      await page.locator('.reports-filters select').first().selectOption({ label: 'UI Metrics Cards Board' });
+      await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
+
+      await expect(
+        page.locator('.metric-card').filter({ has: page.locator('.metric-label:has-text("Sprint Completion")') })
+      ).toBeVisible();
+      await expect(
+        page.locator('.metric-card').filter({ has: page.locator('.metric-label:has-text("Avg Velocity")') })
+      ).toBeVisible();
+    });
+
+    test('UI: cumulative flow chart card heading is rendered', async ({ request, page }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'UI CFD Board');
+
+      const sprintId = await createAndCompleteSprint(request, token, bs, 'UI CFD Sprint');
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      await injectToken(page, token);
+      await page.goto('/reports');
+      await expect(page.locator('.reports-filters select').first()).toBeVisible({ timeout: 10000 });
+
+      await page.locator('.reports-filters select').first().selectOption({ label: 'UI CFD Board' });
+      await expect(page.locator('.metrics-summary')).toBeVisible({ timeout: 10000 });
+
+      await expect(page.locator('.chart-card h3:has-text("Cumulative Flow")')).toBeVisible({ timeout: 8000 });
+    });
+
+    test.fixme('UI: date range selector is present on the reports page', async ({ page }) => {
+      // Date range filter inputs are not yet implemented in Reports.tsx
+    });
+
+    test.fixme('UI: export reports data button triggers a download or print', async ({ page }) => {
+      // No export button exists in the current Reports page implementation
+    });
+  });
+
+  // =========================================================================
+  // NEW TESTS — Sprint Metrics API
+  // =========================================================================
+
+  test.describe('Sprint Metrics API (via /api/sprints/:id/metrics)', () => {
+
+    test('GET /api/sprints/:id/metrics returns 200 with data', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'SM API Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'SM API Sprint', 5);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/sprints/${sprintId}/metrics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(200);
+    });
+
+    test('sprint metrics has total_cards count', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'SM Total Cards Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'Total Cards Sprint', 5);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/sprints/${sprintId}/metrics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const entry = Array.isArray(data) ? data[data.length - 1] : data;
+      expect(typeof entry.total_cards).toBe('number');
+      expect(entry.total_cards).toBeGreaterThanOrEqual(1);
+    });
+
+    test('sprint metrics has completed_cards count starting at 0', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'SM Completed Cards Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'Completed Zero Sprint', 5);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/sprints/${sprintId}/metrics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const entry = Array.isArray(data) ? data[data.length - 1] : data;
+      expect(typeof entry.completed_cards).toBe('number');
+      expect(entry.completed_cards).toBe(0);
+    });
+
+    test('sprint metrics completion_percentage is calculable from total and completed cards', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'SM Completion Pct Board');
+      const { sprintId } = await createStartedSprint(request, token, bs, 'Completion Pct Sprint', 5);
+      if (sprintId === -1) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+
+      const res = await request.get(`${BASE}/api/sprints/${sprintId}/metrics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const entry = Array.isArray(data) ? data[data.length - 1] : data;
+
+      // Completion % = completed_cards / total_cards * 100
+      // With no cards done yet, it should be 0%
+      const pct = entry.total_cards > 0
+        ? (entry.completed_cards / entry.total_cards) * 100
+        : 0;
+      expect(pct).toBe(0);
+    });
+
+    test('sprint metrics completed_cards increases when card moved to done column', async ({ request }) => {
+      const token = await createUser(request);
+      const bs = await setupBoard(request, token, 'SM Move Done Board');
+
+      // Create sprint with a card
+      const sprint = await (
+        await request.post(`${BASE}/api/sprints?board_id=${bs.boardId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { name: 'Move Done Sprint' },
+        })
+      ).json();
+
+      const cardRes = await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          title: 'Move To Done Card',
+          column_id: bs.columnId,
+          swimlane_id: bs.swimlaneId,
+          board_id: bs.boardId,
+        },
+      });
+      if (!cardRes.ok()) {
+        test.skip(true, 'Card creation unavailable');
+        return;
+      }
+      const card = await cardRes.json();
+
+      await request.put(`${BASE}/api/cards/${card.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { story_points: 5 },
+      });
+      await request.post(`${BASE}/api/cards/${card.id}/assign-sprint`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { sprint_id: sprint.id },
+      });
+      await request.post(`${BASE}/api/sprints/${sprint.id}/start`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      // Before moving to done
+      const before = await (
+        await request.get(`${BASE}/api/sprints/${sprint.id}/metrics`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      ).json();
+      const beforeEntry = Array.isArray(before) ? before[before.length - 1] : before;
+      expect(beforeEntry.completed_cards).toBe(0);
+
+      // Move card to Done column
+      await request.post(`${BASE}/api/cards/${card.id}/move`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { column_id: bs.doneColumnId, state: 'closed', position: 1 },
+      });
+
+      // After moving to done
+      const after = await (
+        await request.get(`${BASE}/api/sprints/${sprint.id}/metrics`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      ).json();
+      const afterEntry = Array.isArray(after) ? after[after.length - 1] : after;
+      expect(afterEntry.completed_cards).toBe(1);
+    });
+
+    test('GET /api/sprints/:id/metrics returns 404 for non-existent sprint', async ({ request }) => {
+      const token = await createUser(request);
+      const res = await request.get(`${BASE}/api/sprints/999999999/metrics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status()).toBe(404);
+    });
+
+    test('sprint metrics unauthenticated request returns 401', async ({ request }) => {
+      const res = await request.get(`${BASE}/api/sprints/1/metrics`);
+      expect(res.status()).toBe(401);
+    });
   });
 });

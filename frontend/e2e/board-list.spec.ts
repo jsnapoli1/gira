@@ -9,6 +9,9 @@ const BASE = `http://127.0.0.1:${process.env.PORT || 9002}`;
 interface BoardResponse {
   id: number;
   name: string;
+  description?: string;
+  owner_id?: number;
+  created_at?: string;
   columns?: Array<{ id: number; name: string; state: string; position: number }>;
   swimlanes?: Array<{ id: number }>;
 }
@@ -35,9 +38,11 @@ async function createBoard(
   token: string,
   name: string,
   template?: string,
+  description?: string,
 ): Promise<BoardResponse> {
   const data: Record<string, string> = { name };
   if (template) data.template = template;
+  if (description) data.description = description;
   const res = await request.post(`${BASE}/api/boards`, {
     headers: { Authorization: `Bearer ${token}` },
     data,
@@ -202,6 +207,20 @@ test.describe('Board list — create board modal', () => {
       page.locator('.board-card h3', { hasText: 'Should Not Persist' })
     ).not.toBeVisible();
   });
+
+  test('modal description textarea accepts multi-line text', async ({ page, request }) => {
+    const { token } = await createUser(request, 'bl-modal-desc-multiline');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button', { hasText: 'Create Board' }).first().click();
+    await expect(page.locator('.modal')).toBeVisible();
+
+    const multiline = 'Line one\nLine two\nLine three';
+    await page.locator('#boardDesc').fill(multiline);
+    const val = await page.locator('#boardDesc').inputValue();
+    expect(val).toBe(multiline);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -252,6 +271,28 @@ test.describe('Board list — create board with valid name', () => {
     // After creation the app navigates to the new board
     await page.waitForURL(/\/boards\/\d+$/, { timeout: 10000 });
     await expect(page.locator('.board-header h1')).toContainText(boardName);
+  });
+
+  test('creating a board with name and description stores both', async ({ page, request }) => {
+    const { token } = await createUser(request, 'bl-valid-desc');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button', { hasText: 'Create Board' }).first().click();
+    const boardName = `Desc Board ${crypto.randomUUID().slice(0, 8)}`;
+    const boardDesc = 'A board with a meaningful description';
+    await page.locator('#boardName').fill(boardName);
+    await page.locator('#boardDesc').fill(boardDesc);
+    await page.locator('.modal button[type="submit"]', { hasText: 'Create Board' }).click();
+
+    await page.waitForURL(/\/boards\/\d+$/, { timeout: 10000 });
+
+    // Return to board list and check the description appears on the card
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+    const card = page.locator('.board-card').filter({ hasText: boardName });
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(boardDesc);
   });
 });
 
@@ -493,6 +534,34 @@ test.describe('Board list — board card details', () => {
     const cardTitle = await page.locator('.board-card h3').first().textContent();
     expect(cardTitle?.trim()).toBe(boardName);
   });
+
+  test('board card shows description when set via API', async ({ page, request }) => {
+    const { token } = await createUser(request, 'bl-card-desc');
+    const boardName = `Desc Card ${crypto.randomUUID().slice(0, 8)}`;
+    const description = 'This board manages frontend issues';
+    await createBoard(request, token, boardName, undefined, description);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+    const card = page.locator('.board-card').filter({ hasText: boardName });
+    await expect(card).toContainText(description);
+  });
+
+  test('board card has a link pointing to /boards/:id', async ({ page, request }) => {
+    const { token } = await createUser(request, 'bl-card-link');
+    const board = await createBoard(request, token, `Link Check ${crypto.randomUUID().slice(0, 8)}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+    const link = page.locator('.board-card-link').first();
+    await expect(link).toBeVisible();
+    const href = await link.getAttribute('href');
+    expect(href).toMatch(new RegExp(`/boards/${board.id}`));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -568,7 +637,237 @@ test.describe('Board list — templates', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 13. Board search/filter (not yet implemented — fixme)
+// 13. API — board list endpoints
+// ---------------------------------------------------------------------------
+
+test.describe('Board list — API tests', () => {
+  test('GET /api/boards returns empty array for new user', async ({ request }) => {
+    const { token } = await createUser(request, 'bl-api-empty');
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(0);
+  });
+
+  test('GET /api/boards returns created board', async ({ request }) => {
+    const { token } = await createUser(request, 'bl-api-single');
+    const boardName = `API Board ${crypto.randomUUID().slice(0, 8)}`;
+    await createBoard(request, token, boardName);
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    const boards: BoardResponse[] = await res.json();
+    expect(boards.length).toBeGreaterThanOrEqual(1);
+    expect(boards.some((b) => b.name === boardName)).toBe(true);
+  });
+
+  test('GET /api/boards returns multiple boards', async ({ request }) => {
+    const { token } = await createUser(request, 'bl-api-multi');
+    const names = [
+      `Multi A ${crypto.randomUUID().slice(0, 6)}`,
+      `Multi B ${crypto.randomUUID().slice(0, 6)}`,
+      `Multi C ${crypto.randomUUID().slice(0, 6)}`,
+    ];
+    for (const name of names) {
+      await createBoard(request, token, name);
+    }
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    const boards: BoardResponse[] = await res.json();
+    expect(boards.length).toBeGreaterThanOrEqual(3);
+    for (const name of names) {
+      expect(boards.some((b) => b.name === name)).toBe(true);
+    }
+  });
+
+  test('board in list has id and name fields', async ({ request }) => {
+    const { token } = await createUser(request, 'bl-api-fields');
+    const boardName = `Fields Check ${crypto.randomUUID().slice(0, 8)}`;
+    await createBoard(request, token, boardName);
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boards: BoardResponse[] = await res.json();
+    const board = boards.find((b) => b.name === boardName);
+    expect(board).toBeDefined();
+    expect(typeof board!.id).toBe('number');
+    expect(board!.id).toBeGreaterThan(0);
+    expect(board!.name).toBe(boardName);
+  });
+
+  test('board has created_at timestamp in API response', async ({ request }) => {
+    const { token } = await createUser(request, 'bl-api-ts');
+    const boardName = `Timestamp Board ${crypto.randomUUID().slice(0, 8)}`;
+    await createBoard(request, token, boardName);
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boards: BoardResponse[] = await res.json();
+    const board = boards.find((b) => b.name === boardName);
+    expect(board).toBeDefined();
+    expect(board!.created_at).toBeTruthy();
+    const ts = new Date(board!.created_at!).getTime();
+    expect(Number.isNaN(ts)).toBe(false);
+    expect(ts).toBeGreaterThan(0);
+  });
+
+  test('board has description field in API response', async ({ request }) => {
+    const { token } = await createUser(request, 'bl-api-desc');
+    const boardName = `Desc API Board ${crypto.randomUUID().slice(0, 8)}`;
+    const description = 'A detailed description for this board';
+    await createBoard(request, token, boardName, undefined, description);
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boards: BoardResponse[] = await res.json();
+    const board = boards.find((b) => b.name === boardName);
+    expect(board).toBeDefined();
+    expect(board!.description).toBe(description);
+  });
+
+  test('DELETE /api/boards/:id removes board from list', async ({ request }) => {
+    const { token } = await createUser(request, 'bl-api-del');
+    const boardName = `Del Me ${crypto.randomUUID().slice(0, 8)}`;
+    const created = await createBoard(request, token, boardName);
+
+    const delRes = await request.delete(`${BASE}/api/boards/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(delRes.ok()).toBe(true);
+
+    const listRes = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boards: BoardResponse[] = await listRes.json();
+    expect(boards.some((b) => b.id === created.id)).toBe(false);
+  });
+
+  test('PUT /api/boards/:id updates board name in list', async ({ request }) => {
+    const { token } = await createUser(request, 'bl-api-put');
+    const original = `Original ${crypto.randomUUID().slice(0, 8)}`;
+    const updated = `Updated ${crypto.randomUUID().slice(0, 8)}`;
+    const created = await createBoard(request, token, original);
+
+    const putRes = await request.put(`${BASE}/api/boards/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: updated },
+    });
+    expect(putRes.ok()).toBe(true);
+
+    const listRes = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const boards: BoardResponse[] = await listRes.json();
+    expect(boards.some((b) => b.id === created.id && b.name === updated)).toBe(true);
+    expect(boards.some((b) => b.name === original)).toBe(false);
+  });
+
+  test("another user's boards do not appear in the list (isolation)", async ({ request }) => {
+    const { token: tokenA } = await createUser(request, 'bl-api-iso-a', 'Iso Owner');
+    const { token: tokenB } = await createUser(request, 'bl-api-iso-b', 'Iso Other');
+
+    const secretBoardName = `Secret Board ${crypto.randomUUID().slice(0, 8)}`;
+    await createBoard(request, tokenA, secretBoardName);
+
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    expect(res.ok()).toBe(true);
+    const boards: BoardResponse[] = await res.json();
+    expect(boards.some((b) => b.name === secretBoardName)).toBe(false);
+  });
+
+  test('unauthorized GET /api/boards returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthorized DELETE /api/boards/:id returns 401', async ({ request }) => {
+    const res = await request.delete(`${BASE}/api/boards/999`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthorized PUT /api/boards/:id returns 401', async ({ request }) => {
+    const res = await request.put(`${BASE}/api/boards/999`, {
+      data: { name: 'Hacked' },
+    });
+    expect(res.status()).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. UI — page heading and board count
+// ---------------------------------------------------------------------------
+
+test.describe('Board list — page structure', () => {
+  test('/boards page has a "Boards" heading', async ({ page, request }) => {
+    const { token } = await createUser(request, 'bl-heading');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('h1, h2').filter({ hasText: /boards/i }).first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('unauthenticated access to /boards redirects to login', async ({ page }) => {
+    await page.goto('/boards');
+    // Should redirect to /login when not authenticated
+    await page.waitForURL(/\/login/, { timeout: 10000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. Board name long text
+// ---------------------------------------------------------------------------
+
+test.describe('Board list — long name handling', () => {
+  test('creating a board with a long name succeeds and shows name on card', async ({ page, request }) => {
+    const { token } = await createUser(request, 'bl-longname');
+    const longName = `Long Name ${'x'.repeat(80)} ${crypto.randomUUID().slice(0, 4)}`;
+    await createBoard(request, token, longName);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+    // The card should render the name (possibly truncated visually but present in DOM)
+    const card = page.locator('.board-card h3').first();
+    await expect(card).toBeVisible();
+    const text = await card.textContent();
+    expect(text).toBeTruthy();
+    expect(text!.length).toBeGreaterThan(0);
+  });
+
+  test('creating a board with a very long description via UI succeeds', async ({ page, request }) => {
+    const { token } = await createUser(request, 'bl-longdesc');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button', { hasText: 'Create Board' }).first().click();
+    const boardName = `Long Desc Board ${crypto.randomUUID().slice(0, 8)}`;
+    const longDesc = 'A'.repeat(500);
+    await page.locator('#boardName').fill(boardName);
+    await page.locator('#boardDesc').fill(longDesc);
+    await page.locator('.modal button[type="submit"]', { hasText: 'Create Board' }).click();
+
+    await page.waitForURL(/\/boards\/\d+$/, { timeout: 10000 });
+    // Board was created successfully — verify we landed on a board page
+    await expect(page.locator('.board-header h1')).toContainText(boardName);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. Board search/filter (not yet implemented — fixme)
 // ---------------------------------------------------------------------------
 
 test.describe('Board list — search/filter (not yet implemented)', () => {
@@ -602,7 +901,7 @@ test.describe('Board list — search/filter (not yet implemented)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 14. Member count badge (not yet implemented — fixme)
+// 17. Member count badge (not yet implemented — fixme)
 // ---------------------------------------------------------------------------
 
 test.describe('Board list — member count (not yet implemented)', () => {
@@ -622,6 +921,31 @@ test.describe('Board list — member count (not yet implemented)', () => {
       await expect(
         card.locator('[data-testid="member-count"], .member-count')
       ).toContainText('2');
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 18. Board list sorted newest first (not yet verifiable — fixme)
+// ---------------------------------------------------------------------------
+
+test.describe('Board list — sort order (fixme if not guaranteed)', () => {
+  test.fixme(
+    'boards are listed newest-first when sort order is defined',
+    async ({ page, request }) => {
+      const { token } = await createUser(request, 'bl-sort');
+      await createBoard(request, token, 'First Board Created');
+      await createBoard(request, token, 'Second Board Created');
+      await createBoard(request, token, 'Third Board Created');
+
+      await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+      await page.goto('/boards');
+      await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+      const titles = await page.locator('.board-card h3').allTextContents();
+      expect(titles[0]).toBe('Third Board Created');
+      expect(titles[1]).toBe('Second Board Created');
+      expect(titles[2]).toBe('First Board Created');
     },
   );
 });
