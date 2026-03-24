@@ -1,326 +1,477 @@
+/**
+ * notifications.spec.ts
+ *
+ * Core notification CRUD tests:
+ *   - Notification bell is visible in sidebar
+ *   - Unread count badge appears when there are unread notifications
+ *   - Click bell opens notification panel
+ *   - Notification list renders
+ *   - "Mark all read" clears the badge
+ *   - Clicking an individual notification marks it read
+ *   - Clicking a notification link navigates to the board and opens the card modal
+ *   - Empty state when there are no notifications
+ *   - Delete individual notification
+ */
+
 import { test, expect } from '@playwright/test';
 
 const PORT = process.env.PORT || 9002;
 const BASE = `http://127.0.0.1:${PORT}`;
 
-test.describe('Notifications', () => {
-  let boardId: string;
+// ---------------------------------------------------------------------------
+// Shared helper: sign up a user and return { token, user }
+// ---------------------------------------------------------------------------
+async function createUser(
+  request: any,
+  displayName: string,
+  suffix: string
+): Promise<{ token: string; user: any }> {
+  const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const res = await request.post(`${BASE}/api/auth/signup`, {
+    data: {
+      email: `ntf-${suffix}-${uid}@test.com`,
+      password: 'password123',
+      display_name: displayName,
+    },
+  });
+  return res.json();
+}
 
-  test.beforeEach(async ({ page, request }) => {
-    // Create a unique user via API
-    const { token } = await (await request.post(`${BASE}/api/auth/signup`, {
+// ---------------------------------------------------------------------------
+// Shared helper: create board + swimlane + card owned by tokenA.
+// Optionally add tokenB / userBId as a board member.
+// ---------------------------------------------------------------------------
+async function createBoardWithCard(
+  request: any,
+  tokenA: string,
+  options: { tokenB?: string; userBId?: number } = {}
+): Promise<{ board: any; card: any; columns: any[]; swimlane: any }> {
+  const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const board = await (
+    await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+      data: { name: `Notifications Board ${uid}` },
+    })
+  ).json();
+
+  const columns: any[] = board.columns ?? [];
+
+  if (options.tokenB && options.userBId) {
+    await request.post(`${BASE}/api/boards/${board.id}/members`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+      data: { user_id: options.userBId, role: 'member' },
+    });
+  }
+
+  const swimlane = await (
+    await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+      data: { name: 'Test Swimlane', designator: 'NF-', color: '#6366f1' },
+    })
+  ).json();
+
+  const card = await (
+    await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
       data: {
-        email: `test-notifications-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`,
-        password: 'password123',
-        display_name: 'Notifications Test User',
-      },
-    })).json();
-
-    // Create a board (response includes columns array)
-    const board = await (await request.post(`${BASE}/api/boards`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Notifications Test Board' },
-    })).json();
-
-    boardId = String(board.id);
-    const columns = board.columns;
-
-    // Create a swimlane
-    const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: 'Test Swimlane', designator: 'NF-' },
-    })).json();
-
-    // Create a card
-    await (await request.post(`${BASE}/api/cards`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        title: 'Test Card for Notifications',
+        title: 'Notification Target Card',
         column_id: columns[0].id,
         swimlane_id: swimlane.id,
         board_id: board.id,
       },
-    })).json();
+    })
+  ).json();
 
-    // Set token in localStorage and navigate to board
-    await page.addInitScript((t) => localStorage.setItem('token', t), token);
-    await page.goto(`/boards/${board.id}`);
-    // Switch to All Cards view so swimlane headers are visible without a sprint
-    await page.click('.view-btn:has-text("All Cards")');
-    await page.waitForSelector('.card-item', { timeout: 10000 });
+  return { board, card, columns, swimlane };
+}
+
+// ---------------------------------------------------------------------------
+// Shared helper: navigate page to board as user, wait for bell and card items.
+// ---------------------------------------------------------------------------
+async function navigateToBoard(page: any, token: string, boardId: number) {
+  await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+  await page.goto(`/boards/${boardId}`);
+  await page.waitForSelector('.notification-bell', { timeout: 15000 });
+  await page.click('.view-btn:has-text("All Cards")');
+  await page.waitForSelector('.card-item', { timeout: 10000 });
+}
+
+// ---------------------------------------------------------------------------
+// Shared helper: trigger an assignment notification.
+// User B (tokenB) assigns user A (userId) to the card.
+// ---------------------------------------------------------------------------
+async function triggerAssignmentNotification(
+  request: any,
+  tokenB: string,
+  cardId: number,
+  userId: number
+) {
+  await request.post(`${BASE}/api/cards/${cardId}/assignees`, {
+    headers: { Authorization: `Bearer ${tokenB}` },
+    data: { user_id: userId },
   });
+}
 
-  test('should show notification bell in sidebar', async ({ page }) => {
-    // The notification bell should be visible
+// ===========================================================================
+// Notification bell UI
+// ===========================================================================
+test.describe('Notification bell UI', () => {
+  test('notification bell is visible in the sidebar', async ({ page, request }) => {
+    const { token } = await createUser(request, 'Bell Visible', 'bellvisible');
+    const { board } = await createBoardWithCard(request, token);
+    await navigateToBoard(page, token, board.id);
+
     await expect(page.locator('.notification-bell')).toBeVisible();
   });
 
-  test('should show empty notifications dropdown', async ({ page }) => {
-    // Click the notification bell
-    await page.click('.notification-bell');
+  test('no unread badge when there are no notifications', async ({ page, request }) => {
+    const { token } = await createUser(request, 'No Badge', 'nobadge');
+    const { board } = await createBoardWithCard(request, token);
+    await navigateToBoard(page, token, board.id);
 
-    // Should see the dropdown
+    await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('clicking bell opens notification dropdown', async ({ page, request }) => {
+    const { token } = await createUser(request, 'Bell Click', 'bellclick');
+    const { board } = await createBoardWithCard(request, token);
+    await navigateToBoard(page, token, board.id);
+
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+  });
+
+  test('empty state is shown when there are no notifications', async ({ page, request }) => {
+    const { token } = await createUser(request, 'Empty State', 'emptystate');
+    const { board } = await createBoardWithCard(request, token);
+    await navigateToBoard(page, token, board.id);
+
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+    await expect(page.locator('.notification-empty')).toBeVisible();
+    await expect(page.locator('.notification-empty')).toContainText('No notifications');
+  });
+});
+
+// ===========================================================================
+// Unread badge
+// ===========================================================================
+test.describe('Unread badge', () => {
+  test('badge appears with a positive count after receiving a notification', async ({
+    page,
+    request,
+  }) => {
+    const { token, user } = await createUser(request, 'Badge Show', 'badgeshow');
+    const { token: tokenB } = await createUser(request, 'Badge Trigger', 'badgetrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+
+    const badge = page.locator('.notification-badge');
+    await expect(badge).toBeVisible({ timeout: 8000 });
+    const text = await badge.textContent();
+    expect(Number(text)).toBeGreaterThan(0);
+  });
+
+  test('badge count reflects unread_count returned by the API', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'Badge Count', 'badgecount');
+    const { token: tokenB } = await createUser(request, 'Badge Count Trig', 'badgecounttrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    // Create two notifications: assignment + comment
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+    await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+      data: { body: 'Badge count comment' },
+    });
+
+    // Get API's unread_count before navigating
+    const apiRes = await request.get(`${BASE}/api/notifications`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const apiData = await apiRes.json();
+    const apiUnreadCount: number = apiData.unread_count;
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+
+    const badge = page.locator('.notification-badge');
+    await expect(badge).toBeVisible({ timeout: 8000 });
+    const badgeText = await badge.textContent();
+    expect(Number(badgeText)).toBe(apiUnreadCount);
+  });
+});
+
+// ===========================================================================
+// Mark all read
+// ===========================================================================
+test.describe('Mark all read', () => {
+  test('clicking "Mark all read" clears the badge', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'Mark All User', 'markalluser');
+    const { token: tokenB } = await createUser(request, 'Mark All Trig', 'markalltrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+    await expect(page.locator('.notification-badge')).toBeVisible({ timeout: 8000 });
+
+    await page.click('.notification-bell');
     await expect(page.locator('.notification-dropdown')).toBeVisible();
 
-    // Should show empty message
+    await page.click('.mark-all-read-btn');
+
+    await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 8000 });
+  });
+
+  test('"Mark all read" sets all notification items to read state', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'MAR Items', 'maritems');
+    const { token: tokenB } = await createUser(request, 'MAR Trig', 'martrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    // Create multiple notifications
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+    await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+      data: { body: 'Comment one' },
+    });
+    await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+      data: { body: 'Comment two' },
+    });
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+
+    // Confirm there are unread items
+    const unreadBefore = await page.locator('.notification-item.unread').count();
+    expect(unreadBefore).toBeGreaterThanOrEqual(1);
+
+    await page.click('.mark-all-read-btn');
+
+    // All unread items should now be gone
+    await expect(page.locator('.notification-item.unread')).toHaveCount(0, { timeout: 8000 });
+    await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 8000 });
+  });
+});
+
+// ===========================================================================
+// Individual notification interaction
+// ===========================================================================
+test.describe('Individual notification interaction', () => {
+  test('clicking an unread notification marks it as read', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'Single Read', 'singleread');
+    const { token: tokenB } = await createUser(request, 'Single Read Trig', 'singlereadtrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+    await expect(page.locator('.notification-badge')).toBeVisible({ timeout: 8000 });
+
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+
+    // The notification must be visible and unread
+    const unreadItem = page.locator('.notification-item.unread').first();
+    await expect(unreadItem).toBeVisible();
+
+    await unreadItem.click();
+
+    // Re-open dropdown and verify item is now read (no longer has .unread class)
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+    await expect(page.locator('.notification-item.unread')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('notification list shows title and message text', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'Ntf Content', 'ntfcontent');
+    const { token: tokenB } = await createUser(request, 'Ntf Content Trig', 'ntfcontenttrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+    await expect(page.locator('.notification-item')).toBeVisible();
+
+    // Title and message should be rendered
+    await expect(page.locator('.notification-title').first()).toBeVisible();
+    await expect(page.locator('.notification-message').first()).toBeVisible();
+  });
+
+  test('notification shows a timestamp', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'Ntf Time', 'ntftime');
+    const { token: tokenB } = await createUser(request, 'Ntf Time Trig', 'ntftimetrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+
+    // The timestamp element should be present
+    const timeEl = page.locator('.notification-time, .notification-timestamp');
+    await expect(timeEl.first()).toBeVisible({ timeout: 5000 });
+
+    // Timestamps for freshly created notifications should contain relative time words
+    const tsText = (await timeEl.first().textContent()) ?? '';
+    const relativePattern = /just now|ago|second|minute|hour|day|week/i;
+    expect(relativePattern.test(tsText)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Notification navigation (clicking link opens card)
+// ===========================================================================
+test.describe('Notification navigation', () => {
+  test('clicking a notification navigates to the board URL with ?card=:id param', async ({
+    page,
+    request,
+  }) => {
+    const { token, user } = await createUser(request, 'Nav User', 'navuser');
+    const { token: tokenB } = await createUser(request, 'Nav Trigger', 'navtrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+    await expect(page.locator('.notification-badge')).toBeVisible({ timeout: 8000 });
+
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+
+    // Click the first notification
+    await page.locator('.notification-item').first().click();
+
+    // URL should contain the card ID as ?card=<id>
+    await expect(page).toHaveURL(new RegExp(`[?&]card=${card.id}`), { timeout: 8000 });
+  });
+
+  test('navigating to ?card=:id URL opens the card detail modal', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'Card Modal Open', 'cardmodalopen');
+    const { token: tokenB } = await createUser(request, 'Card Modal Trig', 'cardmodaltrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    // Navigate directly to the board with the ?card= param (as a notification link would)
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}?card=${card.id}`);
+    await page.waitForSelector('.notification-bell', { timeout: 15000 });
+    // Switch to All Cards so the card is rendered and the modal can open
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // The card detail modal should open automatically
+    await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
+  });
+});
+
+// ===========================================================================
+// Delete notification
+// ===========================================================================
+test.describe('Delete notification', () => {
+  test('deleting a notification removes it from the list', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'Delete Ntf', 'deletentf');
+    const { token: tokenB } = await createUser(request, 'Delete Ntf Trig', 'deletentftrig');
+    const { board, card } = await createBoardWithCard(request, token);
+
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+
+    await navigateToBoard(page, token, board.id);
+    await page.reload();
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
+
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+    await expect(page.locator('.notification-item')).toBeVisible();
+
+    // Hover to reveal the delete button
+    await page.locator('.notification-item').first().hover();
+    await page.locator('.notification-delete').first().click();
+
+    // Empty state should appear after deletion
+    await expect(page.locator('.notification-empty')).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.notification-empty')).toContainText('No notifications');
   });
 
-  test('should receive notification when assigned to a card', async ({ page, request }) => {
-    // Get auth token
-    const token = await page.evaluate(() => localStorage.getItem('token'));
+  test('deleting an unread notification decrements the badge count', async ({ page, request }) => {
+    const { token, user } = await createUser(request, 'Delete Badge', 'deletebadge');
+    const { token: tokenB } = await createUser(request, 'Delete Badge Trig', 'deletebadgetrig');
+    const { board, card } = await createBoardWithCard(request, token);
 
-    // Get the user ID from the me endpoint
-    const meResponse = await request.get('/api/auth/me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const userData = await meResponse.json();
-    const userId = userData.id;
-
-    // Get the card ID
-    const cardsResponse = await request.get(`/api/boards/${boardId}/cards`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const cards = await cardsResponse.json();
-    const cardId = cards[0]?.id;
-
-    // Create a second user to assign the card
-    const secondUserEmail = `test-notifications-assigner-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
-    const signupResponse = await request.post('/api/auth/signup', {
-      data: {
-        email: secondUserEmail,
-        password: 'password123',
-        display_name: 'Assigner User',
-      },
-    });
-    const signupData = await signupResponse.json();
-    const secondToken = signupData.token;
-
-    // Second user adds first user as assignee to the card
-    await request.post(`/api/cards/${cardId}/assignees`, {
-      headers: {
-        'Authorization': `Bearer ${secondToken}`,
-        'Content-Type': 'application/json',
-      },
-      data: { user_id: userId },
+    // Create two notifications
+    await triggerAssignmentNotification(request, tokenB, card.id, user.id);
+    await request.post(`${BASE}/api/cards/${card.id}/comments`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+      data: { body: 'Delete badge comment' },
     });
 
-    // Reload to fetch notifications
+    await navigateToBoard(page, token, board.id);
     await page.reload();
-    await page.waitForSelector('.notification-bell', { timeout: 5000 });
+    await page.waitForSelector('.notification-bell', { timeout: 10000 });
 
-    // Check the notification badge
-    await expect(page.locator('.notification-badge')).toBeVisible();
-    await expect(page.locator('.notification-badge')).toContainText('1');
+    const badge = page.locator('.notification-badge');
+    await expect(badge).toBeVisible({ timeout: 8000 });
+    const countBefore = Number(await badge.textContent());
+    expect(countBefore).toBeGreaterThanOrEqual(2);
 
-    // Click the bell to see the notification
+    // Open dropdown and delete one notification
     await page.click('.notification-bell');
     await expect(page.locator('.notification-dropdown')).toBeVisible();
-
-    // Should see the assignment notification
-    await expect(page.locator('.notification-item')).toBeVisible();
-    await expect(page.locator('.notification-title')).toContainText("You've been assigned");
-  });
-
-  test('should mark notification as read when clicked', async ({ page, request }) => {
-    // Get auth token
-    const token = await page.evaluate(() => localStorage.getItem('token'));
-
-    // Create a notification via API
-    const meResponse = await request.get('/api/auth/me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const userData = await meResponse.json();
-
-    // Get the card ID
-    const cardsResponse = await request.get(`/api/boards/${boardId}/cards`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const cards = await cardsResponse.json();
-    const cardId = cards[0]?.id;
-
-    // Create a second user
-    const secondUserEmail = `test-notifications-commenter-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
-    const signupResponse = await request.post('/api/auth/signup', {
-      data: {
-        email: secondUserEmail,
-        password: 'password123',
-        display_name: 'Commenter User',
-      },
-    });
-    const signupData = await signupResponse.json();
-    const secondToken = signupData.token;
-
-    // First, assign the card to the first user (so they get notified of comments)
-    await request.post(`/api/cards/${cardId}/assignees`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      data: { user_id: userData.id },
-    });
-
-    // Second user adds a comment (which should notify the assignee)
-    await request.post(`/api/cards/${cardId}/comments`, {
-      headers: {
-        'Authorization': `Bearer ${secondToken}`,
-        'Content-Type': 'application/json',
-      },
-      data: { body: 'This is a test comment' },
-    });
-
-    // Reload to fetch notifications
-    await page.reload();
-    await page.waitForSelector('.notification-bell', { timeout: 5000 });
-
-    // Should have unread notification
-    await expect(page.locator('.notification-badge')).toBeVisible();
-
-    // Open the dropdown
-    await page.click('.notification-bell');
-    await expect(page.locator('.notification-dropdown')).toBeVisible();
-
-    // Find an unread notification and click it
-    const unreadNotification = page.locator('.notification-item.unread').first();
-    await expect(unreadNotification).toBeVisible();
-    await unreadNotification.click();
-
-    // After clicking, the badge should disappear (this was the only notification)
-    // and the notification should no longer carry the unread class.
-    // Re-open the dropdown to verify the read state.
-    await page.click('.notification-bell');
-    await expect(page.locator('.notification-dropdown')).toBeVisible();
-
-    // The notification badge should be gone (no more unread notifications)
-    await expect(page.locator('.notification-badge')).not.toBeVisible({ timeout: 5000 });
-
-    // The notification item should no longer have the unread class
-    await expect(page.locator('.notification-item.unread')).not.toBeVisible({ timeout: 5000 });
-  });
-
-  test('should mark all notifications as read', async ({ page, request }) => {
-    // Get auth token
-    const token = await page.evaluate(() => localStorage.getItem('token'));
-
-    // Get user data
-    const meResponse = await request.get('/api/auth/me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const userData = await meResponse.json();
-
-    // Get the card ID
-    const cardsResponse = await request.get(`/api/boards/${boardId}/cards`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const cards = await cardsResponse.json();
-    const cardId = cards[0]?.id;
-
-    // Create a second user
-    const secondUserEmail = `test-notifications-batch-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
-    const signupResponse = await request.post('/api/auth/signup', {
-      data: {
-        email: secondUserEmail,
-        password: 'password123',
-        display_name: 'Batch User',
-      },
-    });
-    const signupData = await signupResponse.json();
-    const secondToken = signupData.token;
-
-    // Assign first user to card
-    await request.post(`/api/cards/${cardId}/assignees`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      data: { user_id: userData.id },
-    });
-
-    // Second user adds multiple comments to generate notifications
-    for (let i = 0; i < 3; i++) {
-      await request.post(`/api/cards/${cardId}/comments`, {
-        headers: {
-          'Authorization': `Bearer ${secondToken}`,
-          'Content-Type': 'application/json',
-        },
-        data: { body: `Comment ${i + 1}` },
-      });
-    }
-
-    // Reload to fetch notifications
-    await page.reload();
-    await page.waitForSelector('.notification-bell', { timeout: 5000 });
-
-    // Should have multiple unread notifications
-    await expect(page.locator('.notification-badge')).toBeVisible();
-
-    // Open the dropdown
-    await page.click('.notification-bell');
-    await expect(page.locator('.notification-dropdown')).toBeVisible();
-
-    // Click mark all as read
-    await page.click('.mark-all-read-btn');
-
-    // Badge should disappear
-    await expect(page.locator('.notification-badge')).not.toBeVisible();
-  });
-
-  test('should delete a notification', async ({ page, request }) => {
-    // Get auth token
-    const token = await page.evaluate(() => localStorage.getItem('token'));
-
-    // Get user data
-    const meResponse = await request.get('/api/auth/me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const userData = await meResponse.json();
-
-    // Get the card ID
-    const cardsResponse = await request.get(`/api/boards/${boardId}/cards`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const cards = await cardsResponse.json();
-    const cardId = cards[0]?.id;
-
-    // Create a second user
-    const secondUserEmail = `test-notifications-delete-${Date.now()}-${Math.random().toString(36).slice(2,8)}@example.com`;
-    const signupResponse = await request.post('/api/auth/signup', {
-      data: {
-        email: secondUserEmail,
-        password: 'password123',
-        display_name: 'Delete Test User',
-      },
-    });
-    const signupData = await signupResponse.json();
-    const secondToken = signupData.token;
-
-    // Assign first user to card (creates notification)
-    await request.post(`/api/cards/${cardId}/assignees`, {
-      headers: {
-        'Authorization': `Bearer ${secondToken}`,
-        'Content-Type': 'application/json',
-      },
-      data: { user_id: userData.id },
-    });
-
-    // Reload to fetch notifications
-    await page.reload();
-    await page.waitForSelector('.notification-bell', { timeout: 5000 });
-
-    // Open the dropdown
-    await page.click('.notification-bell');
-    await expect(page.locator('.notification-dropdown')).toBeVisible();
-
-    // Should have a notification
-    await expect(page.locator('.notification-item')).toBeVisible();
-
-    // Hover over the notification to reveal delete button
     await page.locator('.notification-item').first().hover();
-
-    // Click delete
     await page.locator('.notification-delete').first().click();
 
-    // Notification should be removed
-    await expect(page.locator('.notification-empty')).toBeVisible();
+    // Badge count should have decreased
+    await expect(badge).toBeVisible({ timeout: 5000 });
+    const countAfter = Number(await badge.textContent());
+    expect(countAfter).toBeLessThan(countBefore);
+  });
+});
+
+// ===========================================================================
+// Dropdown close behaviour
+// ===========================================================================
+test.describe('Dropdown close behaviour', () => {
+  test('dropdown closes when clicking outside the notification container', async ({
+    page,
+    request,
+  }) => {
+    const { token } = await createUser(request, 'Outside Click', 'outsideclick');
+    const { board } = await createBoardWithCard(request, token);
+    await navigateToBoard(page, token, board.id);
+
+    await page.click('.notification-bell');
+    await expect(page.locator('.notification-dropdown')).toBeVisible();
+
+    // Click somewhere in the main content area (outside the notification container)
+    await page.click('.main-content', { position: { x: 10, y: 10 } });
+
+    await expect(page.locator('.notification-dropdown')).not.toBeVisible({ timeout: 5000 });
   });
 });

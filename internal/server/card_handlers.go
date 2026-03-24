@@ -200,12 +200,13 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 			// If no client available, generate local ID
 			cards, _ := s.DB.ListCardsForBoard(req.BoardID)
 			giteaIssueID = int64(len(cards) + 1)
-		} else if client != nil {
+		} else if client != nil && swimlane.RepoOwner != "" && swimlane.RepoName != "" {
 			giteaIssue, err := client.CreateIssue(swimlane.RepoOwner, swimlane.RepoName, req.Title, req.Description)
 			if err != nil {
-				// If the repo doesn't exist (404) or is unreachable, fall back to local ID
+				// If the repo doesn't exist or is unreachable, fall back to local ID
 				errStr := err.Error()
-				if strings.Contains(errStr, "API error (404)") || strings.Contains(errStr, "API error (422)") {
+				if strings.Contains(errStr, "API error (404)") || strings.Contains(errStr, "API error (422)") ||
+					strings.Contains(errStr, "API error (401)") || strings.Contains(errStr, "API error (403)") {
 					cards, _ := s.DB.ListCardsForBoard(req.BoardID)
 					giteaIssueID = int64(len(cards) + 1)
 				} else {

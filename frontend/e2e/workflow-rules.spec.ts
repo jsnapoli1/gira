@@ -41,12 +41,13 @@ async function getColumns(request: any, token: string, boardId: number) {
  */
 async function gotoSettingsAndWaitForColumns(page: any, boardId: number) {
   await page.goto(`/boards/${boardId}/settings`);
-  // networkidle: no network requests for 500ms — all initial fetches done
-  await page.waitForLoadState('networkidle');
-  // Also confirm column items are visible as a UI-level guard
+  // Wait for the settings page to render and columns to load.
+  // Don't use waitForLoadState('networkidle') — SSE keeps a persistent connection open.
   await expect(
     page.locator('.settings-section').filter({ hasText: 'Columns' }).locator('.item-name').first()
   ).toBeVisible({ timeout: 10000 });
+  // Extra pause for async workflow rules fetch to complete before we interact
+  await page.waitForTimeout(300);
 }
 
 /**
