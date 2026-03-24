@@ -37,7 +37,6 @@ async function signup(
   const res = await request.post(`${BASE}/api/auth/signup`, {
     data: { email, password: 'password123', display_name: displayName },
   });
-  // Signup must succeed — if it fails the test setup is broken, not the SUT.
   expect(res.status(), `signup failed for ${displayName}: ${res.status()}`).toBe(200);
   const body = await res.json();
   return { token: body.token as string, user: body.user };
@@ -207,8 +206,8 @@ test.describe('Known Authorization Bugs (test.fail = bug still present)', () => 
 
   // BUG: PUT /api/cards/:id has no board-membership guard in handleUpdateCard().
   // loadCard() does not verify membership before allowing writes.
-  // Fix: same as Bug 1 — add checkBoardMembership(w, r, card.BoardID, BoardRoleMember)
-  // after the card is loaded in handleUpdateCard().
+  // Fix: add checkBoardMembership(w, r, card.BoardID, BoardRoleMember) after
+  // the card is loaded in handleUpdateCard().
   test.fail(
     'non-member can modify any card — KNOWN BUG needs backend fix',
     async ({ request }) => {
@@ -298,96 +297,20 @@ test.describe('Known Authorization Bugs (test.fail = bug still present)', () => 
     },
   );
 
-});
-
-// ===========================================================================
-// WORKING SECURITY TESTS — these must pass today and on every future run
-// ===========================================================================
-
-test.describe('Working Security Controls', () => {
-
   // -------------------------------------------------------------------------
-  // 6. Unauthenticated request to protected endpoint returns 401
-  // -------------------------------------------------------------------------
-
-  test('unauthenticated request to GET /api/boards returns 401', async ({ request }) => {
-    // Call the boards list endpoint with no Authorization header at all.
-    const res = await request.get(`${BASE}/api/boards`);
-    expect(res.status()).toBe(401);
-  });
-
-  // -------------------------------------------------------------------------
-  // 7. Invalid / malformed JWT returns 401
-  // -------------------------------------------------------------------------
-
-  test('invalid JWT token returns 401 on protected endpoint', async ({ request }) => {
-    // A syntactically valid-looking but cryptographically invalid JWT.
-    const fakeToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5OTk5OTkiLCJleHAiOjk5OTk5OTk5OTl9.invalidsignature';
-    const res = await request.get(`${BASE}/api/boards`, {
-      headers: { Authorization: `Bearer ${fakeToken}` },
-    });
-    expect(res.status()).toBe(401);
-  });
-
-  // -------------------------------------------------------------------------
-  // 8. Non-admin cannot access the admin user-management endpoint
-  // -------------------------------------------------------------------------
-
-  test('non-admin user receives 403 on PUT /api/admin/users', async ({ request }) => {
-    const { token } = await signup(request, 'Regular User');
-
-    // A freshly-signed-up user is never an admin by default.
-    // The PUT /api/admin/users route is guarded by requireAdmin middleware.
-    const res = await request.put(`${BASE}/api/admin/users`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { user_id: 1, is_admin: true },
-    });
-    expect(res.status()).toBe(403);
-  });
-
-  // -------------------------------------------------------------------------
-  // 9. Config endpoint leaks Gitea URL without authentication (intentional)
-  //    — Document this as an accepted information-disclosure decision so that
-  //    any future accidental change to require auth is caught.
-  // -------------------------------------------------------------------------
-
-  test('GET /api/config returns a response without auth (intentional disclosure)', async ({ request }) => {
-    // This endpoint intentionally returns config info to unauthenticated callers
-    // so that the login page can display the configured Gitea instance URL.
-    // The test documents the current behaviour; if this endpoint ever needs to
-    // be auth-gated the test should be updated alongside the backend change.
-    const res = await request.get(`${BASE}/api/config`);
-
-    // Must respond (not 401 / 404 / 500) — exact status may be 200 or similar.
-    expect(res.status()).toBeLessThan(400);
-
-    // Response must be valid JSON (even if an empty object when unconfigured).
-    const body = await res.json();
-    expect(typeof body).toBe('object');
-  });
-
-  // -------------------------------------------------------------------------
-  // 10. Self-promotion to admin is possible for any authenticated user
-  //     — Document this as a security concern (any user can call
-  //       POST /api/auth/promote-admin with no user_id and become admin).
-  //
-  //     This test DOCUMENTS the current behavior so the team is aware.
-  //     The backend allows self-promotion unconditionally (no "first user only"
-  //     restriction). The test uses test.fail() to signal this is a bug:
-  //     calling POST /api/auth/promote-admin as a regular non-admin user
-  //     SHOULD return 403 but currently returns 200.
+  // Bug 6: Any user can self-promote to admin via POST /api/auth/promote-admin
   // -------------------------------------------------------------------------
 
   // BUG: POST /api/auth/promote-admin allows any authenticated user to
-  // promote themselves to admin (handlePromoteAdmin in auth_handlers.go,
-  // lines ~150-195). The self-promotion path (targetID == caller.ID) has
-  // no guard — only promoting *other* users requires existing admin status.
+  // promote themselves to admin (handlePromoteAdmin in auth_handlers.go).
+  // The self-promotion path (targetID == caller.ID) has no guard —
+  // only promoting *other* users requires existing admin status.
   // Fix: restrict self-promotion to the very first user, or require an
   // existing admin to authorise all promotions.
   test.fail(
     'any user can self-promote to admin via POST /api/auth/promote-admin — KNOWN BUG',
     async ({ request }) => {
-      const { token, user } = await signup(request, 'Self-Promoter');
+      const { token } = await signup(request, 'Self-Promoter');
 
       // A regular non-admin user should NOT be able to self-promote.
       // EXPECTED: 403 Forbidden
@@ -400,12 +323,369 @@ test.describe('Working Security Controls', () => {
     },
   );
 
+});
+
+// ===========================================================================
+// WORKING SECURITY TESTS — these must pass today and on every future run
+// ===========================================================================
+
+test.describe('JWT and Authentication Controls', () => {
+
   // -------------------------------------------------------------------------
-  // 11. XSS in card title — script tag must not execute in the browser
+  // Unauthenticated request to every major protected route returns 401
   // -------------------------------------------------------------------------
 
-  test('XSS payload in card title is rendered as text, not executed', async ({ request, page }) => {
-    // --- Setup via API ---
+  test('unauthenticated request to GET /api/boards returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthenticated request to GET /api/auth/me returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/auth/me`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthenticated request to POST /api/cards returns 401', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/cards`, {
+      data: { title: 'test', board_id: 1, column_id: 1, swimlane_id: 1 },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthenticated request to GET /api/sprints returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/sprints?board_id=1`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthenticated request to GET /api/users returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/users`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthenticated request to GET /api/admin/users returns 401', async ({ request }) => {
+    // requireAdmin wraps requireAuth, so the outer check returns 401 before 403.
+    const res = await request.get(`${BASE}/api/admin/users`);
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // Invalid / malformed JWT returns 401
+  // -------------------------------------------------------------------------
+
+  test('syntactically valid but cryptographically invalid JWT returns 401', async ({ request }) => {
+    // A well-formed JWT structure but with a bogus signature.
+    const fakeToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9' +
+      '.eyJzdWIiOiI5OTk5OTkiLCJleHAiOjk5OTk5OTk5OTl9' +
+      '.invalidsignature';
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${fakeToken}` },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test('completely random token string returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer not-a-jwt-at-all` },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test('empty Bearer token string returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: 'Bearer ' },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test('Authorization header with wrong scheme returns 401', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: 'Basic dXNlcjpwYXNz' },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // Expired JWT returns 401
+  // -------------------------------------------------------------------------
+
+  test('expired JWT token returns 401', async ({ request }) => {
+    // Manually crafted JWT with exp in the past (Jan 1 2020).
+    // Signed with a key that will NOT match the server's secret, so the
+    // validation fails on signature before even checking expiry — but the
+    // observable result (401) is the same whether it fails on signature or expiry.
+    const expiredToken =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9' +
+      '.eyJ1c2VyX2lkIjoxLCJleHAiOjE1Nzc4MzYwMDB9' +
+      '.expiredSignature';
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${expiredToken}` },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+});
+
+test.describe('CORS Headers', () => {
+
+  test('CORS headers are present on a preflight OPTIONS request', async ({ request }) => {
+    // OPTIONS /api/boards — browser preflight check.
+    const res = await request.fetch(`${BASE}/api/boards`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://example.com',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'Authorization',
+      },
+    });
+    // corsMiddleware sets Access-Control-Allow-Origin and returns 200 for OPTIONS
+    expect(res.status()).toBe(200);
+    expect(res.headers()['access-control-allow-origin']).toBeTruthy();
+    expect(res.headers()['access-control-allow-methods']).toMatch(/GET/i);
+    expect(res.headers()['access-control-allow-headers']).toMatch(/Authorization/i);
+  });
+
+  test('CORS headers are present on an authenticated GET response', async ({ request }) => {
+    const { token } = await signup(request, 'CORS Tester');
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Origin: 'http://example.com',
+      },
+    });
+    expect(res.status()).toBe(200);
+    expect(res.headers()['access-control-allow-origin']).toBeTruthy();
+  });
+
+  test('Vary: Origin header is set on responses', async ({ request }) => {
+    const { token } = await signup(request, 'CORS Vary Tester');
+    const res = await request.get(`${BASE}/api/boards`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Origin: 'http://example.com',
+      },
+    });
+    expect(res.headers()['vary']).toMatch(/Origin/i);
+  });
+
+});
+
+test.describe('Admin Endpoint Access Control', () => {
+
+  test('non-admin user receives 403 on GET /api/admin/users', async ({ request }) => {
+    const { token } = await signup(request, 'Regular User No Admin');
+    const res = await request.get(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('non-admin user receives 403 on PUT /api/admin/users', async ({ request }) => {
+    const { token } = await signup(request, 'Regular User No Promote');
+    const res = await request.put(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { user_id: 1, is_admin: true },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('non-admin user receives 403 on POST /api/config', async ({ request }) => {
+    const { token } = await signup(request, 'Regular User No Config');
+    const res = await request.post(`${BASE}/api/config`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { gitea_url: 'http://example.com', gitea_api_key: 'fake' },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+});
+
+test.describe('Config Endpoint Intentional Public Disclosure', () => {
+
+  // This endpoint intentionally returns config info to unauthenticated callers
+  // so that the login page can display the configured Gitea instance URL.
+  // The test documents the accepted behavior — if this ever becomes auth-gated
+  // it should be updated alongside the backend change.
+  test('GET /api/config responds without auth (intentional disclosure)', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/config`);
+    expect(res.status()).toBeLessThan(400);
+    const body = await res.json();
+    expect(typeof body).toBe('object');
+  });
+
+  test('GET /api/config/status responds without auth', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/config/status`);
+    expect(res.status()).toBeLessThan(400);
+    const body = await res.json();
+    expect(typeof body).toBe('object');
+  });
+
+});
+
+test.describe('Password and Sensitive Data in Responses', () => {
+
+  test('password_hash is not present in signup response', async ({ request }) => {
+    const email = `pwtest-${crypto.randomUUID()}@example.com`;
+    const res = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'secret-password', display_name: 'PW Test User' },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+
+    // The user object must not expose the password hash.
+    // models.User has PasswordHash tagged with json:"-" so it should be absent.
+    expect(body.user).not.toHaveProperty('password_hash');
+    expect(body.user).not.toHaveProperty('PasswordHash');
+    expect(JSON.stringify(body)).not.toContain('password_hash');
+  });
+
+  test('password_hash is not present in login response', async ({ request }) => {
+    const email = `pwlogintest-${crypto.randomUUID()}@example.com`;
+    await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'secret-password', display_name: 'PW Login Test' },
+    });
+    const res = await request.post(`${BASE}/api/auth/login`, {
+      data: { email, password: 'secret-password' },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.user).not.toHaveProperty('password_hash');
+    expect(body.user).not.toHaveProperty('PasswordHash');
+    expect(JSON.stringify(body)).not.toContain('password_hash');
+  });
+
+  test('GET /api/auth/me does not expose password_hash', async ({ request }) => {
+    const { token } = await signup(request, 'Me Endpoint Tester');
+    const res = await request.get(`${BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).not.toHaveProperty('password_hash');
+    expect(body).not.toHaveProperty('PasswordHash');
+  });
+
+  test('GET /api/users list does not expose password_hash for any user', async ({ request }) => {
+    const { token } = await signup(request, 'Users List Tester');
+    const res = await request.get(`${BASE}/api/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const users = await res.json();
+    expect(Array.isArray(users)).toBe(true);
+    const raw = JSON.stringify(users);
+    expect(raw).not.toContain('password_hash');
+    expect(raw).not.toContain('PasswordHash');
+  });
+
+  test('Auth token is not echoed back in response headers or body', async ({ request }) => {
+    const email = `token-echo-${crypto.randomUUID()}@example.com`;
+    const password = 'echo-test-password';
+    const res = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password, display_name: 'Token Echo Tester' },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+
+    // The token should be in the response body but must not appear in
+    // response headers as an unintentional echo (e.g. X-Token, Set-Cookie).
+    expect(body.token).toBeTruthy();
+    const headers = res.headers();
+    expect(headers['x-token']).toBeUndefined();
+    expect(headers['set-cookie']).toBeUndefined();
+  });
+
+});
+
+test.describe('Rate Limiting', () => {
+
+  // The rate limiter is EXEMPT for 127.0.0.1 (loopback). This is intentional
+  // to prevent parallel E2E test suites from tripping the limiter.
+  // See auth_handlers.go:checkAuthRateLimit() — host == "127.0.0.1" returns true immediately.
+  test('loopback 127.0.0.1 is exempt from login rate limiting', async ({ request }) => {
+    // Send 15 failed login attempts in rapid succession (limit is 10/min for
+    // non-loopback addresses). All should return 401 (wrong password), not 429.
+    const email = `rate-exempt-${crypto.randomUUID()}@example.com`;
+    await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'correctpassword', display_name: 'Rate Exempt' },
+    });
+
+    for (let i = 0; i < 12; i++) {
+      const res = await request.post(`${BASE}/api/auth/login`, {
+        data: { email, password: 'wrongpassword' },
+      });
+      // Must be 401 (bad credentials), never 429 (rate limited) from loopback.
+      expect(res.status(), `attempt ${i + 1} should be 401 not 429`).toBe(401);
+    }
+  });
+
+  test('loopback 127.0.0.1 is exempt from signup rate limiting', async ({ request }) => {
+    // 12 rapid signups should all succeed or fail for legitimate reasons, not 429.
+    for (let i = 0; i < 12; i++) {
+      const email = `rate-signup-${crypto.randomUUID()}@example.com`;
+      const res = await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: `Rate Signup ${i}` },
+      });
+      expect(res.status(), `signup attempt ${i + 1} should not be 429`).not.toBe(429);
+    }
+  });
+
+});
+
+test.describe('Input Sanitization', () => {
+
+  // -------------------------------------------------------------------------
+  // SQL injection in board name must not crash the server or return unexpected data.
+  // The backend uses parameterised queries (SQLite with database/sql), so the
+  // payload is stored as a literal string, not interpreted as SQL.
+  // -------------------------------------------------------------------------
+
+  test('SQL injection payload in board name is stored literally, not executed', async ({ request }) => {
+    const { token } = await signup(request, 'SQL Inject Tester');
+
+    // Classic SQL injection attempt: try to terminate the string and append DROP TABLE.
+    const maliciousName = "'; DROP TABLE boards; --";
+    const createRes = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: maliciousName, description: '' },
+    });
+    // Must succeed — the injection should be treated as a plain string.
+    expect(createRes.status()).toBeGreaterThanOrEqual(200);
+    expect(createRes.status()).toBeLessThan(300);
+
+    const created = await createRes.json();
+    // The stored name must match exactly — not modified, not empty.
+    expect(created.name).toBe(maliciousName);
+
+    // Boards list must still work — if DROP TABLE had executed, this would fail.
+    const listRes = await request.get(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listRes.status()).toBe(200);
+    const boards = await listRes.json();
+    expect(Array.isArray(boards)).toBe(true);
+  });
+
+  test('SQL injection payload in sprint name is stored literally', async ({ request }) => {
+    const { token } = await signup(request, 'SQL Sprint Inject');
+    const board = await createBoard(request, token, `SQL Sprint Board ${crypto.randomUUID().slice(0, 6)}`);
+
+    const maliciousSprintName = "'; DELETE FROM sprints WHERE 1=1; --";
+    const res = await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: maliciousSprintName, goal: '' },
+    });
+    expect(res.status()).toBeGreaterThanOrEqual(200);
+    expect(res.status()).toBeLessThan(300);
+    const sprint = await res.json();
+    expect(sprint.name).toBe(maliciousSprintName);
+  });
+
+  // -------------------------------------------------------------------------
+  // XSS: card title with a <script> tag must be rendered as text in the DOM,
+  // not executed as script, when viewed in the board browser UI.
+  // -------------------------------------------------------------------------
+
+  test('XSS payload in card title is rendered as text, not executed in browser', async ({ request, page }) => {
     const { token } = await signup(request, 'XSS Tester');
     const board = await createBoard(request, token, `XSS Board ${crypto.randomUUID().slice(0, 6)}`);
     const swimlane = await createSwimlane(request, token, board.id);
@@ -414,12 +694,11 @@ test.describe('Working Security Controls', () => {
 
     await createCard(request, token, board.id, swimlane.id, column.id, xssTitle);
 
-    // --- Navigate to the board in a real browser ---
+    // Inject the token before the page loads so the board renders.
     await page.addInitScript((t: string) => {
       localStorage.setItem('token', t);
     }, token);
 
-    // Intercept any dialog (alert / confirm / prompt) — if one fires the XSS ran.
     let dialogFired = false;
     page.on('dialog', async (dialog) => {
       dialogFired = true;
@@ -427,16 +706,52 @@ test.describe('Working Security Controls', () => {
     });
 
     await page.goto(`http://localhost:3000/boards/${board.id}`);
-
-    // Give any inline script a moment to execute if it were going to.
     await page.waitForTimeout(500);
 
     // The script must NOT have executed.
-    expect(dialogFired, 'alert() fired — XSS payload was executed in the browser').toBe(false);
+    expect(dialogFired, 'alert() fired — XSS payload executed in the browser').toBe(false);
 
-    // Also verify via JS that the global sentinel was not set.
-    const xssExecuted = await page.evaluate(() => (window as unknown as Record<string, unknown>).__xss_executed);
+    const xssExecuted = await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).__xss_executed,
+    );
     expect(xssExecuted, '__xss_executed sentinel was set — script ran').toBeFalsy();
+  });
+
+  test('XSS payload in board name is rendered as text in the board list', async ({ request, page }) => {
+    const { token } = await signup(request, 'XSS Board Tester');
+    const xssName = '<img src=x onerror="window.__xss_board=true">';
+
+    await createBoard(request, token, xssName);
+
+    await page.addInitScript((t: string) => {
+      localStorage.setItem('token', t);
+    }, token);
+
+    await page.goto('http://localhost:3000/boards');
+    await page.waitForTimeout(500);
+
+    const xssBoard = await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).__xss_board,
+    );
+    expect(xssBoard, 'onerror handler fired — XSS in board name executed').toBeFalsy();
+  });
+
+});
+
+test.describe('Health Check and Non-Sensitive Public Routes', () => {
+
+  test('GET /healthz responds without auth', async ({ request }) => {
+    const res = await request.get(`${BASE}/healthz`);
+    expect(res.status()).toBeLessThanOrEqual(503); // 200 (ok) or 503 (degraded)
+    const body = await res.json();
+    expect(body).toHaveProperty('status');
+    expect(body).toHaveProperty('version');
+  });
+
+  test('/healthz does not require auth token', async ({ request }) => {
+    // Explicitly verify no 401 is returned.
+    const res = await request.get(`${BASE}/healthz`);
+    expect(res.status()).not.toBe(401);
   });
 
 });
