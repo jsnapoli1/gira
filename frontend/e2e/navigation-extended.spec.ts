@@ -687,3 +687,551 @@ test.describe('Navigation Extended — keyboard navigation in sidebar', () => {
     expect(hrefs).toContain('/settings');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Board view — tab switching (Board / Backlog / All Cards)
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — board view tab switching', () => {
+  test('board view is shown by default when navigating to /boards/:id', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-tab-default');
+    const board = await createBoard(request, token, 'Default Tab Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    // The board/kanban view button should be active
+    await expect(page.locator('.view-btn.active, .view-btn[aria-selected="true"]').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('clicking the Backlog tab shows the backlog view', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-tab-backlog');
+    const board = await createBoard(request, token, 'Backlog Tab Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.view-btn:has-text("Backlog")').click();
+    await expect(page.locator('.backlog-view')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('clicking the Board tab from Backlog returns to kanban view', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-tab-board-return');
+    const board = await createBoard(request, token, 'Return Tab Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.view-btn:has-text("Backlog")').click();
+    await expect(page.locator('.backlog-view')).toBeVisible({ timeout: 8000 });
+
+    await page.locator('.view-btn:has-text("Board")').click();
+    await expect(page.locator('.board-columns, .kanban-columns, .columns-container')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.backlog-view')).not.toBeVisible();
+  });
+
+  test('clicking the All Cards tab shows all cards view', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-tab-allcards');
+    const board = await createBoard(request, token, 'All Cards Tab Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    const allCardsBtn = page.locator('.view-btn:has-text("All Cards")');
+    if (await allCardsBtn.isVisible({ timeout: 3000 })) {
+      await allCardsBtn.click();
+      // Should still be on the board page without crashing
+      await expect(page.locator('.board-page')).toBeVisible({ timeout: 5000 });
+    }
+  });
+
+  test('Backlog tab button is visible in board view toolbar', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-tab-visible');
+    const board = await createBoard(request, token, 'Tab Visible Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    await expect(page.locator('.view-btn:has-text("Backlog")')).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Card modal navigation
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — card modal navigation', () => {
+  test('clicking a card on the board opens the card detail modal', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-card-open');
+    const board = await createBoard(request, token, 'Card Modal Board');
+
+    // Create swimlane + card via API
+    const slRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'SL', designator: 'SL-' },
+    });
+    const swimlane = await slRes.json();
+
+    const colsRes = await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const columns = await colsRes.json();
+
+    if (columns && columns.length > 0) {
+      await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { title: 'Modal Nav Card', column_id: columns[0].id, swimlane_id: swimlane.id, board_id: board.id },
+      });
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    // Switch to All Cards so card is visible
+    const allCardsBtn = page.locator('.view-btn:has-text("All Cards")');
+    if (await allCardsBtn.isVisible({ timeout: 3000 })) {
+      await allCardsBtn.click();
+    }
+
+    const cardItem = page.locator('.card-item').first();
+    if (await cardItem.isVisible({ timeout: 5000 })) {
+      await cardItem.click();
+      await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
+    }
+  });
+
+  test('pressing Escape closes the card detail modal', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-modal-escape');
+    const board = await createBoard(request, token, 'Escape Modal Board');
+
+    const slRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'SL', designator: 'SL-' },
+    });
+    const swimlane = await slRes.json();
+
+    const colsRes = await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const columns = await colsRes.json();
+
+    if (columns && columns.length > 0) {
+      await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { title: 'Escape Card', column_id: columns[0].id, swimlane_id: swimlane.id, board_id: board.id },
+      });
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    const allCardsBtn = page.locator('.view-btn:has-text("All Cards")');
+    if (await allCardsBtn.isVisible({ timeout: 3000 })) {
+      await allCardsBtn.click();
+    }
+
+    const cardItem = page.locator('.card-item').first();
+    if (await cardItem.isVisible({ timeout: 5000 })) {
+      await cardItem.click();
+      await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+    }
+  });
+
+  test('closing card modal with X button returns to board view', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-modal-close');
+    const board = await createBoard(request, token, 'Close Modal Board');
+
+    const slRes = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'SL', designator: 'SL-' },
+    });
+    const swimlane = await slRes.json();
+
+    const colsRes = await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const columns = await colsRes.json();
+
+    if (columns && columns.length > 0) {
+      await request.post(`${BASE}/api/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { title: 'Close X Card', column_id: columns[0].id, swimlane_id: swimlane.id, board_id: board.id },
+      });
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    const allCardsBtn = page.locator('.view-btn:has-text("All Cards")');
+    if (await allCardsBtn.isVisible({ timeout: 3000 })) {
+      await allCardsBtn.click();
+    }
+
+    const cardItem = page.locator('.card-item').first();
+    if (await cardItem.isVisible({ timeout: 5000 })) {
+      await cardItem.click();
+      await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 8000 });
+
+      await page.locator('.modal-close, button[aria-label="Close"], .close-btn').first().click();
+      await expect(page.locator('.card-detail-modal-unified')).not.toBeVisible({ timeout: 5000 });
+      await expect(page.locator('.board-page')).toBeVisible();
+    }
+  });
+
+  test('board header shows the board name as a breadcrumb', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-breadcrumb');
+    const board = await createBoard(request, token, 'Breadcrumb Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    // Board name appears in the header (breadcrumb)
+    await expect(page.locator('.board-header h1, .board-header .board-name').first()).toContainText('Breadcrumb Board', { timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// URL / deep-link behavior
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — URL and deep-link behavior', () => {
+  test('URL updates when clicking from boards list to a specific board', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-url-update');
+    const board = await createBoard(request, token, 'URL Update Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.board-card-link', { hasText: 'URL Update Board' }).click();
+    await page.waitForURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+
+    expect(page.url()).toContain(`/boards/${board.id}`);
+  });
+
+  test('URL updates when navigating between two boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-url-switch');
+    const boardA = await createBoard(request, token, 'Board Alpha');
+    const boardB = await createBoard(request, token, 'Board Beta');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardA.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    // Navigate to board B via sidebar or back to list
+    await page.goto(`/boards/${boardB.id}`);
+    await page.waitForURL(new RegExp(`/boards/${boardB.id}`), { timeout: 10000 });
+
+    expect(page.url()).toContain(`/boards/${boardB.id}`);
+    await expect(page.locator('.board-header h1')).toContainText('Board Beta', { timeout: 8000 });
+  });
+
+  test('deep link to /boards/:id/settings loads settings page directly', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-settings-deeplink');
+    const board = await createBoard(request, token, 'Settings DeepLink Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    await expect(page.locator('.board-settings')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('reload on board view page stays on the same board', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-reload-board');
+    const board = await createBoard(request, token, 'Reload Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    await page.reload();
+    await page.waitForURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+    await expect(page.locator('.board-header h1')).toContainText('Reload Board', { timeout: 10000 });
+  });
+
+  test('reload on board settings stays on board settings', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-reload-settings');
+    const board = await createBoard(request, token, 'Reload Settings Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.board-settings')).toBeVisible({ timeout: 10000 });
+
+    await page.reload();
+    await page.waitForURL(new RegExp(`/boards/${board.id}/settings`), { timeout: 10000 });
+    await expect(page.locator('.board-settings')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('/boards page reloads correctly', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-reload-boards');
+    await createBoard(request, token, 'Reload Boards Page Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+    await page.reload();
+    await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('board URL contains the numeric board ID', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-url-numeric');
+    const board = await createBoard(request, token, 'Numeric ID Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+
+    const urlPattern = /\/boards\/\d+/;
+    expect(urlPattern.test(page.url())).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sidebar — board list in sidebar
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — boards in sidebar', () => {
+  test('sidebar shows the boards section listing user boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-sidebar-boards');
+    await createBoard(request, token, 'Sidebar Listed Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    // The sidebar should contain the board name somewhere in boards section
+    await expect(page.locator('.sidebar').getByText('Sidebar Listed Board')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('new board appears in sidebar board list after creation', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-sidebar-newboard');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.page-header h1')).toContainText('Boards', { timeout: 10000 });
+
+    // Create a board via UI
+    await page.click('button:has-text("Create Board")');
+    await page.fill('#boardName', 'Newly Created Sidebar Board');
+    await page.click('button[type="submit"]:has-text("Create Board")');
+
+    // Wait for the new board to appear in the sidebar
+    await expect(page.locator('.sidebar').getByText('Newly Created Sidebar Board')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('clicking board name in sidebar navigates to that board', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-sidebar-click-board');
+    const board = await createBoard(request, token, 'Sidebar Clickable Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    // Click the board in sidebar
+    const sidebarBoardLink = page.locator('.sidebar a', { hasText: 'Sidebar Clickable Board' });
+    if (await sidebarBoardLink.isVisible({ timeout: 5000 })) {
+      await sidebarBoardLink.click();
+      await expect(page).toHaveURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+    }
+  });
+
+  test('multiple boards all appear in the sidebar list', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-sidebar-multi');
+    await createBoard(request, token, 'Multi Sidebar Board One');
+    await createBoard(request, token, 'Multi Sidebar Board Two');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    await expect(page.locator('.sidebar').getByText('Multi Sidebar Board One')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.sidebar').getByText('Multi Sidebar Board Two')).toBeVisible({ timeout: 10000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Page structure — layout integrity on each route
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — page layout integrity', () => {
+  test('/boards page shows the sidebar, header and grid', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-layout-boards');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.page-header')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('/reports page shows sidebar and main content', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-layout-reports');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/reports');
+
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('h1:has-text("Reports")')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('/settings page shows sidebar and settings form', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-layout-settings');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('h1:has-text("Settings")')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('/dashboard page shows sidebar and dashboard content', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-layout-dashboard');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.dashboard-content, .dashboard-error')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('board view page shows sidebar and board header', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-layout-boardview');
+    const board = await createBoard(request, token, 'Layout Board View');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('board settings page shows sidebar and settings panel', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-layout-boardsettings');
+    const board = await createBoard(request, token, 'Layout Settings Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.board-settings')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('login page does NOT show the sidebar', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.locator('.login-page, .auth-page, form[action], .login-form')).toBeVisible({ timeout: 10000 });
+    // Sidebar should not be present on public pages
+    await expect(page.locator('.sidebar')).not.toBeVisible();
+  });
+
+  test('signup page does NOT show the sidebar', async ({ page }) => {
+    await page.goto('/signup');
+    await expect(page.locator('form')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.sidebar')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Navigation flow: login → boards → board → settings → back
+// ---------------------------------------------------------------------------
+
+test.describe('Navigation Extended — complete navigation flows', () => {
+  test('full flow: boards list → board view → board settings → back to board', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-flow-full');
+    const board = await createBoard(request, token, 'Full Flow Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+
+    // Step 1: navigate to board
+    await page.locator('.board-card-link', { hasText: 'Full Flow Board' }).click();
+    await page.waitForURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 8000 });
+
+    // Step 2: navigate to board settings
+    await page.locator(`.board-header-actions a[href="/boards/${board.id}/settings"]`).click();
+    await page.waitForURL(new RegExp(`/boards/${board.id}/settings`), { timeout: 10000 });
+    await expect(page.locator('.board-settings')).toBeVisible({ timeout: 8000 });
+
+    // Step 3: go back to board view
+    await page.locator('.back-link').click();
+    await expect(page).toHaveURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('full flow: boards list → reports → settings → boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-flow-nav');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+    await expect(page.locator('.sidebar')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.nav-item', { hasText: 'Reports' }).click();
+    await expect(page).toHaveURL(/\/reports/, { timeout: 10000 });
+
+    await page.locator('.nav-item', { hasText: 'Settings' }).click();
+    await expect(page).toHaveURL(/\/settings/, { timeout: 10000 });
+
+    await page.locator('.nav-item', { hasText: 'Boards' }).click();
+    await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
+  });
+
+  test('navigating to boards list from board view via back-link', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-flow-backlink');
+    const board = await createBoard(request, token, 'BackLink Flow Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.back-link').click();
+    await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
+    await expect(page.locator('.boards-grid, .empty-state')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('navigating from reports back to board view keeps history intact', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-flow-history');
+    const board = await createBoard(request, token, 'History Flow Board');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('.nav-item', { hasText: 'Reports' }).click();
+    await expect(page).toHaveURL(/\/reports/, { timeout: 10000 });
+
+    // Go back using browser back
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/boards/${board.id}`), { timeout: 10000 });
+  });
+
+  test('route "/" redirects authenticated users to dashboard or boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'navext-root-redirect');
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/');
+
+    // Authenticated users should be redirected off "/"
+    await page.waitForURL(/\/(dashboard|boards)/, { timeout: 10000 });
+    const url = page.url();
+    expect(url.includes('/dashboard') || url.includes('/boards')).toBe(true);
+  });
+
+  test('route "/" redirects unauthenticated users to /login', async ({ page }) => {
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+  });
+});

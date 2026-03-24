@@ -1160,7 +1160,7 @@ test.describe('Board Archiving and Lifecycle', () => {
 
   // ── 54. Archived board not in default GET /api/boards list ───────────────
 
-  test.fixme('API: archived board does not appear in default GET /api/boards', async ({ request }) => {
+  test.fixme('API: archived board does not appear in default GET /api/boards (strict types)', async ({ request }) => {
     /**
      * Implementation notes:
      *   - GET /api/boards should filter out boards where archived=true by default.
@@ -1184,7 +1184,7 @@ test.describe('Board Archiving and Lifecycle', () => {
 
   // ── 55. Archived board accessible via include_archived param ─────────────
 
-  test.fixme('API: GET /api/boards?include_archived=true returns archived boards', async ({ request }) => {
+  test.fixme('API: GET /api/boards?include_archived=true returns archived boards (strict types)', async ({ request }) => {
     /**
      * Implementation notes:
      *   - When ?include_archived=true is passed, archived boards are included.
@@ -1235,7 +1235,7 @@ test.describe('Board Archiving and Lifecycle', () => {
 
   // ── 57. Archived board not in UI board list ───────────────────────────────
 
-  test.fixme('UI: archived board does not appear in /boards list', async ({ page, request }) => {
+  test.fixme('UI: archived board does not appear in /boards list (strict types)', async ({ page, request }) => {
     /**
      * Implementation notes:
      *   - The board list page should not display archived boards.
@@ -1362,7 +1362,7 @@ test.describe('Board Archiving and Lifecycle', () => {
 
   // ── 62. Unarchive board via API ───────────────────────────────────────────
 
-  test.fixme('API: archived board can be unarchived via PUT with archived:false', async ({ request }) => {
+  test.fixme('API: archived board can be unarchived via PUT with archived:false (strict types)', async ({ request }) => {
     /**
      * Implementation notes:
      *   - PUT /api/boards/:id with `{ archived: false }` should restore the board.
@@ -1424,7 +1424,7 @@ test.describe('Board Archiving and Lifecycle', () => {
 
   // ── 64. Board created without archive flag defaults to active ─────────────
 
-  test.fixme('API: board created without archive flag has archived:false', async ({ request }) => {
+  test.fixme('API: board created without archive flag has archived:false (strict types)', async ({ request }) => {
     /**
      * Implementation notes:
      *   - When the Board model has an `archived` field, new boards default to archived=false.

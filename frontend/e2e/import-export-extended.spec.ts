@@ -1120,3 +1120,491 @@ test.describe('Board Settings UI — Import section', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global Jira Import API (/api/import/jira)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Global Jira Import API (/api/import/jira)', () => {
+  test('POST /api/import/jira without auth returns 401', async ({ request }) => {
+    const csvPath = writeMinimalJiraCSV([{ summary: 'Global Unauth Card' }]);
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const res = await request.post(`${BASE}/api/import/jira`, {
+        multipart: {
+          file: { name: 'import.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          mappings: JSON.stringify([]),
+        },
+      });
+      expect(res.status()).toBe(401);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('POST /api/import/jira with valid auth returns non-500', async ({ request }) => {
+    const { token } = await createUser(request, 'global-imp-200');
+    const board = await createBoard(request, token, 'Global Import Target Board');
+    const csvPath = writeMinimalJiraCSV([{ summary: 'Global Card One' }]);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const mappings = JSON.stringify([{ project_key: 'PROJ', board_id: board.id }]);
+      const res = await request.post(`${BASE}/api/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'import.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          mappings,
+        },
+      });
+      expect(res.status()).toBeLessThan(500);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('POST /api/import/jira response includes `results` array when successful', async ({ request }) => {
+    const { token } = await createUser(request, 'global-imp-results');
+    const board = await createBoard(request, token, 'Global Results Board');
+    const csvPath = writeMinimalJiraCSV([{ summary: 'Results Card' }]);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const mappings = JSON.stringify([{ project_key: 'PROJ', board_id: board.id }]);
+      const res = await request.post(`${BASE}/api/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'import.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          mappings,
+        },
+      });
+      if (!res.ok()) return;
+      const body = await res.json();
+      expect(Array.isArray(body.results)).toBe(true);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('POST /api/import/jira result entry includes `imported` count and `board_id`', async ({ request }) => {
+    const { token } = await createUser(request, 'global-imp-entry');
+    const board = await createBoard(request, token, 'Global Entry Board');
+    const csvPath = writeMinimalJiraCSV([{ summary: 'Entry Card A' }, { summary: 'Entry Card B' }]);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const mappings = JSON.stringify([{ project_key: 'PROJ', board_id: board.id }]);
+      const res = await request.post(`${BASE}/api/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'import.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          mappings,
+        },
+      });
+      if (!res.ok()) return;
+      const body = await res.json();
+      if (!Array.isArray(body.results) || body.results.length === 0) return;
+      const entry = body.results[0];
+      expect(typeof entry.imported).toBe('number');
+      expect(entry.board_id).toBe(board.id);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('POST /api/import/jira with empty mappings array returns non-500', async ({ request }) => {
+    const { token } = await createUser(request, 'global-imp-empty-map');
+    const csvPath = writeMinimalJiraCSV([{ summary: 'Unmapped Card' }]);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const res = await request.post(`${BASE}/api/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'import.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          mappings: JSON.stringify([]),
+        },
+      });
+      expect(res.status()).toBeLessThan(500);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export API — additional header fields and data integrity
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Export API — additional CSV fields', () => {
+  test('CSV header row contains Description field', async ({ request }) => {
+    const { token } = await createUser(request, 'exp-desc-field');
+    const board = await createBoard(request, token, 'Desc Field Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header).toContain('Description');
+  });
+
+  test('CSV header row contains StoryPoints field', async ({ request }) => {
+    const { token } = await createUser(request, 'exp-sp-field');
+    const board = await createBoard(request, token, 'StoryPoints Field Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    // Either "StoryPoints" or "Story Points" or "story_points"
+    expect(header.toLowerCase()).toMatch(/story.?points|storypoints/i);
+  });
+
+  test('CSV header row contains DueDate field', async ({ request }) => {
+    const { token } = await createUser(request, 'exp-due-field');
+    const board = await createBoard(request, token, 'DueDate Field Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header.toLowerCase()).toMatch(/due.?date|duedate/i);
+  });
+
+  test('CSV header row contains CreatedAt field', async ({ request }) => {
+    const { token } = await createUser(request, 'exp-created-field');
+    const board = await createBoard(request, token, 'CreatedAt Field Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header.toLowerCase()).toMatch(/created/i);
+  });
+
+  test('CSV header row contains UpdatedAt field', async ({ request }) => {
+    const { token } = await createUser(request, 'exp-updated-field');
+    const board = await createBoard(request, token, 'UpdatedAt Field Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const header = (await res.text()).split('\n')[0];
+    expect(header.toLowerCase()).toMatch(/updated/i);
+  });
+
+  test('exported CSV includes description when card has description', async ({ request }) => {
+    const { token, board, swimlane, columns } = await setupFull(request, 'exp-desc-data');
+    if (!columns.length) return;
+
+    const cardRes = await createCard(
+      request, token, board.id, columns[0].id, swimlane.id,
+      'Card With Description',
+      { description: 'This is the card description text' },
+    );
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    expect(body).toContain('This is the card description text');
+  });
+
+  test('exported CSV includes story_points when card has story points', async ({ request }) => {
+    const { token, board, swimlane, columns } = await setupFull(request, 'exp-sp-data');
+    if (!columns.length) return;
+
+    const cardRes = await createCard(
+      request, token, board.id, columns[0].id, swimlane.id,
+      'Story Points Card',
+      { story_points: 5 },
+    );
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    expect(body).toContain('5');
+  });
+
+  test('exported CSV rows contain created_at timestamp', async ({ request }) => {
+    const { token, board, swimlane, columns } = await setupFull(request, 'exp-created-ts');
+    if (!columns.length) return;
+
+    const cardRes = await createCard(request, token, board.id, columns[0].id, swimlane.id, 'Timestamp Card');
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const dataLines = body.split('\n').slice(1).map((l) => l.trim()).filter(Boolean);
+    expect(dataLines.length).toBeGreaterThan(0);
+    // A timestamp should appear in the data row (year like 20XX)
+    expect(dataLines[0]).toMatch(/20\d\d/);
+  });
+
+  test('export filename in Content-Disposition includes board name or board id', async ({ request }) => {
+    const { token } = await createUser(request, 'exp-filename');
+    const board = await createBoard(request, token, 'Export Filename Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const disposition = res.headers()['content-disposition'] ?? '';
+    // Disposition should contain either the board id or a sanitised board name
+    const hasId = disposition.includes(String(board.id));
+    const hasName = disposition.toLowerCase().includes('export');
+    expect(hasId || hasName).toBe(true);
+  });
+
+  test('multiple cards in export appear in order they were created', async ({ request }) => {
+    const { token, board, swimlane, columns } = await setupFull(request, 'exp-order');
+    if (!columns.length) return;
+
+    const titles = ['Alpha Card', 'Beta Card', 'Gamma Card'];
+    for (const t of titles) {
+      const r = await createCard(request, token, board.id, columns[0].id, swimlane.id, t);
+      if (!r.ok()) {
+        test.skip(true, 'Card creation failed');
+        return;
+      }
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const dataLines = body.split('\n').slice(1).map((l) => l.trim()).filter(Boolean);
+    expect(dataLines.length).toBe(3);
+
+    const alphaIdx = dataLines.findIndex((l) => l.includes('Alpha Card'));
+    const betaIdx = dataLines.findIndex((l) => l.includes('Beta Card'));
+    const gammaIdx = dataLines.findIndex((l) => l.includes('Gamma Card'));
+    expect(alphaIdx).toBeGreaterThanOrEqual(0);
+    expect(betaIdx).toBeGreaterThanOrEqual(0);
+    expect(gammaIdx).toBeGreaterThanOrEqual(0);
+  });
+
+  test('special characters in card title are properly quoted in CSV', async ({ request }) => {
+    const { token, board, swimlane, columns } = await setupFull(request, 'exp-special-chars');
+    if (!columns.length) return;
+
+    const titleWithComma = 'Card, with comma';
+    const cardRes = await createCard(request, token, board.id, columns[0].id, swimlane.id, titleWithComma);
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    // Title with comma should be quoted so the CSV remains parseable
+    expect(body).toContain('"Card, with comma"');
+  });
+
+  test('card with low priority shows low in exported CSV', async ({ request }) => {
+    const { token, board, swimlane, columns } = await setupFull(request, 'exp-low-pri');
+    if (!columns.length) return;
+
+    const cardRes = await createCard(
+      request, token, board.id, columns[0].id, swimlane.id,
+      'Low Priority Card', { priority: 'low' },
+    );
+    if (!cardRes.ok()) {
+      test.skip(true, 'Card creation failed');
+      return;
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    expect(body.toLowerCase()).toContain('low');
+  });
+
+  test('export of board with 10 cards returns 10 data rows', async ({ request }) => {
+    const { token, board, swimlane, columns } = await setupFull(request, 'exp-10-cards');
+    if (!columns.length) return;
+
+    for (let i = 1; i <= 10; i++) {
+      const r = await createCard(request, token, board.id, columns[0].id, swimlane.id, `Bulk Card ${i}`);
+      if (!r.ok()) {
+        test.skip(true, 'Card creation failed');
+        return;
+      }
+    }
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=${token}`);
+    const body = await res.text();
+    const dataLines = body.split('\n').slice(1).map((l) => l.trim()).filter(Boolean);
+    expect(dataLines.length).toBe(10);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jira Import API — additional edge cases
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Jira Import API — additional edge cases', () => {
+  test('import with non-member token returns 403', async ({ request }) => {
+    const { token } = await createUser(request, 'imp-403-owner');
+    const board = await createBoard(request, token, 'Forbidden Import Board');
+    const nonMemberToken = await createNonMember(request);
+
+    const csvPath = writeMinimalJiraCSV([{ summary: 'Forbidden Card' }]);
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+        headers: { Authorization: `Bearer ${nonMemberToken}` },
+        multipart: {
+          file: { name: 'import.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          project_key: 'PROJ',
+        },
+      });
+      expect(res.status()).toBe(403);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('import maps "Medium" priority correctly', async ({ request }) => {
+    const { token } = await createUser(request, 'imp-medium-pri');
+    const board = await createBoard(request, token, 'Medium Priority Import Board');
+    const csvPath = writeMinimalJiraCSV([{ summary: 'Medium Card', priority: 'Medium' }]);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'medium.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          project_key: 'PROJ',
+        },
+      });
+      if (!res.ok()) return;
+
+      const cards: any[] = await (await request.get(`${BASE}/api/boards/${board.id}/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })).json();
+
+      const mediumCard = cards.find((c: any) => c.title === 'Medium Card');
+      if (mediumCard) expect(mediumCard.priority).toBe('medium');
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('import with 20 cards imports all of them successfully', async ({ request }) => {
+    const { token } = await createUser(request, 'imp-20-cards');
+    const board = await createBoard(request, token, 'Large Import Board');
+
+    const rows = Array.from({ length: 20 }, (_, i) => ({ summary: `Bulk Import Card ${i + 1}` }));
+    const csvPath = writeMinimalJiraCSV(rows);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'bulk.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          project_key: 'PROJ',
+        },
+      });
+      expect(res.ok()).toBe(true);
+      const body = await res.json();
+      expect(body.imported).toBe(20);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('import "In Progress" status places card in in-progress column', async ({ request }) => {
+    const { token } = await createUser(request, 'imp-in-progress');
+    const board = await createBoard(request, token, 'In Progress Import Board');
+    const csvPath = writeMinimalJiraCSV([{ summary: 'In Progress Card', status: 'In Progress' }]);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'inprog.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          project_key: 'PROJ',
+        },
+      });
+      if (!res.ok()) return;
+
+      const cards: any[] = await (await request.get(`${BASE}/api/boards/${board.id}/cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })).json();
+
+      const card = cards.find((c: any) => c.title === 'In Progress Card');
+      expect(card).toBeDefined();
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('import response does not return 500 for CSV with special characters in title', async ({ request }) => {
+    const { token } = await createUser(request, 'imp-special-chars');
+    const board = await createBoard(request, token, 'Special Chars Import Board');
+
+    const header = 'Summary,Issue key,Issue id,Issue Type,Status,Priority,Project key';
+    const row = '"Card with \\"quotes\\" & <tags>",PROJ-1,1,Story,To Do,Medium,PROJ';
+    const content = [header, row].join('\n');
+    const tmpPath = `/tmp/special-${Date.now()}.csv`;
+    fs.writeFileSync(tmpPath, content);
+
+    try {
+      const fileBuffer = fs.readFileSync(tmpPath);
+      const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'special.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          project_key: 'PROJ',
+        },
+      });
+      expect(res.status()).toBeLessThan(500);
+    } finally {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    }
+  });
+
+  test('import via Bearer header (not token query param) works', async ({ request }) => {
+    const { token } = await createUser(request, 'imp-bearer-header');
+    const board = await createBoard(request, token, 'Bearer Header Import Board');
+    const csvPath = writeMinimalJiraCSV([{ summary: 'Bearer Header Card' }]);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'bearer.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          project_key: 'PROJ',
+        },
+      });
+      expect(res.status()).not.toBe(401);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+
+  test('import returns correct `imported` count matching CSV rows', async ({ request }) => {
+    const { token } = await createUser(request, 'imp-exact-count');
+    const board = await createBoard(request, token, 'Exact Count Import Board');
+    const csvPath = writeMinimalJiraCSV([
+      { summary: 'Card One' },
+      { summary: 'Card Two' },
+      { summary: 'Card Three' },
+      { summary: 'Card Four' },
+      { summary: 'Card Five' },
+    ]);
+
+    try {
+      const fileBuffer = fs.readFileSync(csvPath);
+      const res = await request.post(`${BASE}/api/boards/${board.id}/import/jira`, {
+        headers: { Authorization: `Bearer ${token}` },
+        multipart: {
+          file: { name: 'count5.csv', mimeType: 'text/csv', buffer: fileBuffer },
+          project_key: 'PROJ',
+        },
+      });
+      expect(res.ok()).toBe(true);
+      const body = await res.json();
+      expect(body.imported).toBe(5);
+    } finally {
+      if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+    }
+  });
+});

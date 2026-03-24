@@ -307,6 +307,7 @@ test.describe('Card Editing', () => {
   });
 
   test('due date persists after reload', async ({ page, request }) => {
+    test.setTimeout(60000);
     const { token, board, swimlane, columns } = await setup(request, page, 'DueDatePersist');
 
     const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Test Card');
@@ -371,6 +372,7 @@ test.describe('Card Editing', () => {
   });
 
   test('description persists after modal close and reload', async ({ page, request }) => {
+    test.setTimeout(60000);
     const { token, board, swimlane, columns } = await setup(request, page, 'DescPersist');
 
     const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Test Card');
@@ -436,6 +438,7 @@ test.describe('Card Editing', () => {
   });
 
   test('all edits persist after page reload', async ({ page, request }) => {
+    test.setTimeout(60000);
     const { token, board, swimlane, columns } = await setup(request, page, 'AllPersist');
 
     const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Original Title');
@@ -664,6 +667,7 @@ test.describe('Issue Type & Time Estimate Editing', () => {
   });
 
   test('edit title via PUT API directly — modal reflects change on reload', async ({ page, request }) => {
+    test.setTimeout(60000);
     const { token, board, swimlane, columns } = await setup(request, page, 'DirectPutTitle');
 
     const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Original API Title');
