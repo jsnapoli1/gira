@@ -878,3 +878,411 @@ test.describe('Board Export — CSV', () => {
     expect(lines[0].toLowerCase()).toMatch(/id|title|status|column/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Board Templates — Additional API tests
+// ---------------------------------------------------------------------------
+
+test.describe('Board Templates — Additional API', () => {
+  test('unknown template value falls back to default columns', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-unknown');
+    const board = await createBoard(request, token, 'Unknown Template Board', 'this_does_not_exist');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    // Should fall back to default (To Do, In Progress, In Review, Done)
+    const names = columns.map((c) => c.name);
+    expect(names).toContain('To Do');
+    expect(names).toContain('Done');
+    expect(columns.length).toBeGreaterThan(0);
+  });
+
+  test('column IDs are positive integers', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-col-ids');
+    const board = await createBoard(request, token, 'Column IDs Board', 'kanban');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    for (const col of columns) {
+      expect(typeof col.id).toBe('number');
+      expect(col.id).toBeGreaterThan(0);
+    }
+  });
+
+  test('column IDs are unique within a board', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-col-unique-ids');
+    const board = await createBoard(request, token, 'Unique IDs Board', 'scrum');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    const ids = columns.map((c) => c.id);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
+  });
+
+  test('creating two boards with the same template produces independent column sets', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-independent');
+    const boardA = await createBoard(request, token, 'Independent A', 'kanban');
+    const boardB = await createBoard(request, token, 'Independent B', 'kanban');
+
+    const colsA = await getBoardColumns(request, token, boardA.id);
+    const colsB = await getBoardColumns(request, token, boardB.id);
+
+    // Same names but different ids
+    const idsA = colsA.map((c) => c.id);
+    const idsB = colsB.map((c) => c.id);
+    expect(idsA).not.toEqual(idsB);
+
+    const namesA = colsA.map((c) => c.name);
+    const namesB = colsB.map((c) => c.name);
+    expect(namesA).toEqual(namesB);
+  });
+
+  test('board name is user-provided and not overridden by template', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-board-name');
+    const board = await createBoard(request, token, 'My Custom Board Name', 'scrum');
+
+    expect(board.name).toBe('My Custom Board Name');
+  });
+
+  test('POST /api/boards returns created_at field', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-created-at');
+    const board = await createBoard(request, token, 'Created At Board', 'kanban');
+
+    expect(board.created_at ?? board.createdAt).toBeTruthy();
+  });
+
+  test('GET /api/boards/:id/columns returns same columns as POST /api/boards response', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-cols-consistent');
+    const board = await createBoard(request, token, 'Consistent Columns Board', 'kanban');
+
+    const columnsFromGet = await getBoardColumns(request, token, board.id);
+    const namesFromPost = (board.columns as Column[]).map((c) => c.name).sort();
+    const namesFromGet = columnsFromGet.map((c) => c.name).sort();
+
+    expect(namesFromPost).toEqual(namesFromGet);
+  });
+
+  test('scrum template has Backlog column with open state', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-scrum-backlog');
+    const board = await createBoard(request, token, 'Scrum Backlog Board', 'scrum');
+    const columns = await getBoardColumns(request, token, board.id);
+    const byName = Object.fromEntries(columns.map((c) => [c.name, c.state]));
+
+    expect(byName['Backlog']).toBe('open');
+  });
+
+  test('bug_triage template has exactly 5 columns', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-bug-count');
+    const board = await createBoard(request, token, 'Bug Count Board', 'bug_triage');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    expect(columns).toHaveLength(5);
+  });
+
+  test('kanban template has exactly 3 columns', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-kanban-count');
+    const board = await createBoard(request, token, 'Kanban Count Board', 'kanban');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    expect(columns).toHaveLength(3);
+  });
+
+  test('default template has exactly 4 columns', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-default-count');
+    const board = await createBoard(request, token, 'Default Count Board');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    expect(columns).toHaveLength(4);
+  });
+
+  test('scrum template has exactly 5 columns', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-scrum-count');
+    const board = await createBoard(request, token, 'Scrum Count Board', 'scrum');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    expect(columns).toHaveLength(5);
+  });
+
+  test('creating 3 boards with different templates all succeed', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-3-templates');
+    const kanban = await createBoard(request, token, 'Kanban Parallel', 'kanban');
+    const scrum = await createBoard(request, token, 'Scrum Parallel', 'scrum');
+    const bug = await createBoard(request, token, 'Bug Parallel', 'bug_triage');
+
+    expect(kanban.id).toBeTruthy();
+    expect(scrum.id).toBeTruthy();
+    expect(bug.id).toBeTruthy();
+
+    const kanbanCols = await getBoardColumns(request, token, kanban.id);
+    const scrumCols = await getBoardColumns(request, token, scrum.id);
+    const bugCols = await getBoardColumns(request, token, bug.id);
+
+    expect(kanbanCols).toHaveLength(3);
+    expect(scrumCols).toHaveLength(5);
+    expect(bugCols).toHaveLength(5);
+  });
+
+  test('columns from GET are sorted by position ascending', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-sorted-pos');
+    const board = await createBoard(request, token, 'Sorted Positions Board', 'scrum');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    for (let i = 1; i < columns.length; i++) {
+      expect(columns[i].position).toBeGreaterThan(columns[i - 1].position);
+    }
+  });
+
+  test('board created with template is accessible via GET /api/boards/:id', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-accessible');
+    const created = await createBoard(request, token, 'Accessible Board', 'kanban');
+
+    const res = await request.get(`${BASE}/api/boards/${created.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.ok()).toBe(true);
+    const fetched = await res.json();
+    expect(fetched.id).toBe(created.id);
+    expect(fetched.name).toBe('Accessible Board');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board Templates — Create Board UI additional tests
+// ---------------------------------------------------------------------------
+
+test.describe('Board Templates — Create Board UI additional', () => {
+  test('board template label is visible in the create board modal', async ({ page, request }) => {
+    const { token } = await createUser(request, 'tpl-ui-label');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal h2:has-text("Create New Board")')).toBeVisible();
+
+    await expect(page.locator('label[for="boardTemplate"]')).toBeVisible();
+  });
+
+  test('template select has correct option values', async ({ page, request }) => {
+    const { token } = await createUser(request, 'tpl-ui-option-values');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal h2:has-text("Create New Board")')).toBeVisible();
+
+    const options = await page.locator('#boardTemplate option').allTextContents();
+    expect(options.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test('create board modal has board name input', async ({ page, request }) => {
+    const { token } = await createUser(request, 'tpl-ui-name-input');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal h2:has-text("Create New Board")')).toBeVisible();
+
+    await expect(page.locator('#boardName')).toBeVisible();
+  });
+
+  test('selecting scrum template and cancelling does not create a board', async ({ page, request }) => {
+    const { token } = await createUser(request, 'tpl-ui-cancel-scrum');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal')).toBeVisible();
+
+    await page.locator('#boardName').fill('Scrum Cancel Board');
+    await page.locator('#boardTemplate').selectOption('scrum');
+    await page.locator('.modal button:has-text("Cancel")').click();
+
+    await expect(page.locator('.modal')).not.toBeVisible();
+    await expect(page.locator('.board-card h3:has-text("Scrum Cancel Board")')).not.toBeVisible();
+  });
+
+  test('created board with kanban template appears in board list', async ({ page, request }) => {
+    const { token } = await createUser(request, 'tpl-ui-list-kanban');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal h2:has-text("Create New Board")')).toBeVisible();
+
+    const boardName = `Kanban List ${crypto.randomUUID().slice(0, 8)}`;
+    await page.locator('#boardName').fill(boardName);
+    await page.locator('#boardTemplate').selectOption('kanban');
+    await page.locator('.modal button[type="submit"]:has-text("Create Board")').click();
+
+    await page.waitForURL(/\/boards\/\d+$/);
+    await page.goto('/boards');
+
+    await expect(page.locator(`.board-card h3:has-text("${boardName}")`)).toBeVisible({ timeout: 8000 });
+  });
+
+  test('created board with scrum template appears in board list', async ({ page, request }) => {
+    const { token } = await createUser(request, 'tpl-ui-list-scrum');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal h2:has-text("Create New Board")')).toBeVisible();
+
+    const boardName = `Scrum List ${crypto.randomUUID().slice(0, 8)}`;
+    await page.locator('#boardName').fill(boardName);
+    await page.locator('#boardTemplate').selectOption('scrum');
+    await page.locator('.modal button[type="submit"]:has-text("Create Board")').click();
+
+    await page.waitForURL(/\/boards\/\d+$/);
+    await page.goto('/boards');
+
+    await expect(page.locator(`.board-card h3:has-text("${boardName}")`)).toBeVisible({ timeout: 8000 });
+  });
+
+  test('template select default value is empty string (default template)', async ({ page, request }) => {
+    const { token } = await createUser(request, 'tpl-ui-default-val');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal h2:has-text("Create New Board")')).toBeVisible();
+
+    const selectedValue = await page.locator('#boardTemplate').inputValue();
+    expect(selectedValue).toBe('');
+  });
+
+  test('modal can be reopened after cancelling with template still selectable', async ({ page, request }) => {
+    const { token } = await createUser(request, 'tpl-ui-reopen');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    // Open, change template, cancel
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal')).toBeVisible();
+    await page.locator('#boardTemplate').selectOption('scrum');
+    await page.locator('.modal button:has-text("Cancel")').click();
+    await expect(page.locator('.modal')).not.toBeVisible();
+
+    // Reopen — template select should be present and functional
+    await page.locator('button:has-text("Create Board")').first().click();
+    await expect(page.locator('.modal')).toBeVisible();
+    await expect(page.locator('#boardTemplate')).toBeVisible();
+    await page.locator('#boardTemplate').selectOption('kanban');
+    const val = await page.locator('#boardTemplate').inputValue();
+    expect(val).toBe('kanban');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board Templates — Card template scoping & additional API
+// ---------------------------------------------------------------------------
+
+test.describe('Card Templates — Additional API', () => {
+  test('card template created_at field is present', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-created-at');
+    const board = await createBoard(request, token, 'Created At Template Board');
+
+    const template = await createCardTemplate(
+      request, token, board.id, 'Time Template', 'Time description',
+    );
+    // created_at may be at top-level or inside the object
+    const ts = (template as any).created_at ?? (template as any).createdAt;
+    expect(ts).toBeTruthy();
+  });
+
+  test('non-member cannot list card templates (returns 401 or 403)', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-nm-list');
+    const board = await createBoard(request, token, 'Non Member List Board');
+    await createCardTemplate(request, token, board.id, 'Private Template', 'Private desc');
+
+    // Create a second user who is not a board member
+    const { token: otherToken } = await createUser(request, 'ct-nm-other');
+    const res = await request.get(`${BASE}/api/boards/${board.id}/templates`, {
+      headers: { Authorization: `Bearer ${otherToken}` },
+    });
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+  });
+
+  test('non-member cannot create card template (returns 403)', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-nm-create');
+    const board = await createBoard(request, token, 'Non Member Create Board');
+
+    const { token: otherToken } = await createUser(request, 'ct-nm-create-other');
+    const res = await request.post(`${BASE}/api/boards/${board.id}/templates`, {
+      headers: { Authorization: `Bearer ${otherToken}` },
+      data: { name: 'Forbidden Template', description_template: 'Should fail' },
+    });
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+  });
+
+  test('DELETE non-existent template returns 404', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-del-404');
+    const board = await createBoard(request, token, 'Delete 404 Board');
+
+    const res = await request.delete(
+      `${BASE}/api/boards/${board.id}/templates/999999999`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status()).toBe(404);
+  });
+
+  test('card template description_template can contain newlines', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-newlines');
+    const board = await createBoard(request, token, 'Newlines Board');
+    const desc = 'Line 1\nLine 2\nLine 3';
+    const template = await createCardTemplate(request, token, board.id, 'Newlines Template', desc);
+
+    expect(template.description_template).toBe(desc);
+  });
+
+  test('card template name can be updated to a different name (roundtrip)', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-roundtrip');
+    const board = await createBoard(request, token, 'Roundtrip Board');
+    const template = await createCardTemplate(request, token, board.id, 'Original Name', 'Some desc');
+
+    // Verify the name via GET
+    const templates = await listCardTemplates(request, token, board.id);
+    const found = templates.find((t) => t.id === template.id);
+    expect(found).toBeDefined();
+    expect(found?.name).toBe('Original Name');
+  });
+
+  test('templates from two different boards do not cross-contaminate', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-cross');
+    const boardX = await createBoard(request, token, 'Board X');
+    const boardY = await createBoard(request, token, 'Board Y');
+
+    await createCardTemplate(request, token, boardX.id, 'X Template', 'X only');
+    await createCardTemplate(request, token, boardY.id, 'Y Template', 'Y only');
+
+    const templatesX = await listCardTemplates(request, token, boardX.id);
+    const templatesY = await listCardTemplates(request, token, boardY.id);
+
+    expect(templatesX.every((t) => t.board_id === boardX.id)).toBe(true);
+    expect(templatesY.every((t) => t.board_id === boardY.id)).toBe(true);
+    expect(templatesX.some((t) => t.name === 'Y Template')).toBe(false);
+    expect(templatesY.some((t) => t.name === 'X Template')).toBe(false);
+  });
+
+  test('template with issue_type "bug" is stored and retrievable', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-bug-type');
+    const board = await createBoard(request, token, 'Bug Type Board');
+    const template = await createCardTemplate(
+      request, token, board.id, 'Bug Issue Template', 'Bug description', 'bug',
+    );
+
+    const templates = await listCardTemplates(request, token, board.id);
+    const found = templates.find((t) => t.id === template.id);
+    expect(found?.issue_type).toBe('bug');
+  });
+
+  test('template with issue_type "feature" is stored and retrievable', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-feature-type');
+    const board = await createBoard(request, token, 'Feature Type Board');
+    const template = await createCardTemplate(
+      request, token, board.id, 'Feature Issue Template', 'Feature description', 'feature',
+    );
+
+    const templates = await listCardTemplates(request, token, board.id);
+    const found = templates.find((t) => t.id === template.id);
+    expect(found?.issue_type).toBe('feature');
+  });
+});

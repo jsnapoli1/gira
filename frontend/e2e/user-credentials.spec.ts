@@ -903,3 +903,627 @@ test.describe('User Credentials — UI', () => {
     ).toBeVisible({ timeout: 5000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// User Credentials — API (expanded)
+// ---------------------------------------------------------------------------
+
+test.describe('User Credentials — API (expanded)', () => {
+  test.setTimeout(60000);
+
+  test('GET /api/user/credentials returns list with created credentials', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_list_check', display_name: 'List Check' },
+    });
+    const res = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const list = await res.json();
+    expect(Array.isArray(list)).toBe(true);
+    expect(list.find((c: any) => c.display_name === 'List Check')).toBeDefined();
+  });
+
+  test('POST /api/user/credentials creates credential with provider, display_name and has_token', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'https://git.example.com', api_token: 'tok', display_name: 'My Gitea Cred' },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body.provider).toBe('gitea');
+    expect(body.display_name).toBe('My Gitea Cred');
+    expect(body.has_token).toBe(true);
+  });
+
+  test('credential response shape includes id, provider, provider_url, display_name, has_token, created_at', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_shape', display_name: 'Shape Check' },
+    });
+    const body = await res.json();
+    expect(body).toHaveProperty('id');
+    expect(body).toHaveProperty('provider');
+    expect(body).toHaveProperty('display_name');
+    expect(body).toHaveProperty('has_token');
+    expect(body).toHaveProperty('created_at');
+  });
+
+  test('credential api_token NOT returned in GET response (security)', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_never_leak_me', display_name: 'No Leak' },
+    });
+    const res = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const raw = await res.text();
+    expect(raw).not.toContain('ghp_never_leak_me');
+    const list = JSON.parse(raw);
+    for (const item of list) {
+      expect(item.api_token).toBeUndefined();
+    }
+  });
+
+  test('PUT /api/user/credentials/:id updates display_name', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_name_update', display_name: 'Before Rename' },
+    });
+    const { id } = await createRes.json();
+    const updateRes = await request.put(`${BASE}/api/user/credentials/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { display_name: 'After Rename', api_token: 'ghp_name_update' },
+    });
+    expect(updateRes.status()).toBe(200);
+    const updated = await updateRes.json();
+    expect(updated.display_name).toBe('After Rename');
+  });
+
+  test('PUT /api/user/credentials/:id updates token (has_token remains true)', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_old_tok', display_name: 'Token Update' },
+    });
+    const { id } = await createRes.json();
+    const updateRes = await request.put(`${BASE}/api/user/credentials/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { display_name: 'Token Update', api_token: 'ghp_new_tok' },
+    });
+    expect(updateRes.status()).toBe(200);
+    expect((await updateRes.json()).has_token).toBe(true);
+  });
+
+  test('DELETE /api/user/credentials/:id removes credential and returns 204', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_del', display_name: 'Del Me' },
+    });
+    const { id } = await createRes.json();
+    const delRes = await request.delete(`${BASE}/api/user/credentials/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(delRes.status()).toBe(204);
+  });
+
+  test('cannot create duplicate display_name for same user — or 201 if allowed', async ({ request }) => {
+    // Depending on backend behaviour: may allow or reject duplicates.
+    // At minimum both requests must return a parseable response.
+    const { token } = await createAndLoginUser(request);
+    const data = { provider: 'github', api_token: 'ghp_dupe', display_name: `Dupe-${Date.now()}` };
+    const r1 = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` }, data,
+    });
+    const r2 = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` }, data,
+    });
+    expect([201, 409, 400]).toContain(r1.status());
+    expect([201, 409, 400]).toContain(r2.status());
+  });
+
+  test('credential provider field accepts "gitea"', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'https://g.example.com', api_token: 'tok', display_name: 'Gitea Accept' },
+    });
+    expect(res.status()).toBe(201);
+    expect((await res.json()).provider).toBe('gitea');
+  });
+
+  test('credential provider field accepts "github"', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_prov', display_name: 'GitHub Accept' },
+    });
+    expect(res.status()).toBe(201);
+    expect((await res.json()).provider).toBe('github');
+  });
+
+  test('credential provider field rejects "gitlab" (unsupported)', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitlab', api_token: 'glpat_test', display_name: 'GitLab Reject' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('empty api_token shows validation error (400)', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: '', display_name: 'Empty Token' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('POST /api/user/credentials/test returns JSON with success field', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials/test`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'http://127.0.0.1:1', api_token: 'bad' },
+    });
+    expect([200, 400, 422]).toContain(res.status());
+    if (res.status() === 200) {
+      const body = await res.json();
+      expect(typeof body.success).toBe('boolean');
+    }
+  });
+
+  test('POST /api/user/credentials/test returns success and message fields', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials/test`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_fake_test_token' },
+    });
+    expect([200, 400, 422]).toContain(res.status());
+    if (res.status() === 200) {
+      const body = await res.json();
+      expect(typeof body.success).toBe('boolean');
+      expect(typeof body.message).toBe('string');
+    }
+  });
+
+  test('cannot see other user credentials via list — user-scoped', async ({ request }) => {
+    const { token: myToken } = await createAndLoginUser(request);
+    const { token: otherToken } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${myToken}` },
+      data: { provider: 'github', api_token: 'ghp_mine2', display_name: 'Mine Only' },
+    });
+    const { id } = await createRes.json();
+    const res = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${otherToken}` },
+    });
+    const list = await res.json();
+    expect(list.find((c: any) => c.id === id)).toBeUndefined();
+  });
+
+  test('5+ credentials per user are allowed', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    for (let i = 1; i <= 6; i++) {
+      const res = await request.post(`${BASE}/api/user/credentials`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { provider: 'github', api_token: `ghp_multi_${i}`, display_name: `Cred ${i}` },
+      });
+      expect(res.status()).toBe(201);
+    }
+    const listRes = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect((await listRes.json()).length).toBeGreaterThanOrEqual(6);
+  });
+
+  test('credential with special chars in token is stored and has_token true', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const specialToken = 'tok!@#$%^&*()-+=[]{}|;:,.<>?';
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: specialToken, display_name: 'Special Chars' },
+    });
+    expect(res.status()).toBe(201);
+    expect((await res.json()).has_token).toBe(true);
+  });
+
+  test('unauthenticated DELETE /api/user/credentials/:id returns 401', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_unauth_del', display_name: 'Unauth Delete' },
+    });
+    const { id } = await createRes.json();
+    const res = await request.delete(`${BASE}/api/user/credentials/${id}`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('unauthenticated PUT /api/user/credentials/:id returns 401', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_unauth_put', display_name: 'Unauth Put' },
+    });
+    const { id } = await createRes.json();
+    const res = await request.put(`${BASE}/api/user/credentials/${id}`, {
+      data: { display_name: 'Hacked', api_token: 'ghp_hacked' },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test('provider_url is preserved on Gitea credential GET list', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const url = 'https://my-gitea-instance.example.org';
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: url, api_token: 'tok', display_name: 'URL Preserved' },
+    });
+    const { id } = await createRes.json();
+    const listRes = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const found = (await listRes.json()).find((c: any) => c.id === id);
+    expect(found).toBeDefined();
+    expect(found.provider_url).toBe(url);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User Credentials — UI (expanded)
+// ---------------------------------------------------------------------------
+
+test.describe('User Credentials — UI (expanded)', () => {
+  test.setTimeout(90000);
+
+  test('settings page > Credentials section shows list of created credentials', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_ui_list', display_name: 'UI List Cred' },
+    });
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await expect(page.locator('.credential-name:has-text("UI List Cred")')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('credential list shows display name and provider', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'https://g.example.com', api_token: 'tok', display_name: 'Provider Display' },
+    });
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    const item = page.locator('.credential-item').filter({ hasText: 'Provider Display' });
+    await expect(item).toBeVisible({ timeout: 8000 });
+    await expect(item).toContainText(/gitea/i);
+  });
+
+  test('credential token shown as masked (not raw text) in settings list', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    const secret = `ghp_ui_masked_${crypto.randomUUID().replace(/-/g, '')}`;
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: secret, display_name: 'Masked Token' },
+    });
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await expect(page.locator('.credential-name:has-text("Masked Token")')).toBeVisible({ timeout: 8000 });
+    const pageText = await page.locator('body').innerText();
+    expect(pageText).not.toContain(secret);
+  });
+
+  test('"Add Credential" button opens form modal', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('form has display name, provider selector, URL, and token fields', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('#displayName')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('#apiToken')).toBeVisible();
+    await expect(page.locator('.provider-tab:has-text("Gitea"), .provider-tab:has-text("GitHub")')).toBeVisible();
+  });
+
+  test('provider selector has Gitea and GitHub options', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.provider-tab:has-text("Gitea")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.provider-tab:has-text("GitHub")')).toBeVisible();
+  });
+
+  test('create credential via UI — appears in list', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    const name = `UI-Create-${Date.now()}`;
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await page.click('.provider-tab:has-text("GitHub")');
+    await page.fill('#displayName', name);
+    await page.fill('#apiToken', 'ghp_ui_create_test');
+    await page.click('button[type="submit"]:has-text("Save")');
+    await expect(page.locator(`.credential-name:has-text("${name}")`)).toBeVisible({ timeout: 8000 });
+  });
+
+  test('credential appears in list after creation', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    const name = `After-Create-${Date.now()}`;
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_after', display_name: name },
+    });
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await expect(page.locator(`.credential-name:has-text("${name}")`)).toBeVisible({ timeout: 8000 });
+  });
+
+  test('delete credential with confirm dialog', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    const name = `Delete-Confirm-${Date.now()}`;
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_confirm_del', display_name: name },
+    });
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await expect(page.locator(`.credential-name:has-text("${name}")`)).toBeVisible({ timeout: 8000 });
+    const item = page.locator('.credential-item').filter({ hasText: name });
+    page.once('dialog', (d) => d.accept());
+    await item.locator('.btn-danger').click();
+    await expect(page.locator(`.credential-name:has-text("${name}")`)).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('credential removed from list after deletion', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    const name = `Removed-After-${Date.now()}`;
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_removed_after', display_name: name },
+    });
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await expect(page.locator(`.credential-name:has-text("${name}")`)).toBeVisible({ timeout: 8000 });
+    const item = page.locator('.credential-item').filter({ hasText: name });
+    page.once('dialog', (d) => d.accept());
+    await item.locator('.btn-danger').click();
+    await expect(page.locator(`.credential-name:has-text("${name}")`)).not.toBeVisible({ timeout: 5000 });
+    // Reload to confirm server-side removal
+    await page.reload();
+    await page.waitForSelector('.settings-section', { timeout: 10000 });
+    await expect(page.locator(`.credential-name:has-text("${name}")`)).not.toBeVisible();
+  });
+
+  test('"Test Connection" button present in add credential modal', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('button:has-text("Test Connection")')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('test shows success feedback when backend returns success: true', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await page.fill('#providerUrl', 'https://gitea.example.com');
+    await page.fill('#apiToken', 'ghp_mock_success');
+    await page.route('**/api/user/credentials/test', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'Connection successful' }),
+      });
+    });
+    await page.click('button:has-text("Test Connection")');
+    await expect(
+      page.locator('.status-badge.success, .connection-success, [class*="success"]').first(),
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  test('test shows error feedback when backend returns success: false', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await page.fill('#providerUrl', 'https://gitea.invalid.example.com');
+    await page.fill('#apiToken', 'bad-token');
+    await page.route('**/api/user/credentials/test', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, message: 'Connection failed' }),
+      });
+    });
+    await page.click('button:has-text("Test Connection")');
+    await expect(page.locator('.status-badge.error')).toBeVisible({ timeout: 5000 });
+  });
+
+  test.fixme('edit credential opens form with current values (excluding token)', async ({ page, request }) => {
+    // The PUT endpoint exists but Settings.tsx does not expose an edit button yet.
+    // When edit UI is added: open edit modal, verify display_name pre-filled, token field empty.
+    const { token } = await createAndLoginUser(request);
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_edit_form', display_name: 'Edit Form Cred' },
+    });
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    const item = page.locator('.credential-item').filter({ hasText: 'Edit Form Cred' });
+    await item.locator('.btn-edit, button:has-text("Edit")').click();
+    await expect(page.locator('#displayName')).toHaveValue('Edit Form Cred');
+    await expect(page.locator('#apiToken')).toHaveValue('');
+  });
+
+  test.fixme('save edited credential — token unchanged if left blank', async ({ page, request }) => {
+    // Same pre-condition as above — UI edit not yet implemented.
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'github', api_token: 'ghp_unchanged', display_name: 'Blank Token Edit' },
+    });
+    const { id } = await createRes.json();
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    const item = page.locator('.credential-item').filter({ hasText: 'Blank Token Edit' });
+    await item.locator('.btn-edit, button:has-text("Edit")').click();
+    await page.fill('#displayName', 'Renamed Blank Token');
+    // Leave token blank — token should remain valid
+    await page.click('button[type="submit"]:has-text("Save")');
+    // Verify via API that has_token is still true
+    const getRes = await request.get(`${BASE}/api/user/credentials/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect((await getRes.json()).has_token).toBe(true);
+  });
+
+  test('credential count is reflected in settings (list length matches API)', async ({ page, request }) => {
+    const { token } = await createAndLoginUser(request);
+    const names = [`Count1-${Date.now()}`, `Count2-${Date.now()}`, `Count3-${Date.now()}`];
+    for (const name of names) {
+      await request.post(`${BASE}/api/user/credentials`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { provider: 'github', api_token: 'ghp_count', display_name: name },
+      });
+    }
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto('/settings');
+    for (const name of names) {
+      await expect(page.locator(`.credential-name:has-text("${name}")`)).toBeVisible({ timeout: 8000 });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User Credentials — Board-level / Swimlane Credentials
+// ---------------------------------------------------------------------------
+
+test.describe('User Credentials — Swimlane Credentials (API)', () => {
+  test.setTimeout(60000);
+
+  async function createBoardAndSwimlane(request: any, token: string): Promise<{ boardId: number; swimlaneId: number }> {
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: `Cred Board ${Date.now()}` },
+      })
+    ).json();
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Gitea Lane', designator: 'GL', color: '#3b82f6' },
+      })
+    ).json();
+    return { boardId: board.id, swimlaneId: swimlane.id };
+  }
+
+  test('board settings > swimlane creation accepts api_token for non-default source', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: `Swimlane Cred Board ${Date.now()}` },
+      })
+    ).json();
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        name: 'Custom Gitea Lane',
+        designator: 'CG',
+        color: '#10b981',
+        repo_source: 'custom_gitea',
+        repo_url: 'https://gitea.example.com/org/repo',
+        api_token: 'lane-specific-token',
+      },
+    });
+    // Either 201 (created) or 400 (invalid url) are valid — we just care it doesn't 500
+    expect([201, 400]).toContain(res.status());
+  });
+
+  test('swimlane without api_token uses default credential', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const { boardId } = await createBoardAndSwimlane(request, token);
+
+    // Get the swimlanes back — should succeed without credential error
+    const res = await request.get(`${BASE}/api/boards/${boardId}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const swimlanes = await res.json();
+    expect(Array.isArray(swimlanes)).toBe(true);
+  });
+
+  test('user credential created via API shows up in list', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const res = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'https://lane-cred.example.com', api_token: 'lane-tok', display_name: 'Lane Credential' },
+    });
+    expect(res.status()).toBe(201);
+    const listRes = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const found = (await listRes.json()).find((c: any) => c.display_name === 'Lane Credential');
+    expect(found).toBeDefined();
+  });
+
+  test('user credentials are available for swimlane assignment (credential exists in list)', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+
+    // Create credential
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'https://swimlane.cred.example.com', api_token: 'sw-tok', display_name: 'Swimlane Ready Cred' },
+    });
+
+    // Create a board and swimlane
+    const { boardId } = await createBoardAndSwimlane(request, token);
+
+    // The credentials list should be available (not throw) when used alongside a board
+    const listRes = await request.get(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listRes.status()).toBe(200);
+    const creds = await listRes.json();
+    expect(creds.find((c: any) => c.display_name === 'Swimlane Ready Cred')).toBeDefined();
+  });
+
+  test('removing a credential from user list does not break board swimlane listing', async ({ request }) => {
+    const { token } = await createAndLoginUser(request);
+    const createRes = await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { provider: 'gitea', provider_url: 'https://del-cred.example.com', api_token: 'del-tok', display_name: 'To Remove Swimlane Cred' },
+    });
+    const { id } = await createRes.json();
+
+    const { boardId } = await createBoardAndSwimlane(request, token);
+
+    // Delete the credential
+    await request.delete(`${BASE}/api/user/credentials/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Board swimlanes should still be accessible
+    const slRes = await request.get(`${BASE}/api/boards/${boardId}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(slRes.status()).toBe(200);
+  });
+});
