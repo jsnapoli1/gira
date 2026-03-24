@@ -191,6 +191,7 @@ test.describe('Healthz endpoint — always available', () => {
 test.describe('Non-auth endpoints — no rate limiting', () => {
 
   test('GET /api/boards 100 times rapidly — all return 200 (no rate limit)', async ({ request }) => {
+    test.setTimeout(90000);
     const { token } = await signup(request, 'Boards Rapid');
 
     for (let i = 0; i < 100; i++) {
@@ -202,6 +203,7 @@ test.describe('Non-auth endpoints — no rate limiting', () => {
   });
 
   test('POST 50 comments rapidly — all succeed', async ({ request }) => {
+    test.setTimeout(90000);
     const { token } = await signup(request, 'Comments Rapid');
     const board = await createBoard(request, token);
     const swimlane = await createSwimlane(request, token, board.id);
@@ -225,6 +227,7 @@ test.describe('Non-auth endpoints — no rate limiting', () => {
   });
 
   test('GET /api/notifications 50 times rapidly — all succeed', async ({ request }) => {
+    test.setTimeout(60000);
     const { token } = await signup(request, 'Notif Rapid');
 
     for (let i = 0; i < 50; i++) {

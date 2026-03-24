@@ -950,3 +950,602 @@ test.describe('Dashboard — My Cards section (requires card creation)', () => {
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// 10. Dashboard page structure — navigation and layout
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard — navigation sidebar links', () => {
+  test('sidebar contains a navigation link to Reports', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-nav-reports');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    await expect(page.locator('.nav-item', { hasText: 'Reports' })).toBeVisible();
+  });
+
+  test('sidebar contains a navigation link to Settings', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-nav-settings');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    await expect(page.locator('.nav-item', { hasText: 'Settings' })).toBeVisible();
+  });
+
+  test('clicking Boards nav link navigates to /boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-nav-boards-click');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    await page.locator('.nav-item', { hasText: 'Boards' }).click();
+
+    await expect(page).toHaveURL(/\/boards\/?$/, { timeout: 10000 });
+  });
+
+  test('clicking Reports nav link navigates to /reports', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-nav-reports-click');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    await page.locator('.nav-item', { hasText: 'Reports' }).click();
+
+    await expect(page).toHaveURL(/\/reports/, { timeout: 10000 });
+  });
+
+  test('clicking Settings nav link navigates to /settings', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-nav-settings-click');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    await page.locator('.nav-item', { hasText: 'Settings' }).click();
+
+    await expect(page).toHaveURL(/\/settings/, { timeout: 10000 });
+  });
+
+  test('Boards nav link is marked active when on /boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-nav-boards-active');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.nav-item.active', { hasText: 'Boards' })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('Dashboard nav link navigates back to /dashboard from /boards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-nav-back-dash');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('h1', { hasText: 'Boards' })).toBeVisible({ timeout: 10000 });
+    await page.locator('.nav-item', { hasText: 'Dashboard' }).click();
+
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. Dashboard page — layout stability and misc
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard — layout and content structure', () => {
+  test('dashboard page title is "Dashboard"', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-page-title');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    await expect(page).toHaveTitle(/Dashboard|Zira/, { timeout: 5000 });
+  });
+
+  test('/dashboard does not redirect authenticated user', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-no-redirect');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+    await expect(page.locator('.dashboard-content')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('dashboard sections use .dashboard-section class', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-section-class');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    const sections = page.locator('.dashboard-section');
+    const count = await sections.count();
+    expect(count).toBeGreaterThanOrEqual(3);
+  });
+
+  test('dashboard sections each have a section header icon', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-section-icon');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    const headers = page.locator('.dashboard-section-header');
+    const count = await headers.count();
+    expect(count).toBeGreaterThanOrEqual(3);
+    // Each header should contain an svg icon
+    for (let i = 0; i < count; i++) {
+      await expect(headers.nth(i).locator('svg')).toBeAttached();
+    }
+  });
+
+  test('dashboard My Cards section shows 0 count for new user with no cards', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-mycards-zero');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    const myCardsSection = page.locator('.dashboard-section').filter({
+      has: page.locator('h2', { hasText: 'My Cards' }),
+    });
+    await expect(myCardsSection.locator('.dashboard-count')).toContainText('0');
+  });
+
+  test('dashboard Recent Boards section shows board description when present', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-board-desc');
+    const boardName = `Desc Board ${crypto.randomUUID().slice(0, 8)}`;
+    const boardRes = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: boardName, description: 'A board with a description' },
+    });
+    expect(boardRes.ok()).toBeTruthy();
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-boards-grid', { timeout: 10000 });
+    const boardCard = page.locator('.dashboard-board-card').filter({ hasText: boardName });
+    await expect(boardCard).toBeVisible();
+    await expect(boardCard.locator('p')).toContainText('A board with a description');
+  });
+
+  test('dashboard board card without description shows no paragraph', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-no-desc');
+    const boardName = `No Desc Board ${crypto.randomUUID().slice(0, 8)}`;
+    await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: boardName },
+    });
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-boards-grid', { timeout: 10000 });
+    const boardCard = page.locator('.dashboard-board-card').filter({ hasText: boardName });
+    await expect(boardCard).toBeVisible();
+    // When no description, no <p> with description text
+    const descText = await boardCard.locator('p').count();
+    expect(descText).toBe(0);
+  });
+
+  test('dashboard Recent Boards board card has Kanban icon', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-board-icon');
+    await createBoard(request, token, `Icon Board ${crypto.randomUUID().slice(0, 8)}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-boards-grid', { timeout: 10000 });
+    const boardCard = page.locator('.dashboard-board-card').first();
+    await expect(boardCard.locator('.dashboard-board-icon svg')).toBeAttached({ timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. Dashboard active sprint — additional detail
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard — Active Sprints section details', () => {
+  test('active sprint item shows sprint name prominently', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-sprint-name-prom');
+    const boardId = await createBoard(request, token, `Sprint Name Prom Board ${crypto.randomUUID().slice(0, 8)}`);
+    const sprintName = `Prominent Sprint ${crypto.randomUUID().slice(0, 8)}`;
+    const sprintId = await createSprint(request, token, boardId, sprintName);
+    await startSprint(request, token, sprintId);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    await expect(
+      page.locator('.dashboard-sprint-name').filter({ hasText: sprintName })
+    ).toBeVisible();
+  });
+
+  test('active sprint item shows completed/total cards in meta', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-sprint-ct');
+    const boardId = await createBoard(request, token, `Sprint CT Board ${crypto.randomUUID().slice(0, 8)}`);
+    const sprintId = await createSprint(request, token, boardId, `CT Sprint ${crypto.randomUUID().slice(0, 8)}`);
+    await startSprint(request, token, sprintId);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    // Should have text like "0/0 cards"
+    const meta = page.locator('.dashboard-sprint-meta').first();
+    const text = await meta.textContent();
+    expect(text).toMatch(/\d+\/\d+/);
+  });
+
+  test('progress bar width reflects completion ratio', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-sprint-bar-width');
+    const boardId = await createBoard(request, token, `Sprint Bar Board ${crypto.randomUUID().slice(0, 8)}`);
+    const sprintId = await createSprint(request, token, boardId, `Bar Sprint ${crypto.randomUUID().slice(0, 8)}`);
+    await startSprint(request, token, sprintId);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    // The inner fill bar should have a width style attribute or similar
+    const progressBar = page.locator('.dashboard-progress-bar').first();
+    await expect(progressBar).toBeVisible();
+    await expect(progressBar.locator('div').first()).toBeAttached();
+  });
+
+  test('sprint progress percentage starts at 0% for empty sprint', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-sprint-zero-pct');
+    const boardId = await createBoard(request, token, `Sprint Zero Pct Board ${crypto.randomUUID().slice(0, 8)}`);
+    const sprintId = await createSprint(request, token, boardId, `Zero Sprint ${crypto.randomUUID().slice(0, 8)}`);
+    await startSprint(request, token, sprintId);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    await expect(page.locator('.dashboard-progress-label').first()).toContainText('0%');
+  });
+
+  test('two active sprints across two boards both shown', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-two-sprints');
+    const boardId1 = await createBoard(request, token, `Two Sprint Board A ${crypto.randomUUID().slice(0, 8)}`);
+    const boardId2 = await createBoard(request, token, `Two Sprint Board B ${crypto.randomUUID().slice(0, 8)}`);
+    const sId1 = await createSprint(request, token, boardId1, `Sprint A ${crypto.randomUUID().slice(0, 8)}`);
+    const sId2 = await createSprint(request, token, boardId2, `Sprint B ${crypto.randomUUID().slice(0, 8)}`);
+    await startSprint(request, token, sId1);
+    await startSprint(request, token, sId2);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    const items = page.locator('.dashboard-sprint-item');
+    await expect(items).toHaveCount(2, { timeout: 5000 });
+  });
+
+  test('Active Sprints count badge shows 2 when two sprints are running', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-sprint-badge-two');
+    const bId1 = await createBoard(request, token, `Badge2 Board A ${crypto.randomUUID().slice(0, 8)}`);
+    const bId2 = await createBoard(request, token, `Badge2 Board B ${crypto.randomUUID().slice(0, 8)}`);
+    const s1 = await createSprint(request, token, bId1, `Badge2 Sprint A ${crypto.randomUUID().slice(0, 8)}`);
+    const s2 = await createSprint(request, token, bId2, `Badge2 Sprint B ${crypto.randomUUID().slice(0, 8)}`);
+    await startSprint(request, token, s1);
+    await startSprint(request, token, s2);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    const activeSprintsSection = page.locator('.dashboard-section').filter({
+      has: page.locator('h2', { hasText: 'Active Sprints' }),
+    });
+    await expect(activeSprintsSection.locator('.dashboard-count')).toContainText('2');
+  });
+
+  test('clicking active sprint navigates to the board URL', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-sprint-click-nav');
+    const boardId = await createBoard(request, token, `Click Nav Sprint Board ${crypto.randomUUID().slice(0, 8)}`);
+    const sprintId = await createSprint(request, token, boardId, `Click Nav Sprint ${crypto.randomUUID().slice(0, 8)}`);
+    await startSprint(request, token, sprintId);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    await page.locator('.dashboard-sprint-item').first().click();
+
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}`), { timeout: 10000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. Dashboard — /boards page additional scenarios
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard — /boards additional board card scenarios', () => {
+  test('board card shows settings or actions area', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-card-actions');
+    await createBoard(request, token, `Actions Board ${crypto.randomUUID().slice(0, 8)}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+    const card = page.locator('.board-card').first();
+    await expect(card).toBeVisible();
+    // Card must be interactive (clickable link + delete button)
+    await expect(card.locator('.board-card-link, .board-card-delete').first()).toBeVisible();
+  });
+
+  test('creating two boards shows two cards in the grid', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-two-cards');
+    await createBoard(request, token, `Two Cards A ${crypto.randomUUID().slice(0, 8)}`);
+    await createBoard(request, token, `Two Cards B ${crypto.randomUUID().slice(0, 8)}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.board-card')).toHaveCount(2);
+  });
+
+  test('Create Board modal shows board name input field', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-modal-name-field');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.empty-state')).toBeVisible({ timeout: 10000 });
+    await page.locator('.empty-state .btn-primary', { hasText: 'Create Board' }).click();
+
+    await expect(page.locator('#boardName')).toBeVisible();
+  });
+
+  test('Create Board modal submit button is disabled when name is empty', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-modal-submit-disabled');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.empty-state')).toBeVisible({ timeout: 10000 });
+    await page.locator('.empty-state .btn-primary', { hasText: 'Create Board' }).click();
+
+    await expect(page.locator('.modal')).toBeVisible();
+    // Clear any pre-filled text
+    await page.locator('#boardName').fill('');
+    const submitBtn = page.locator('.modal button[type="submit"]', { hasText: 'Create Board' });
+    await expect(submitBtn).toBeDisabled({ timeout: 3000 });
+  });
+
+  test('board grid has correct number of cards after three creations', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-grid-count-three');
+    for (let i = 1; i <= 3; i++) {
+      await createBoard(request, token, `Count Board ${i} ${crypto.randomUUID().slice(0, 8)}`);
+    }
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.board-card')).toHaveCount(3);
+  });
+
+  test('/boards shows "Create Board" button in page header when boards exist', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-create-btn-header');
+    await createBoard(request, token, `Header Btn Board ${crypto.randomUUID().slice(0, 8)}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('button:has-text("Create Board")')).toBeVisible();
+  });
+
+  test('boards page header h1 reads "Boards"', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-boards-h1-check');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('h1', { hasText: 'Boards' })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('deleting all boards returns to empty state', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-delete-all');
+    const boardName = `Delete All Board ${crypto.randomUUID().slice(0, 8)}`;
+    await createBoard(request, token, boardName);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+    page.once('dialog', (d) => d.accept());
+    await page.locator('.board-card-delete').first().click();
+
+    await expect(page.locator('.empty-state')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('board card links have correct href with board id', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-card-href');
+    const boardId = await createBoard(request, token, `Href Board ${crypto.randomUUID().slice(0, 8)}`);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.boards-grid')).toBeVisible({ timeout: 10000 });
+    const link = page.locator('.board-card-link').first();
+    const href = await link.getAttribute('href');
+    expect(href).toContain(`/boards/${boardId}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. Dashboard — /dashboard My Cards kanban columns (no card data needed)
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard — My Cards kanban column structure', () => {
+  test.fixme(
+    'My Cards mini-kanban shows Open column when cards exist',
+    async ({ page, request }) => {
+      // Requires card assignment — skipped in CI without card creation support
+      test.skip(true, 'Requires card creation');
+    }
+  );
+
+  test.fixme(
+    'My Cards mini-kanban shows In Progress column when cards exist',
+    async ({ page, request }) => {
+      test.skip(true, 'Requires card creation');
+    }
+  );
+
+  test.fixme(
+    'My Cards mini-kanban shows In Review column when cards exist',
+    async ({ page, request }) => {
+      test.skip(true, 'Requires card creation');
+    }
+  );
+
+  test.fixme(
+    'My Cards mini-kanban shows Done column when cards exist',
+    async ({ page, request }) => {
+      test.skip(true, 'Requires card creation');
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 15. Dashboard — /dashboard Additional sprint and board edge cases
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard — edge cases and additional coverage', () => {
+  test('dashboard renders without errors for a brand new user', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-brand-new');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await expect(page.locator('.dashboard-content')).toBeVisible({ timeout: 10000 });
+    // No error state should be shown
+    await expect(page.locator('.dashboard-error')).not.toBeVisible();
+  });
+
+  test('dashboard page has the Layout wrapper (sidebar visible)', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-layout-sidebar');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    // The Layout component renders a sidebar / nav
+    await expect(page.locator('.sidebar, .app-sidebar, nav.sidebar, nav').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('dashboard page load does not show error state for valid user', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-no-error');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    await expect(page.locator('.dashboard-error')).not.toBeVisible();
+  });
+
+  test('Active Sprints section header contains an icon', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-sprint-header-icon');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    const sprintsSection = page.locator('.dashboard-section').filter({
+      has: page.locator('h2', { hasText: 'Active Sprints' }),
+    });
+    await expect(sprintsSection.locator('.dashboard-section-header svg')).toBeAttached();
+  });
+
+  test('Recent Boards section header contains an icon', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-board-header-icon');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    const boardsSection = page.locator('.dashboard-section').filter({
+      has: page.locator('h2', { hasText: 'Recent Boards' }),
+    });
+    await expect(boardsSection.locator('.dashboard-section-header svg')).toBeAttached();
+  });
+
+  test('dashboard recent boards shows board name in h3 tag', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-board-h3');
+    const boardName = `H3 Board ${crypto.randomUUID().slice(0, 8)}`;
+    await createBoard(request, token, boardName);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-boards-grid', { timeout: 10000 });
+    await expect(page.locator('.dashboard-board-card h3', { hasText: boardName })).toBeVisible();
+  });
+
+  test('dashboard section count badges use .dashboard-count class', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-count-class');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    const counts = page.locator('.dashboard-count');
+    const countNum = await counts.count();
+    expect(countNum).toBeGreaterThanOrEqual(3);
+  });
+
+  test('navigating away from /dashboard and back keeps user logged in', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-nav-back-auth');
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-content', { timeout: 10000 });
+    await page.goto('/boards');
+    await expect(page.locator('h1', { hasText: 'Boards' })).toBeVisible({ timeout: 10000 });
+
+    await page.goto('/dashboard');
+    await expect(page.locator('.dashboard-content')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('boards created in /boards appear in Recent Boards on /dashboard', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-recent-sync');
+    const boardName = `Recent Sync Board ${crypto.randomUUID().slice(0, 8)}`;
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/boards');
+
+    await expect(page.locator('.empty-state')).toBeVisible({ timeout: 10000 });
+    await page.locator('.empty-state .btn-primary', { hasText: 'Create Board' }).click();
+    await expect(page.locator('.modal')).toBeVisible();
+    await page.locator('#boardName').fill(boardName);
+    await page.locator('.modal button[type="submit"]', { hasText: 'Create Board' }).click();
+
+    // Navigate to board then back to dashboard
+    await page.waitForURL(/\/boards\/\d+$/, { timeout: 10000 });
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-boards-grid', { timeout: 10000 });
+    await expect(
+      page.locator('.dashboard-board-card').filter({ hasText: boardName })
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  test('sprint created and started via API shows in dashboard on reload', async ({ page, request }) => {
+    const { token } = await createUser(request, 'dash-sprint-reload');
+    const boardId = await createBoard(request, token, `Reload Sprint Board ${crypto.randomUUID().slice(0, 8)}`);
+    const sprintName = `Reload Sprint ${crypto.randomUUID().slice(0, 8)}`;
+    const sprintId = await createSprint(request, token, boardId, sprintName);
+    await startSprint(request, token, sprintId);
+
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto('/dashboard');
+
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    await expect(
+      page.locator('.dashboard-sprint-item').filter({ hasText: sprintName })
+    ).toBeVisible();
+
+    // Reload and confirm still present
+    await page.reload();
+    await page.waitForSelector('.dashboard-sprint-list', { timeout: 10000 });
+    await expect(
+      page.locator('.dashboard-sprint-item').filter({ hasText: sprintName })
+    ).toBeVisible();
+  });
+});

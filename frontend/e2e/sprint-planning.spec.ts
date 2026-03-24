@@ -1616,4 +1616,895 @@ test.describe('Sprint Planning', () => {
     await expect(page.locator('.active-sprint-badge')).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.active-sprint-badge')).toContainText('UI Start Sprint');
   });
+
+  // =========================================================================
+  // API: Sprint CRUD extended
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // 51. POST /api/sprints requires auth — 401 without token
+  // -------------------------------------------------------------------------
+  test('POST /api/sprints returns 401 without auth token', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/sprints?board_id=1`, {
+      data: { name: 'Unauth Sprint' },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // 52. GET /api/sprints/:id returns 401 without token
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints/:id returns 401 without auth token', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/sprints/1`);
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // 53. PATCH /api/sprints/:id — update sprint name
+  // -------------------------------------------------------------------------
+  test('PATCH /api/sprints/:id — updates sprint name', async ({ request }) => {
+    const { token, boardId } = await setupBoard(request, 'Patch Name Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Old Sprint Name' },
+    });
+    const sprint = await createRes.json();
+
+    const patchRes = await request.patch(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Updated Sprint Name' },
+    });
+    expect(patchRes.status()).toBeLessThan(300);
+
+    const getRes = await request.get(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const updated = await getRes.json();
+    expect(updated.name).toBe('Updated Sprint Name');
+  });
+
+  // -------------------------------------------------------------------------
+  // 54. PATCH /api/sprints/:id — update sprint goal
+  // -------------------------------------------------------------------------
+  test('PATCH /api/sprints/:id — updates sprint goal', async ({ request }) => {
+    const { token, boardId } = await setupBoard(request, 'Patch Goal Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Goal Sprint', goal: 'Initial goal' },
+    });
+    const sprint = await createRes.json();
+
+    await request.patch(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { goal: 'Revised sprint goal' },
+    });
+
+    const getRes = await request.get(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const updated = await getRes.json();
+    expect(updated.goal).toBe('Revised sprint goal');
+  });
+
+  // -------------------------------------------------------------------------
+  // 55. DELETE /api/sprints/:id — delete a planning sprint
+  // -------------------------------------------------------------------------
+  test('DELETE /api/sprints/:id — deletes a sprint in planning status', async ({ request }) => {
+    const { token, boardId } = await setupBoard(request, 'Delete Sprint Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Deletable Sprint' },
+    });
+    const sprint = await createRes.json();
+
+    const deleteRes = await request.delete(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(deleteRes.status()).toBeLessThan(300);
+
+    const getRes = await request.get(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(getRes.status()).toBe(404);
+  });
+
+  // -------------------------------------------------------------------------
+  // 56. Deleted sprint no longer appears in sprint list
+  // -------------------------------------------------------------------------
+  test('deleted sprint does not appear in GET /api/sprints list', async ({ request }) => {
+    const { token, boardId } = await setupBoard(request, 'Delete List Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Sprint To Delete' },
+    });
+    const sprint = await createRes.json();
+
+    await request.delete(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const listRes = await request.get(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const sprints = await listRes.json();
+    const found = sprints.find((s: any) => s.id === sprint.id);
+    expect(found).toBeFalsy();
+  });
+
+  // -------------------------------------------------------------------------
+  // 57. Sprint cards endpoint returns empty array for sprint with no cards
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints/:id/cards returns empty array for sprint with no assigned cards', async ({
+    request,
+  }) => {
+    const { token, boardId } = await setupBoard(request, 'Empty Cards Sprint Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Empty Cards Sprint' },
+    });
+    const sprint = await createRes.json();
+
+    const cardsRes = await request.get(`${BASE}/api/sprints/${sprint.id}/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(cardsRes.status()).toBe(200);
+    const cards = await cardsRes.json();
+    expect(Array.isArray(cards)).toBe(true);
+    expect(cards.length).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 58. Sprint with no cards completes successfully
+  // -------------------------------------------------------------------------
+  test('sprint with no assigned cards can be completed without errors', async ({ request }) => {
+    const { token, boardId } = await setupBoard(request, 'Empty Complete Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Empty Complete Sprint' },
+    });
+    const sprint = await createRes.json();
+
+    await request.post(`${BASE}/api/sprints/${sprint.id}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const completeRes = await request.post(`${BASE}/api/sprints/${sprint.id}/complete`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(completeRes.status()).toBe(200);
+
+    const getRes = await request.get(`${BASE}/api/sprints/${sprint.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const sprint2 = await getRes.json();
+    expect(sprint2.status).toBe('completed');
+  });
+
+  // -------------------------------------------------------------------------
+  // 59. Completing a sprint unassigns its cards (sprint_id becomes null)
+  // -------------------------------------------------------------------------
+  test('completing a sprint sets sprint_id to null on assigned cards', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, columnId } = await setupBoardWithSprint(
+      request,
+      'Unassign On Complete Board',
+      'Unassign Sprint',
+    );
+
+    const cardId = await createCard(request, token, boardId, swimlaneId, columnId, 'Unassign On Complete Card');
+
+    await assignCardToSprint(request, token, cardId, sprintId);
+
+    await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await request.post(`${BASE}/api/sprints/${sprintId}/complete`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const cardRes = await request.get(`${BASE}/api/cards/${cardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const card = await cardRes.json();
+    expect(card.sprint_id).toBeFalsy();
+  });
+
+  // -------------------------------------------------------------------------
+  // 60. Sprint story points: zero for sprint with no point-bearing cards
+  // -------------------------------------------------------------------------
+  test('sprint metrics total_points is 0 when cards have no story points', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, columnId } = await setupBoardWithSprint(
+      request,
+      'Zero Points Board',
+      'Zero Points Sprint',
+    );
+
+    const cardId = await createCard(request, token, boardId, swimlaneId, columnId, 'No Points Card');
+    await assignCardToSprint(request, token, cardId, sprintId);
+
+    await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const metricsRes = await request.get(`${BASE}/api/sprints/${sprintId}/metrics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(metricsRes.status()).toBe(200);
+    const data = await metricsRes.json();
+    const metrics = Array.isArray(data) ? data[data.length - 1] : data;
+    expect(metrics.total_points).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 61. Sprint velocity metric available after sprint completion
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints/:id/metrics returns data after sprint completion', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, columnId } = await setupBoardWithSprint(
+      request,
+      'Velocity Board',
+      'Velocity Sprint',
+    );
+
+    const cardId = await createCard(request, token, boardId, swimlaneId, columnId, 'Velocity Card', 8);
+    await assignCardToSprint(request, token, cardId, sprintId);
+
+    await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await request.post(`${BASE}/api/sprints/${sprintId}/complete`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const metricsRes = await request.get(`${BASE}/api/sprints/${sprintId}/metrics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(metricsRes.status()).toBe(200);
+    const data = await metricsRes.json();
+    expect(data).toBeTruthy();
+  });
+
+  // -------------------------------------------------------------------------
+  // 62. Burndown data endpoint is accessible for an active sprint
+  // -------------------------------------------------------------------------
+  test('GET /api/metrics/burndown returns data for active sprint', async ({ request }) => {
+    const { token, boardId, sprintId, swimlaneId, columnId } = await setupBoardWithSprint(
+      request,
+      'Burndown Board',
+      'Burndown Sprint',
+    );
+
+    const cardId = await createCard(request, token, boardId, swimlaneId, columnId, 'Burndown Card', 5);
+    await assignCardToSprint(request, token, cardId, sprintId);
+
+    await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const burndownRes = await request.get(`${BASE}/api/metrics/burndown?sprint_id=${sprintId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(burndownRes.status()).toBe(200);
+    const data = await burndownRes.json();
+    expect(data).toBeTruthy();
+  });
+
+  // -------------------------------------------------------------------------
+  // 63. Cannot start sprint if another sprint is already active on the board
+  // -------------------------------------------------------------------------
+  test('POST /api/sprints/:id/start returns error if another sprint is already active', async ({
+    request,
+  }) => {
+    const { token, boardId } = await setupBoard(request, 'Conflict Start Board');
+
+    const s1Res = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Already Active Sprint' },
+    });
+    const s1 = await s1Res.json();
+    await request.post(`${BASE}/api/sprints/${s1.id}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const s2Res = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Conflicting Sprint' },
+    });
+    const s2 = await s2Res.json();
+
+    const conflictRes = await request.post(`${BASE}/api/sprints/${s2.id}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    // Should be a 4xx error — cannot have two active sprints
+    expect(conflictRes.status()).toBeGreaterThanOrEqual(400);
+    expect(conflictRes.status()).toBeLessThan(500);
+  });
+
+  // -------------------------------------------------------------------------
+  // 64. Cannot complete a sprint that is in planning status
+  // -------------------------------------------------------------------------
+  test('POST /api/sprints/:id/complete on a planning sprint returns 4xx', async ({ request }) => {
+    const { token, boardId } = await setupBoard(request, 'Cannot Complete Planning Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Planning Only Sprint' },
+    });
+    const sprint = await createRes.json();
+
+    // Do NOT start — try to complete directly from planning
+    const res = await request.post(`${BASE}/api/sprints/${sprint.id}/complete`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+    expect(res.status()).toBeLessThan(500);
+  });
+
+  // =========================================================================
+  // UI: Sprint card management extended
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // 65. UI: Sprint card count badge updates after assigning a card
+  // -------------------------------------------------------------------------
+  test('UI: sprint card count badge increments after assigning a card via API then reload', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId, sprintId, swimlaneId, columnId } = await setupBoardWithSprint(
+      request,
+      'Count Badge Board',
+      'Count Badge Sprint',
+    );
+
+    // Navigate first — sprint should show 0 cards
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    const initialCount = await page.locator('.sprint-card-count').textContent();
+    const initialNum = parseInt(initialCount ?? '0', 10);
+
+    // Assign a card via API
+    const cardId = await createCard(request, token, boardId, swimlaneId, columnId, 'Count Badge Card');
+    await assignCardToSprint(request, token, cardId, sprintId);
+
+    // Reload to pick up the change
+    await page.reload();
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.sprint-card-count', { timeout: 8000 });
+
+    const newCount = await page.locator('.sprint-card-count').textContent();
+    const newNum = parseInt(newCount ?? '0', 10);
+    expect(newNum).toBe(initialNum + 1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 66. UI: Sprint goal visible in sprint header
+  // -------------------------------------------------------------------------
+  test('UI: sprint goal text is visible in the sprint panel header', async ({ page, request }) => {
+    const { token, boardId } = await setupBoard(request, 'Sprint Goal UI Board');
+
+    await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Goal Sprint UI', goal: 'Ship the landing page' },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    // Goal text should be visible somewhere in the sprint panel
+    await expect(page.locator('text=Ship the landing page')).toBeVisible({ timeout: 6000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 67. UI: Sprint date range displayed in sprint panel
+  // -------------------------------------------------------------------------
+  test('UI: sprint panel shows start and end date range', async ({ page, request }) => {
+    const { token, boardId } = await setupBoard(request, 'Date Range UI Board');
+
+    await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        name: 'Date Range Sprint',
+        start_date: '2026-09-01T00:00:00Z',
+        end_date: '2026-09-14T00:00:00Z',
+      },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.sprint-dates', { timeout: 8000 });
+
+    const datesText = await page.locator('.sprint-dates').textContent();
+    expect(datesText).toMatch(/2026/);
+  });
+
+  // -------------------------------------------------------------------------
+  // 68. UI: Sprint progress bar visible for active sprint
+  // -------------------------------------------------------------------------
+  test('UI: sprint progress bar is visible in backlog for an active sprint', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId, sprintId, swimlaneId, columnId } = await setupBoardWithSprint(
+      request,
+      'Progress Bar Board',
+      'Progress Bar Sprint',
+    );
+
+    // Assign cards so there's something to complete
+    const c1 = await createCard(request, token, boardId, swimlaneId, columnId, 'Progress Card 1');
+    const c2 = await createCard(request, token, boardId, swimlaneId, columnId, 'Progress Card 2');
+    await assignCardToSprint(request, token, c1, sprintId);
+    await assignCardToSprint(request, token, c2, sprintId);
+
+    await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    // A progress bar element should be visible
+    await expect(
+      page.locator('.sprint-progress, .progress-bar, [role="progressbar"]').first(),
+    ).toBeVisible({ timeout: 6000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 69. UI: Active sprint visually distinguished from planned sprint
+  // -------------------------------------------------------------------------
+  test('UI: active sprint header has a distinguishing visual class or badge', async ({
+    page,
+    request,
+  }) => {
+    const email = `active-vs-plan-${crypto.randomUUID()}@test.com`;
+    const signupRes = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: 'Active vs Plan User' },
+    });
+    const { token } = await signupRes.json();
+
+    const boardRes = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Active vs Plan Board' },
+    });
+    const board = await boardRes.json();
+
+    // Active sprint
+    const s1Res = await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Active Sprint AVP' },
+    });
+    const s1 = await s1Res.json();
+    await request.post(`${BASE}/api/sprints/${s1.id}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Planning sprint
+    await request.post(`${BASE}/api/sprints?board_id=${board.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Planned Sprint AVP' },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    // At least one sprint panel should have an "active" class or badge
+    await expect(
+      page.locator('.backlog-sprint-header .sprint-status, .backlog-sprint-panel.active-sprint, .sprint-badge-active').first(),
+    ).toBeVisible({ timeout: 6000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 70. UI: "Delete Sprint" button in backlog for planning sprint
+  // -------------------------------------------------------------------------
+  test('UI: delete sprint button is present for a planning sprint in backlog', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId } = await setupBoardWithSprint(
+      request,
+      'Delete Btn Board',
+      'Deletable UI Sprint',
+    );
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    // A delete button should be visible (may be an icon button or text)
+    await expect(
+      page.locator('button[title="Delete Sprint"], button.delete-sprint-btn, button:has-text("Delete Sprint")').first(),
+    ).toBeVisible({ timeout: 6000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 71. UI: Sprint panel in backlog shows "0 cards" for empty sprint
+  // -------------------------------------------------------------------------
+  test('UI: sprint panel shows zero card count when no cards are assigned', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId } = await setupBoardWithSprint(
+      request,
+      'Zero Cards UI Board',
+      'Zero Cards Sprint',
+    );
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    const countText = await page.locator('.sprint-card-count').textContent();
+    expect(parseInt(countText ?? '-1', 10)).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 72. UI: Backlog view is accessible via the view switcher button
+  // -------------------------------------------------------------------------
+  test('UI: Backlog view button is present and navigates to the backlog', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId } = await setupBoard(request, 'Backlog Nav Board');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+
+    await expect(page.locator('.view-btn:has-text("Backlog")')).toBeVisible({ timeout: 6000 });
+    await page.click('.view-btn:has-text("Backlog")');
+    await expect(page.locator('.backlog-view')).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 73. UI: Sprint modal closes when Cancel is clicked
+  // -------------------------------------------------------------------------
+  test('UI: Create Sprint modal closes when Cancel button is clicked', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId } = await setupBoard(request, 'Modal Cancel Board');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+
+    await page.click('.backlog-header button:has-text("Create Sprint")');
+    await page.waitForSelector('.modal h2:has-text("Create Sprint")', { timeout: 5000 });
+
+    await page.click('.modal button:has-text("Cancel")');
+    await page.waitForSelector('.modal', { state: 'hidden', timeout: 5000 });
+
+    await expect(page.locator('.modal')).not.toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // 74. UI: Sprint name persists after page reload
+  // -------------------------------------------------------------------------
+  test('UI: sprint name persists across page reload', async ({ page, request }) => {
+    const { token, boardId } = await setupBoardWithSprint(
+      request,
+      'Sprint Persist Board',
+      'Persist Sprint Name',
+    );
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    await expect(page.locator('.backlog-sprint-header h2')).toContainText('Persist Sprint Name');
+
+    await page.reload();
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    await expect(page.locator('.backlog-sprint-header h2')).toContainText('Persist Sprint Name');
+  });
+
+  // -------------------------------------------------------------------------
+  // 75. UI: Board shows empty state when no sprint is active
+  // -------------------------------------------------------------------------
+  test('UI: board view shows empty state prompt when no sprint is active', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId } = await setupBoard(request, 'Empty No Active Board');
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+
+    await expect(page.locator('.empty-swimlanes')).toBeVisible({ timeout: 8000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 76. UI: Switching from sprint view to All Cards view shows all cards
+  // -------------------------------------------------------------------------
+  test('UI: All Cards view toggle shows cards not in the active sprint', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId, sprintId, swimlaneId, columnId } = await setupBoardWithSprint(
+      request,
+      'View Toggle Board',
+      'Toggle Sprint',
+    );
+
+    const sprintCardId = await createCard(request, token, boardId, swimlaneId, columnId, 'Toggle Sprint Card');
+    const noSprintCardId = await createCard(request, token, boardId, swimlaneId, columnId, 'Toggle No Sprint Card');
+    await assignCardToSprint(request, token, sprintCardId, sprintId);
+
+    await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+
+    // In sprint mode: sprint card visible, backlog card hidden
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+    await expect(page.locator('.card-item[aria-label="Toggle Sprint Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Toggle No Sprint Card"]')).not.toBeVisible();
+
+    // Switch to All Cards
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await expect(page.locator('.card-item[aria-label="Toggle No Sprint Card"]')).toBeVisible({ timeout: 8000 });
+
+    expect(noSprintCardId).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 77. API: Sprint board_id field in response matches the board it was created for
+  // -------------------------------------------------------------------------
+  test('sprint response board_id matches the board it was created on', async ({ request }) => {
+    const { token, boardId } = await setupBoard(request, 'Board ID Match Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Board ID Sprint' },
+    });
+    const sprint = await createRes.json();
+
+    expect(sprint.board_id).toBe(boardId);
+  });
+
+  // -------------------------------------------------------------------------
+  // 78. API: Sprint list does not include sprints from other boards
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints?board_id — does not include sprints from other boards', async ({
+    request,
+  }) => {
+    const { token, boardId: boardA } = await setupBoard(request, 'Isolation Board A');
+    const { boardId: boardB } = await setupBoard(request, 'Isolation Board B');
+
+    await request.post(`${BASE}/api/sprints?board_id=${boardA}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Board A Sprint' },
+    });
+    const sBRes = await request.post(`${BASE}/api/sprints?board_id=${boardB}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Board B Sprint' },
+    });
+    const sprintB = await sBRes.json();
+
+    const listRes = await request.get(`${BASE}/api/sprints?board_id=${boardA}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const sprints = await listRes.json();
+    const ids = sprints.map((s: any) => s.id);
+
+    expect(ids).not.toContain(sprintB.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // 79. API: Card created with story_points is reflected in sprint metric
+  // -------------------------------------------------------------------------
+  test('API: story_points on card are reflected in sprint metrics total_points', async ({
+    request,
+  }) => {
+    const { token, boardId, sprintId, swimlaneId, columnId } = await setupBoardWithSprint(
+      request,
+      'Metric Points Board',
+      'Metric Sprint',
+    );
+
+    const c1 = await createCard(request, token, boardId, swimlaneId, columnId, 'Metric Card 1', 3);
+    const c2 = await createCard(request, token, boardId, swimlaneId, columnId, 'Metric Card 2', 7);
+
+    await assignCardToSprint(request, token, c1, sprintId);
+    await assignCardToSprint(request, token, c2, sprintId);
+
+    await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const metricsRes = await request.get(`${BASE}/api/sprints/${sprintId}/metrics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await metricsRes.json();
+    const metrics = Array.isArray(data) ? data[data.length - 1] : data;
+
+    expect(metrics.total_points).toBe(10);
+    expect(metrics.total_cards).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // 80. API: Multiple boards maintain independent sprint states
+  // -------------------------------------------------------------------------
+  test('starting a sprint on board A does not affect board B sprint status', async ({ request }) => {
+    const emailA = `multi-board-a-${crypto.randomUUID()}@test.com`;
+    const signupA = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email: emailA, password: 'password123', display_name: 'Board A User' },
+    });
+    const { token: tokenA } = await signupA.json();
+
+    const boardARes = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+      data: { name: 'Multi Board A' },
+    });
+    const boardA = await boardARes.json();
+
+    const boardBRes = await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+      data: { name: 'Multi Board B' },
+    });
+    const boardB = await boardBRes.json();
+
+    const sARes = await request.post(`${BASE}/api/sprints?board_id=${boardA.id}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+      data: { name: 'Sprint A1' },
+    });
+    const sprintA = await sARes.json();
+    await request.post(`${BASE}/api/sprints/${sprintA.id}/start`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+
+    const sBRes = await request.post(`${BASE}/api/sprints?board_id=${boardB.id}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+      data: { name: 'Sprint B1' },
+    });
+    const sprintB = await sBRes.json();
+
+    // Sprint B should still be in planning
+    const getB = await request.get(`${BASE}/api/sprints/${sprintB.id}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    const sprintBData = await getB.json();
+    expect(sprintBData.status).toBe('planning');
+  });
+
+  // -------------------------------------------------------------------------
+  // 81. API: Sprint created without dates has null start/end dates
+  // -------------------------------------------------------------------------
+  test('sprint created without dates has null start_date and end_date', async ({ request }) => {
+    const { token, boardId } = await setupBoard(request, 'Null Dates Board');
+
+    const createRes = await request.post(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'No Dates Sprint' },
+    });
+    const sprint = await createRes.json();
+
+    expect(sprint.start_date == null || sprint.start_date === '').toBeTruthy();
+    expect(sprint.end_date == null || sprint.end_date === '').toBeTruthy();
+  });
+
+  // -------------------------------------------------------------------------
+  // 82. API: card assign-sprint returns non-2xx for non-existent sprint
+  // -------------------------------------------------------------------------
+  test('POST /api/cards/:id/assign-sprint with invalid sprint_id returns 4xx', async ({
+    request,
+  }) => {
+    const { token, boardId, swimlaneId, columnId } = await setupBoard(request, 'Invalid Sprint Assign Board');
+
+    const cardId = await createCard(request, token, boardId, swimlaneId, columnId, 'Invalid Sprint Card');
+    if (cardId < 0) return;
+
+    const res = await request.post(`${BASE}/api/cards/${cardId}/assign-sprint`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { sprint_id: 999999999 },
+    });
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+  });
+
+  // -------------------------------------------------------------------------
+  // 83. UI: Planned sprint section heading shows sprint name
+  // -------------------------------------------------------------------------
+  test('UI: planned sprint section in backlog shows the sprint name in heading', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId } = await setupBoardWithSprint(
+      request,
+      'Sprint Heading Board',
+      'Heading Test Sprint',
+    );
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    await expect(page.locator('.backlog-sprint-header h2, .backlog-sprint-header h3').filter({
+      hasText: 'Heading Test Sprint',
+    })).toBeVisible({ timeout: 6000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 84. API: GET /api/sprints?board_id returns 200 with empty array for new board
+  // -------------------------------------------------------------------------
+  test('GET /api/sprints?board_id returns 200 with empty array for board with no sprints', async ({
+    request,
+  }) => {
+    const { token, boardId } = await setupBoard(request, 'No Sprints Board');
+
+    const res = await request.get(`${BASE}/api/sprints?board_id=${boardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const sprints = await res.json();
+    expect(Array.isArray(sprints)).toBe(true);
+    expect(sprints.length).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 85. UI: Dismiss Complete Sprint dialog keeps sprint active
+  // -------------------------------------------------------------------------
+  test('UI: dismissing the Complete Sprint dialog leaves sprint in active state', async ({
+    page,
+    request,
+  }) => {
+    const { token, boardId, sprintId } = await setupBoardWithSprint(
+      request,
+      'Dismiss Dialog Board',
+      'Dismiss Sprint',
+    );
+
+    await request.post(`${BASE}/api/sprints/${sprintId}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${boardId}`);
+    await page.waitForSelector('.board-page', { timeout: 10000 });
+    await goToBacklog(page);
+    await page.waitForSelector('.backlog-sprint-header', { timeout: 8000 });
+
+    // Dismiss the dialog
+    page.once('dialog', (d) => d.dismiss());
+    await page.click('button:has-text("Complete Sprint")');
+    await page.waitForTimeout(300);
+
+    // "Complete Sprint" button should still be visible since we dismissed
+    await expect(page.locator('button:has-text("Complete Sprint")')).toBeVisible({ timeout: 5000 });
+  });
 });
