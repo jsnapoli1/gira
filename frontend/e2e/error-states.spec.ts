@@ -39,24 +39,12 @@ async function createBoard(request: any, token: string, name = 'Error Test Board
   return res.json();
 }
 
-async function createSwimlaneAndCard(request: any, token: string, board: any) {
+async function createSwimlane(request: any, token: string, board: any) {
   const swimlane = await (await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { name: 'Test Swimlane', designator: 'TS-' },
   })).json();
-
-  const columns = board.columns;
-  const card = await (await request.post(`${BASE}/api/cards`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: {
-      title: 'Test Card',
-      column_id: columns[0].id,
-      swimlane_id: swimlane.id,
-      board_id: board.id,
-    },
-  })).json();
-
-  return { swimlane, card };
+  return swimlane;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,28 +212,32 @@ test.describe('Error States', () => {
   /**
    * 7. Failed attachment upload shows error toast
    *
-   * Mock POST /api/cards/:id/attachments to return 500. Open a card, try
-   * uploading an attachment, and verify the error toast is shown (not a silent
-   * failure).
+   * Mock POST /api/cards/:id/attachments to return 500. Open a card (created
+   * via the UI Backlog Add button to avoid the Gitea issue-creation path),
+   * try uploading an attachment, and verify the error toast is shown (not a
+   * silent failure).
    */
   test('failed attachment upload shows an error toast', async ({ page, request }) => {
     const { token } = await createUser(request);
     const board = await createBoard(request, token, 'Attachment Error Board');
-    const { card } = await createSwimlaneAndCard(request, token, board);
+    await createSwimlane(request, token, board);
 
     await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
     await page.goto(`/boards/${board.id}`);
     await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
 
-    // Switch to All Cards view so cards are visible.
-    const allCardsBtn = page.locator('.view-btn:has-text("All Cards")');
-    if (await allCardsBtn.isVisible()) {
-      await allCardsBtn.click();
-    }
-    await expect(page.locator('.card-item').first()).toBeVisible({ timeout: 10000 });
+    // Create a card via the Backlog UI (avoids the Gitea API path).
+    await page.click('.view-btn:has-text("Backlog")');
+    await expect(page.locator('.backlog-view')).toBeVisible({ timeout: 5000 });
+    const addBtn = page.locator('.backlog-section-header button:has-text("Add")').first();
+    await addBtn.click();
+    await page.fill('input[placeholder="Enter card title..."]', 'Attachment Test Card');
+    // Click the Add submit button inside the inline form.
+    await page.locator('.backlog-inline-add button:has-text("Add"), .backlog-add-form button:has-text("Add"), button[type="submit"]:has-text("Add")').first().click();
+    await expect(page.locator('.backlog-card .card-title').first()).toContainText('Attachment Test Card', { timeout: 5000 });
 
-    // Mock the attachment upload endpoint to fail.
-    await page.route(`**/api/cards/${card.id}/attachments`, (route) => {
+    // Intercept all card attachment upload calls and make them fail.
+    await page.route('**/api/cards/*/attachments', (route) => {
       if (route.request().method() === 'POST') {
         route.fulfill({ status: 500, body: 'Upload failed' });
       } else {
@@ -253,8 +245,8 @@ test.describe('Error States', () => {
       }
     });
 
-    // Open the card detail modal.
-    await page.click('.card-item');
+    // Open the card detail modal by clicking the card.
+    await page.click('.backlog-card .card-title');
     await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.attachments-sidebar')).toBeVisible({ timeout: 5000 });
 
