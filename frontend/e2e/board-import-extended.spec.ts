@@ -22,8 +22,11 @@ const JIRA_CSV_PATH = '/Users/jsnapoli1/Documents/open-source/zira/jira.csv';
 // Project key found in the sample CSV header row (column "Project key").
 const EXPECTED_PROJECT_KEY = 'ZRP';
 
-// A card title that is known to exist in the first data rows of jira.csv.
-const KNOWN_CARD_TITLE = 'FIX: Issues bulk deleting parts';
+// A card with Status "To Do" (Status Category = "To Do") from jira.csv row 2.
+const KNOWN_CARD_TITLE = 'CONFIG: Get all BOMs for uATS1 in ZRP';
+
+// A card title that appears in the CSV (Status "Done") for general existence checks.
+const ANY_CARD_TITLE = 'FIX: Issues bulk deleting parts';
 
 // A card that has Status "Done" in the CSV (Status Category = "Done").
 // Used for column-mapping assertions.

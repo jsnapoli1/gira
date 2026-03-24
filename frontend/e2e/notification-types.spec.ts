@@ -355,10 +355,11 @@ test.describe('Mention notification type', () => {
     );
     const { board, card } = await createBoardWithTwoUsers(request, tokenA, tokenB, userB.id);
 
-    // User A comments mentioning User B by display name
+    // User A comments mentioning User B by display name.
+    // Multi-word display names must use the quoted @"Name" format in the mention regex.
     await request.post(`${BASE}/api/cards/${card.id}/comments`, {
       headers: { Authorization: `Bearer ${tokenA}` },
-      data: { body: `Hey @NT MentionTarget, can you take a look?` },
+      data: { body: `Hey @"NT MentionTarget", can you take a look?` },
     });
 
     const ctxB = await browser.newContext();
@@ -393,9 +394,10 @@ test.describe('Mention notification type', () => {
     );
     const { board, card } = await createBoardWithTwoUsers(request, tokenA, tokenB, userB.id);
 
+    // Multi-word display names must be quoted: @"Name"
     await request.post(`${BASE}/api/cards/${card.id}/comments`, {
       headers: { Authorization: `Bearer ${tokenA}` },
-      data: { body: `@NT MentionApiTarget please review` },
+      data: { body: `@"NT MentionApiTarget" please review` },
     });
 
     const ntfRes = await request.get(`${BASE}/api/notifications`, {
@@ -443,10 +445,10 @@ test.describe('Mention notification type', () => {
       })
     ).json();
 
-    // User A mentions themselves
+    // User A mentions themselves — multi-word names need quotes
     await request.post(`${BASE}/api/cards/${card.id}/comments`, {
       headers: { Authorization: `Bearer ${tokenA}` },
-      data: { body: `@NT SelfMentioner look at this` },
+      data: { body: `@"NT SelfMentioner" look at this` },
     });
 
     const ntfRes = await request.get(`${BASE}/api/notifications`, {
