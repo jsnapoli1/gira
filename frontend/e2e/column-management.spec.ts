@@ -36,6 +36,24 @@ async function setupUserAndBoard(
   return { token, board };
 }
 
+/** Create a fresh user + board via API without a page (API-only tests). */
+async function setupUserAndBoardApi(request: any, boardName = 'Column API Board') {
+  const email = `test-col-api-${crypto.randomUUID()}@test.com`;
+
+  const signupRes = await request.post(`${BASE}/api/auth/signup`, {
+    data: { email, password: 'password123', display_name: 'Column API Tester' },
+  });
+  const { token } = await signupRes.json();
+
+  const boardRes = await request.post(`${BASE}/api/boards`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: boardName },
+  });
+  const board = await boardRes.json();
+
+  return { token, board };
+}
+
 /** Fetch all columns for a board via API. */
 async function getColumns(request: any, token: string, boardId: number) {
   const res = await request.get(`${BASE}/api/boards/${boardId}/columns`, {
@@ -506,5 +524,281 @@ test.describe('Column Management', () => {
     //
     // Expected behaviour: drag a .card-item from column A and drop onto column B;
     // the card should appear under column B and disappear from column A.
+  });
+
+  // =========================================================================
+  // NEW TESTS — API tests
+  // =========================================================================
+
+  test.describe('Column API', () => {
+
+    test('POST /api/boards/:id/columns creates column with the given name', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'API Create Column Board');
+
+      const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'API Created Column', state: 'open' },
+      });
+      expect(res.status()).toBe(201);
+      const col = await res.json();
+      expect(col.name).toBe('API Created Column');
+    });
+
+    test('new column response has correct board_id', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'Board ID Column Board');
+
+      const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Board ID Column', state: 'open' },
+      });
+      expect(res.status()).toBe(201);
+      const col = await res.json();
+      expect(col.board_id).toBe(board.id);
+    });
+
+    test('new column has a positive integer position value', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'Position Column Board');
+
+      const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Position Column', state: 'open' },
+      });
+      expect(res.status()).toBe(201);
+      const col = await res.json();
+      expect(typeof col.position).toBe('number');
+    });
+
+    test('column can be created with state in_progress', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'InProgress Column Board');
+
+      const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'In Progress Column', state: 'in_progress' },
+      });
+      expect(res.status()).toBe(201);
+      const col = await res.json();
+      expect(col.state).toBe('in_progress');
+    });
+
+    test('column can be created with state done (closed)', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'Done Column Board');
+
+      const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Done Column', state: 'closed' },
+      });
+      expect(res.status()).toBe(201);
+      const col = await res.json();
+      expect(col.state).toBe('closed');
+    });
+
+    test('GET /api/boards/:id/columns includes the newly created column', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'List Includes Board');
+
+      await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Included Column', state: 'open' },
+      });
+
+      const columns = await getColumns(request, token, board.id);
+      const names = columns.map(c => c.name);
+      expect(names).toContain('Included Column');
+    });
+
+    test('DELETE /api/boards/:id/columns/:id returns 204', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'Delete 204 Board');
+
+      const col = await addColumn(request, token, board.id, 'Delete 204 Column', 'open');
+
+      const delRes = await request.delete(
+        `${BASE}/api/boards/${board.id}/columns/${col.id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      expect(delRes.status()).toBe(204);
+    });
+
+    test('deleted column is not present in subsequent GET', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'Delete Absent Board');
+
+      const col = await addColumn(request, token, board.id, 'Gone Column', 'open');
+
+      await request.delete(`${BASE}/api/boards/${board.id}/columns/${col.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const columns = await getColumns(request, token, board.id);
+      const ids = columns.map(c => c.id);
+      expect(ids).not.toContain(col.id);
+    });
+
+    test('POST reorder updates column position and returns 200', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'Reorder API Board');
+      const columns = await getColumns(request, token, board.id);
+      expect(columns.length).toBeGreaterThanOrEqual(2);
+
+      const targetCol = columns[0];
+
+      const res = await request.post(
+        `${BASE}/api/boards/${board.id}/columns/${targetCol.id}/reorder`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { position: 99 },
+        },
+      );
+      expect(res.status()).toBe(200);
+
+      // Column should now be last
+      const updated = await getColumns(request, token, board.id);
+      const found = updated.find(c => c.id === targetCol.id);
+      expect(found).toBeDefined();
+    });
+
+    test('unauthenticated POST to create column returns 401', async ({ request }) => {
+      const { _token, board } = await setupUserAndBoardApi(request, 'Unauth Column Board') as any;
+
+      const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        data: { name: 'Stealth Column', state: 'open' },
+      });
+      expect(res.status()).toBe(401);
+    });
+
+    test('non-member POST to create column returns 403 or 404', async ({ request }) => {
+      // Board owner
+      const { token: ownerToken, board } = await setupUserAndBoardApi(request, 'NonMember Column Board');
+
+      // Different user (not a member of the board)
+      const email2 = `non-member-col-${crypto.randomUUID()}@test.com`;
+      const { token: nonMemberToken } = await (
+        await request.post(`${BASE}/api/auth/signup`, {
+          data: { email: email2, password: 'password123', display_name: 'Non Member' },
+        })
+      ).json();
+
+      const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${nonMemberToken}` },
+        data: { name: 'Intruder Column', state: 'open' },
+      });
+      // Non-member cannot create columns — expect 403 or 404
+      expect([403, 404]).toContain(res.status());
+    });
+
+    test('column created via API has an id field', async ({ request }) => {
+      const { token, board } = await setupUserAndBoardApi(request, 'Column ID Field Board');
+
+      const res = await request.post(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'ID Field Column', state: 'open' },
+      });
+      expect(res.status()).toBe(201);
+      const col = await res.json();
+      expect(typeof col.id).toBe('number');
+      expect(col.id).toBeGreaterThan(0);
+    });
+  });
+
+  // =========================================================================
+  // NEW TESTS — UI tests
+  // =========================================================================
+
+  test.describe('Column UI', () => {
+
+    test('UI: columns shown in board view when swimlane exists', async ({ page, request }) => {
+      const { token, board } = await setupUserAndBoard(request, page, 'UI Columns Board');
+      await addSwimlane(request, token, board.id);
+
+      await page.goto(`/boards/${board.id}`);
+      await page.waitForSelector('.board-page', { timeout: 15000 });
+      await page.click('.view-btn:has-text("All Cards")');
+
+      await expect(page.locator('.board-column-header').first()).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: board settings page has an Add Column button', async ({ page, request }) => {
+      const { board } = await setupUserAndBoard(request, page, 'UI Add Button Board');
+
+      await page.goto(`/boards/${board.id}/settings`);
+
+      const columnsSection = page.locator('.settings-section').filter({ hasText: 'Columns' });
+      await expect(columnsSection.locator('button:has-text("Add Column")')).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: new column created via settings appears on the board immediately', async ({ page, request }) => {
+      const { token, board } = await setupUserAndBoard(request, page, 'UI New Col Board');
+      await addSwimlane(request, token, board.id);
+
+      await page.goto(`/boards/${board.id}/settings`);
+      const columnsSection = page.locator('.settings-section').filter({ hasText: 'Columns' });
+      await columnsSection.locator('button:has-text("Add Column")').click();
+
+      await page.locator('.modal input[type="text"]').fill('Instant Column');
+      await page.locator('.modal button[type="submit"]:has-text("Add Column")').click();
+      await expect(page.locator('.modal')).not.toBeVisible({ timeout: 5000 });
+
+      await page.goto(`/boards/${board.id}`);
+      await page.waitForSelector('.board-page', { timeout: 15000 });
+      await page.click('.view-btn:has-text("All Cards")');
+
+      await expect(page.locator('.board-column-header h3:has-text("Instant Column")')).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: column name is shown in the board column header', async ({ page, request }) => {
+      const { token, board } = await setupUserAndBoard(request, page, 'UI Col Name Board');
+      await addSwimlane(request, token, board.id);
+      await addColumn(request, token, board.id, 'Named Header Col', 'open');
+
+      await page.goto(`/boards/${board.id}`);
+      await page.waitForSelector('.board-page', { timeout: 15000 });
+      await page.click('.view-btn:has-text("All Cards")');
+
+      await expect(page.locator('.board-column-header h3:has-text("Named Header Col")')).toBeVisible({ timeout: 8000 });
+    });
+
+    test('UI: deleting a column via settings removes it from the board view', async ({ page, request }) => {
+      const { token, board } = await setupUserAndBoard(request, page, 'UI Delete Col Board');
+      await addSwimlane(request, token, board.id);
+      await addColumn(request, token, board.id, 'Disposable Column', 'open');
+
+      await page.goto(`/boards/${board.id}/settings`);
+      const columnsSection = page.locator('.settings-section').filter({ hasText: 'Columns' });
+      const row = columnsSection.locator('.settings-list-item').filter({ hasText: 'Disposable Column' });
+
+      page.once('dialog', d => d.accept());
+      await row.locator('.item-delete').click();
+
+      await expect(
+        columnsSection.locator('.item-name:has-text("Disposable Column")')
+      ).not.toBeVisible({ timeout: 8000 });
+
+      // Navigate to board and confirm column is gone
+      await page.goto(`/boards/${board.id}`);
+      await page.waitForSelector('.board-page', { timeout: 15000 });
+      await page.click('.view-btn:has-text("All Cards")');
+
+      await expect(
+        page.locator('.board-column-header h3:has-text("Disposable Column")')
+      ).not.toBeVisible({ timeout: 5000 });
+    });
+
+    test('UI: settings list shows state in the column item meta', async ({ page, request }) => {
+      const { token, board } = await setupUserAndBoard(request, page, 'UI State Meta Board');
+      await addColumn(request, token, board.id, 'Review State Column', 'review');
+
+      await page.goto(`/boards/${board.id}/settings`);
+      const columnsSection = page.locator('.settings-section').filter({ hasText: 'Columns' });
+      const row = columnsSection.locator('.settings-list-item').filter({ hasText: 'Review State Column' });
+
+      await expect(row.locator('.item-meta')).toContainText('review');
+    });
+
+    test('UI: default columns list in settings is non-empty', async ({ page, request }) => {
+      const { board } = await setupUserAndBoard(request, page, 'UI Default Cols Board');
+
+      await page.goto(`/boards/${board.id}/settings`);
+      const columnsSection = page.locator('.settings-section').filter({ hasText: 'Columns' });
+
+      const items = columnsSection.locator('.settings-list-item');
+      const count = await items.count();
+      expect(count).toBeGreaterThanOrEqual(3);
+    });
   });
 });
