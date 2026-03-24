@@ -45,10 +45,38 @@ async function setupBoardWithSwimlane(request: any, page: any, label = 'KbShortc
 
 /**
  * Also creates a card so the card modal can be opened.
+ * The card is created via API BEFORE the page is loaded so it appears on first render.
  */
 async function setupBoardWithCard(request: any, page: any, label = 'KbShortcut') {
-  const { board, columns, swimlane, token } = await setupBoardWithSwimlane(request, page, label);
+  const email = `test-kb-card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.com`;
 
+  const { token } = await (
+    await request.post(`${BASE}/api/auth/signup`, {
+      data: { email, password: 'password123', display_name: `${label} User` },
+    })
+  ).json();
+
+  const board = await (
+    await request.post(`${BASE}/api/boards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: `${label} Board` },
+    })
+  ).json();
+
+  const columns: any[] = await (
+    await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  ).json();
+
+  const swimlane = await (
+    await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Test Swimlane', designator: 'TS-', color: '#2196F3' },
+    })
+  ).json();
+
+  // Create the card BEFORE navigating so it is present on first load
   const card = await (
     await request.post(`${BASE}/api/cards`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -60,6 +88,10 @@ async function setupBoardWithCard(request: any, page: any, label = 'KbShortcut')
       },
     })
   ).json();
+
+  await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+  await page.goto(`/boards/${board.id}`);
+  await page.waitForSelector('.board-page', { timeout: 15000 });
 
   // Switch to All Cards view so the card is visible without an active sprint
   await page.click('.view-btn:has-text("All Cards")');

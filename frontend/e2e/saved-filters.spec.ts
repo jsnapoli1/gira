@@ -202,7 +202,8 @@ test.describe('Saved Filters', () => {
     const prioritySelect = page.locator('.filter-select').filter({
       has: page.locator('option:text("All priorities")'),
     });
-    await prioritySelect.selectOption('low');
+    // Use 'high' so the card we created is visible after reload
+    await prioritySelect.selectOption('high');
 
     await page.locator('.save-filter-btn').click();
     await expect(page.locator('.save-filter-modal')).toBeVisible({ timeout: 5000 });
@@ -210,10 +211,9 @@ test.describe('Saved Filters', () => {
     await page.click('.save-filter-modal .btn-primary');
     await expect(page.locator('.save-filter-modal')).not.toBeVisible({ timeout: 5000 });
 
-    // Reload the page
+    // Reload the page and wait for board header to appear (confirms board has loaded)
     await page.reload();
-    await page.click('.view-btn:has-text("All Cards")');
-    await page.waitForSelector('.card-item', { timeout: 10000 });
+    await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
 
     // Open saved filters dropdown and verify filter is still listed
     await page.click('.saved-filters-btn');
