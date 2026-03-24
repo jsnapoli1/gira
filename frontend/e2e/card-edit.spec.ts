@@ -214,7 +214,7 @@ test.describe('Card Editing', () => {
 
     // The modal should still be in edit mode (no navigation away) or
     // show an error; the title must NOT have become empty
-    await expect(page.locator('.card-detail-edit, .card-detail-modal-unified')).toBeVisible({ timeout: 3000 });
+    await expect(page.locator('.card-detail-edit, .card-detail-modal-unified').first()).toBeVisible({ timeout: 3000 });
   });
 
   test('set story points — story points shown in modal meta', async ({ page, request }) => {

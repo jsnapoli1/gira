@@ -207,6 +207,8 @@ export function BoardView() {
   }, []);
 
   const handleCardUpdated = useCallback((card: Card) => {
+    // Guard against partial SSE payloads (e.g. bulk-update sends {card_id} not a full Card)
+    if (!card.id) return;
     setCards((prev) => prev.map((c) => (c.id === card.id ? card : c)));
     // Also update selectedCard if it's the one being viewed
     setSelectedCard((prev) => (prev?.id === card.id ? card : prev));
