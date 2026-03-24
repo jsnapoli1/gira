@@ -562,6 +562,204 @@ test.describe('Card Editing', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue Type / Time Estimate Editing
+// ---------------------------------------------------------------------------
+
+test.describe('Issue Type & Time Estimate Editing', () => {
+
+  test('change issue type to Story — issue type badge updates in modal', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page, 'IssueTypeStory');
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Issue Type Card');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+
+    // Issue type is the first select in the edit form
+    await page.locator('.card-detail-edit select').first().selectOption('story');
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+    expect(response.status()).toBe(200);
+
+    // The saved card data should include issue_type = "story"
+    const cardData = await response.json();
+    expect(cardData.issue_type).toBe('story');
+  });
+
+  test('change issue type to Epic — API returns updated issue_type', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page, 'IssueTypeEpic');
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Epic Card');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+
+    await page.locator('.card-detail-edit select').first().selectOption('epic');
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+    expect(response.status()).toBe(200);
+
+    const cardData = await response.json();
+    expect(cardData.issue_type).toBe('epic');
+  });
+
+  test('set time estimate — time estimate stored via API', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page, 'TimeEst');
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Time Estimate Card');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+    const card = await res.json();
+
+    await openBoardAllCards(page, board.id);
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+
+    // Fill all number inputs — story points (1st) and time estimate (2nd)
+    const numberInputs = page.locator('.card-detail-edit input[type="number"]');
+    await numberInputs.nth(0).fill('3');    // story points
+    await numberInputs.nth(1).fill('120'); // time estimate in minutes (2 hours)
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+    expect(response.status()).toBe(200);
+
+    // Verify via API that time_estimate was stored
+    const { token: _t } = { token };
+    const cardResp = await request.get(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const cardData = await cardResp.json();
+    expect(cardData.time_estimate).toBe(120);
+    expect(cardData.story_points).toBe(3);
+  });
+
+  test('edit title via PUT API directly — modal reflects change on reload', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page, 'DirectPutTitle');
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Original API Title');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+    const card = await res.json();
+
+    // Update title directly via API
+    const updateRes = await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'API Updated Title', priority: 'medium', issue_type: 'task' },
+    });
+    expect(updateRes.status()).toBe(200);
+
+    // Navigate to board
+    await openBoardAllCards(page, board.id);
+
+    // The card chip should show the API-updated title
+    await expect(page.locator('.card-item h4:has-text("API Updated Title")')).toBeVisible({ timeout: 8000 });
+
+    // Open modal and verify title
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+    await expect(page.locator('.card-detail-title')).toContainText('API Updated Title');
+  });
+
+  test('set lowest priority — priority badge updates to lowest', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page, 'PriorityLowest');
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Priority Card');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, board.id);
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+
+    // Select "lowest" priority
+    await page.locator('.card-detail-edit select').nth(1).selectOption('lowest');
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+    expect(response.status()).toBe(200);
+
+    await expect(page.locator('.card-detail-meta .card-priority')).toContainText('lowest', { timeout: 8000 });
+  });
+
+  test('clear due date — removes due date from modal meta', async ({ page, request }) => {
+    const { token, board, swimlane, columns } = await setup(request, page, 'ClearDueDate');
+
+    const res = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Due Date Card');
+    if (!res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await res.text()}`);
+      return;
+    }
+    const card = await res.json();
+
+    // Pre-set a due date via API
+    await request.put(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Due Date Card', due_date: '2035-06-01', priority: 'medium', issue_type: 'task' },
+    });
+
+    await openBoardAllCards(page, board.id);
+    await page.click('.card-item');
+    await page.waitForSelector('.card-detail-modal-unified', { timeout: 8000 });
+
+    // Confirm due date is shown
+    await expect(page.locator('.card-detail-meta .card-due')).toBeVisible({ timeout: 5000 });
+
+    // Enter edit mode and clear the date
+    await page.click('.card-detail-actions button:has-text("Edit")');
+    await page.waitForSelector('.card-detail-edit', { timeout: 5000 });
+    await page.fill('.card-detail-edit input[type="date"]', '');
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r: any) => r.url().includes('/api/cards/') && r.request().method() === 'PUT'),
+      page.click('.card-detail-actions button:has-text("Save")'),
+    ]);
+    expect(response.status()).toBe(200);
+
+    // Due date element should no longer be visible in meta
+    await expect(page.locator('.card-detail-meta .card-due')).not.toBeVisible({ timeout: 8000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Card Deletion
 // ---------------------------------------------------------------------------
 

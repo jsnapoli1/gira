@@ -256,4 +256,220 @@ test.describe('Card Move', () => {
     // We check the card count in the board grid — if it's 1, it's in the right place.
     await expect(page.locator('.card-item')).toHaveCount(1);
   });
+
+  // ---------------------------------------------------------------------------
+  // Move through all columns sequentially
+  // ---------------------------------------------------------------------------
+
+  test('move card through all non-closed columns via API', async ({ page, request }) => {
+    const { board, card, columns, token } = await setupMoveBoard(request, page, 'AllColumns');
+
+    const movableCols = columns.filter((c: any) => c.state !== 'closed');
+    // Default board has 4 columns: To Do, In Progress, In Review, Done
+    expect(movableCols.length).toBeGreaterThanOrEqual(3);
+
+    // Move through each column in order
+    for (let i = 1; i < movableCols.length; i++) {
+      const targetCol = movableCols[i];
+      const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { column_id: targetCol.id },
+      });
+      expect(moveRes.status()).toBe(200);
+    }
+
+    // Verify the card is now in the last column
+    const lastCol = movableCols[movableCols.length - 1];
+    const cardRes = await request.get(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const cardData = await cardRes.json();
+    expect(cardData.column_id).toBe(lastCol.id);
+
+    // Reload board and confirm card is visible
+    await page.reload();
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await expect(page.locator('.card-item[aria-label="Move Test Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(
+      page.locator(`.board-column-header h3:has-text("${lastCol.name}")`)
+    ).toBeVisible();
+  });
+
+  test('move card back to first column after moving to second', async ({ page, request }) => {
+    const { board, card, columns, token } = await setupMoveBoard(request, page, 'MoveBack');
+
+    const movableCols = columns.filter((c: any) => c.state !== 'closed');
+    expect(movableCols.length).toBeGreaterThanOrEqual(2);
+
+    const col1 = movableCols[0];
+    const col2 = movableCols[1];
+
+    // Move to col2
+    await request.post(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: col2.id },
+    });
+
+    // Move back to col1
+    const moveBackRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: col1.id },
+    });
+    expect(moveBackRes.status()).toBe(200);
+
+    // Confirm via API the card is back in col1
+    const cardRes = await request.get(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const cardData = await cardRes.json();
+    expect(cardData.column_id).toBe(col1.id);
+
+    // Reload and confirm board shows card in col1
+    await page.reload();
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await expect(page.locator('.card-item[aria-label="Move Test Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(
+      page.locator(`.board-column-header h3:has-text("${col1.name}")`)
+    ).toBeVisible();
+  });
+
+  test('move card to "In Review" column — column header visible, card present', async ({ page, request }) => {
+    const { board, card, columns, token } = await setupMoveBoard(request, page, 'InReview');
+
+    const movableCols = columns.filter((c: any) => c.state !== 'closed');
+    // Find "In Review" column — default board has it as 3rd column
+    const inReviewCol = movableCols.find((c: any) => c.name === 'In Review') ?? movableCols[2];
+    if (!inReviewCol) {
+      test.skip(true, 'No "In Review" column available on board');
+      return;
+    }
+
+    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: inReviewCol.id },
+    });
+    expect(moveRes.status()).toBe(200);
+
+    await page.reload();
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await expect(page.locator('.card-item[aria-label="Move Test Card"]')).toBeVisible({ timeout: 8000 });
+    await expect(
+      page.locator(`.board-column-header h3:has-text("${inReviewCol.name}")`)
+    ).toBeVisible();
+  });
+
+  test('API move returns 200 and card column_id matches target', async ({ page, request }) => {
+    const { board, card, columns, token } = await setupMoveBoard(request, page, 'ApiConfirm');
+
+    const movableCols = columns.filter((c: any) => c.state !== 'closed');
+    expect(movableCols.length).toBeGreaterThanOrEqual(2);
+
+    const targetCol = movableCols[1];
+
+    const moveRes = await request.post(`${BASE}/api/cards/${card.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: targetCol.id },
+    });
+    expect(moveRes.status()).toBe(200);
+
+    // GET card and confirm column_id
+    const getRes = await request.get(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(getRes.status()).toBe(200);
+    const cardData = await getRes.json();
+    expect(cardData.column_id).toBe(targetCol.id);
+  });
+
+  test('move two cards to same column — both appear in that column', async ({ page, request }) => {
+    // Setup board
+    const email = `test-move-two-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@test.com`;
+    const { token } = await (
+      await request.post(`${BASE}/api/auth/signup`, {
+        data: { email, password: 'password123', display_name: 'Two Cards Tester' },
+      })
+    ).json();
+
+    const board = await (
+      await request.post(`${BASE}/api/boards`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Two Cards Move Board' },
+      })
+    ).json();
+
+    const columns: any[] = await (
+      await request.get(`${BASE}/api/boards/${board.id}/columns`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+
+    const swimlane = await (
+      await request.post(`${BASE}/api/boards/${board.id}/swimlanes`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: 'Test Lane', designator: 'TC-', color: '#7c3aed' },
+      })
+    ).json();
+
+    const movableCols = columns.filter((c: any) => c.state !== 'closed');
+    expect(movableCols.length).toBeGreaterThanOrEqual(2);
+
+    // Create two cards in col1
+    const card1Res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Card One', column_id: movableCols[0].id, swimlane_id: swimlane.id, board_id: board.id },
+    });
+    if (!card1Res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await card1Res.text()}`);
+      return;
+    }
+    const card1 = await card1Res.json();
+
+    const card2Res = await request.post(`${BASE}/api/cards`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { title: 'Card Two', column_id: movableCols[0].id, swimlane_id: swimlane.id, board_id: board.id },
+    });
+    if (!card2Res.ok()) {
+      test.skip(true, `Card creation unavailable: ${await card2Res.text()}`);
+      return;
+    }
+    const card2 = await card2Res.json();
+
+    const targetCol = movableCols[1];
+
+    // Move both cards to col2
+    await request.post(`${BASE}/api/cards/${card1.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: targetCol.id },
+    });
+    await request.post(`${BASE}/api/cards/${card2.id}/move`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { column_id: targetCol.id },
+    });
+
+    // Navigate and verify
+    await page.addInitScript((t: string) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    // Both cards visible
+    await expect(page.locator('.card-item')).toHaveCount(2, { timeout: 8000 });
+    await expect(page.locator('.card-item[aria-label="Card One"]')).toBeVisible();
+    await expect(page.locator('.card-item[aria-label="Card Two"]')).toBeVisible();
+
+    // Target column header is visible
+    await expect(
+      page.locator(`.board-column-header h3:has-text("${targetCol.name}")`)
+    ).toBeVisible();
+  });
 });

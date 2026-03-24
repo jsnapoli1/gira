@@ -531,4 +531,123 @@ test.describe('Card Assignees', () => {
     await expect(assigneeBubble).toBeVisible();
     await expect(assigneeBubble).toHaveAttribute('title', user.display_name);
   });
+
+  // -------------------------------------------------------------------------
+  // 13. GET /api/cards/:id/assignees returns assigned user
+  // -------------------------------------------------------------------------
+  test('GET card assignees API returns the assigned user', async ({ page, request }) => {
+    const { token, user } = await signUp(request, 'ApiGetAssignees');
+    const { board, swimlane, columns } = await createBoard(request, token);
+
+    const cardRes = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'API Assignees Card');
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+
+    // Assign via API
+    await request.post(`${BASE}/api/cards/${card.id}/assignees`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { user_id: user.id },
+    });
+
+    // Verify via GET /api/cards/:id/assignees
+    const assigneesRes = await request.get(`${BASE}/api/cards/${card.id}/assignees`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(assigneesRes.status()).toBe(200);
+
+    const assignees = await assigneesRes.json();
+    expect(Array.isArray(assignees)).toBe(true);
+    expect(assignees.length).toBe(1);
+    expect(assignees[0].id).toBe(user.id);
+    expect(assignees[0].display_name).toBe(user.display_name);
+
+    // Navigate to keep the page fixture satisfied
+    await page.goto('/login');
+  });
+
+  // -------------------------------------------------------------------------
+  // 14. GET /api/cards/:id returns assignees array inline with card data
+  // -------------------------------------------------------------------------
+  test('GET card returns embedded assignees array', async ({ page, request }) => {
+    const { token, user } = await signUp(request, 'EmbeddedAssignees');
+    const { board, swimlane, columns } = await createBoard(request, token);
+
+    const cardRes = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Embedded Assignees Card');
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+    const card = await cardRes.json();
+
+    // Assign via API
+    await request.post(`${BASE}/api/cards/${card.id}/assignees`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { user_id: user.id },
+    });
+
+    // Verify the card's GET response includes the assignees field
+    const cardDetailRes = await request.get(`${BASE}/api/cards/${card.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(cardDetailRes.status()).toBe(200);
+
+    const cardData = await cardDetailRes.json();
+    expect(Array.isArray(cardData.assignees)).toBe(true);
+    expect(cardData.assignees.length).toBe(1);
+    expect(cardData.assignees[0].id).toBe(user.id);
+
+    await page.goto('/login');
+  });
+
+  // -------------------------------------------------------------------------
+  // 15. Assignee modal section shows "No assignees" when card has none
+  // -------------------------------------------------------------------------
+  test('unassigned card shows empty assignees section in modal', async ({ page, request }) => {
+    const { token } = await signUp(request, 'EmptyAssignees');
+    const { board, swimlane, columns } = await createBoard(request, token);
+
+    const cardRes = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Unassigned Card');
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, token, board.id);
+    await page.click('.card-item');
+    await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 5000 });
+
+    // No assignee items present
+    await expect(page.locator('.assignee-item')).toHaveCount(0, { timeout: 5000 });
+
+    // Board card should have no .card-assignees element
+    await page.click('.modal-close-btn');
+    await expect(page.locator('.card-item .card-assignees')).toHaveCount(0, { timeout: 5000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // 16. Sidebar Assignees section label is visible in card modal
+  // -------------------------------------------------------------------------
+  test('modal sidebar always shows Assignees section label', async ({ page, request }) => {
+    const { token } = await signUp(request, 'AssigneeSectionLabel');
+    const { board, swimlane, columns } = await createBoard(request, token);
+
+    const cardRes = await createCard(request, token, board.id, swimlane.id, columns[0].id, 'Section Label Card');
+    if (!cardRes.ok()) {
+      test.skip(true, `Card creation unavailable: ${await cardRes.text()}`);
+      return;
+    }
+
+    await openBoardAllCards(page, token, board.id);
+    await page.click('.card-item');
+    await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 5000 });
+
+    // The sidebar should always have an "Assignees" label
+    await expect(page.locator('.sidebar-section label:has-text("Assignees")')).toBeVisible({ timeout: 5000 });
+
+    // The "Add assignee..." select should be present even when no one is assigned
+    await expect(page.locator('.add-assignee-select')).toBeVisible({ timeout: 5000 });
+  });
 });

@@ -411,4 +411,81 @@ test.describe('Card Description Editor', () => {
     await expect(page.locator('.description-edit')).not.toBeVisible({ timeout: 5000 });
     await expect(page.locator('.description-text')).toContainText('Checking save state');
   });
+
+  // 14. Description pre-set via API before the UI loads — shown immediately on open
+  test('description pre-set via API — visible when modal opens', async ({ page, request }) => {
+    const { token, cardId } = await setup(request, page, 'PreSetDesc');
+
+    // Set description directly via API before navigating to the board
+    const updateRes = await request.put(`${BASE}/api/cards/${cardId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: 'Description Test Card',
+        description: 'Pre-loaded via API',
+        priority: 'medium',
+        issue_type: 'task',
+      },
+    });
+    expect(updateRes.status()).toBe(200);
+
+    // Reload so the updated card is fetched fresh
+    await page.reload();
+    await page.waitForSelector('.board-page', { timeout: 15000 });
+    await page.click('.view-btn:has-text("All Cards")');
+    await page.waitForSelector('.card-item', { timeout: 10000 });
+
+    await openCardModal(page);
+
+    // The description section should render the API-set text immediately (no Add click needed)
+    await expect(page.locator('.description-text')).toContainText('Pre-loaded via API', { timeout: 5000 });
+    // Edit button should be "Edit" since there's already content
+    await expect(
+      page.locator('.card-description-section .section-header button')
+    ).toHaveText('Edit');
+  });
+
+  // 15. Special characters in description — stored and displayed correctly
+  test('description with special characters — stored and displayed as-is', async ({ page, request }) => {
+    await setup(request, page, 'SpecialCharsDesc');
+    await openCardModal(page);
+
+    const specialText = 'Price: $100 & <discount> © 2030 "quoted" \'single\'';
+    const response = await saveDescription(page, specialText);
+    expect(response.status()).toBe(200);
+
+    // The special characters should appear verbatim in the UI
+    await expect(page.locator('.description-text')).toContainText('$100', { timeout: 5000 });
+    await expect(page.locator('.description-text')).toContainText('© 2030');
+  });
+
+  // 16. Description with whitespace-only text — treated as empty or saved
+  test('description with only whitespace — API returns 200 and does not crash UI', async ({ page, request }) => {
+    await setup(request, page, 'WhitespaceDesc');
+    await openCardModal(page);
+
+    const response = await saveDescription(page, '   ');
+    // API should return 200 (whitespace is technically valid content)
+    expect(response.status()).toBe(200);
+
+    // UI should not crash — modal should still be open
+    await expect(page.locator('.card-detail-modal-unified')).toBeVisible({ timeout: 5000 });
+  });
+
+  // 17. Two consecutive edits — second edit replaces first, not appends
+  test('second edit replaces first description completely', async ({ page, request }) => {
+    await setup(request, page, 'TwoEditsDesc');
+    await openCardModal(page);
+
+    // First save
+    await saveDescription(page, 'First version of description');
+    await expect(page.locator('.description-text')).toContainText('First version', { timeout: 5000 });
+
+    // Second save (replaces first)
+    const response = await saveDescription(page, 'Second version replaces first');
+    expect(response.status()).toBe(200);
+
+    // Only second version should be present
+    await expect(page.locator('.description-text')).toContainText('Second version replaces first', { timeout: 5000 });
+    await expect(page.locator('.description-text')).not.toContainText('First version');
+  });
 });
