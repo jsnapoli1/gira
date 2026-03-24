@@ -217,7 +217,7 @@ test.describe('Non-auth endpoints — no rate limiting', () => {
     for (let i = 0; i < 50; i++) {
       const res = await request.post(`${BASE}/api/cards/${card.id}/comments`, {
         headers: { Authorization: `Bearer ${token}` },
-        data: { content: `Rapid comment ${i}` },
+        data: { body: `Rapid comment ${i}` },
       });
       expect(res.status(), `comment ${i + 1} failed with ${res.status()}`).toBeGreaterThanOrEqual(200);
       expect(res.status(), `comment ${i + 1} failed with ${res.status()}`).toBeLessThan(300);
@@ -383,19 +383,20 @@ test.describe('Error recovery — server stays healthy after bad requests', () =
     expect(validRes.status()).toBe(200);
   });
 
-  test('400 on bad request does not block subsequent valid requests', async ({ request }) => {
+  test('4xx on bad request does not block subsequent valid requests', async ({ request }) => {
     const { token } = await signup(request, 'Error Recovery B');
 
-    // Send a create-board request with missing required fields.
-    const badRes = await request.post(`${BASE}/api/boards`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {},
+    // Send a signup request with missing required fields — reliably returns 400.
+    // (POST /api/boards with empty body returns 201 as the server does not
+    //  validate the name field — [BACKLOG] server-side validation gap.)
+    const badRes = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email: '' },
     });
-    // Expect a 4xx (bad request or unprocessable entity), not a 5xx.
+    // Expect a 4xx (bad request), not a 5xx.
     expect(badRes.status()).toBeGreaterThanOrEqual(400);
     expect(badRes.status()).toBeLessThan(500);
 
-    // Server must still handle valid requests.
+    // Server must still handle valid requests from the authenticated user.
     const validRes = await request.get(`${BASE}/api/boards`, {
       headers: { Authorization: `Bearer ${token}` },
     });

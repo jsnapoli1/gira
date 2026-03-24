@@ -344,7 +344,7 @@ func (s *Server) handleVelocity(w http.ResponseWriter, r *http.Request) {
 		TotalPoints     int    `json:"total_points"`
 	}
 
-	var velocity []VelocityPoint
+	velocity := make([]VelocityPoint, 0)
 	for _, sprint := range sprints {
 		if sprint.Status == "completed" {
 			metrics, err := s.DB.CalculateCurrentSprintMetrics(sprint.ID)

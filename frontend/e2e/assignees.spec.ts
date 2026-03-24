@@ -329,8 +329,8 @@ test.describe('Card detail modal — assignees', () => {
 
     const addSelect = page.locator('.add-assignee-select');
     await expect(addSelect).toBeVisible({ timeout: 5000 });
-    // Select the board creator (themselves).
-    await addSelect.selectOption({ index: 1 });
+    // Select the board creator (themselves) by their user ID.
+    await addSelect.selectOption({ value: String(ctx.userId) });
 
     await expect(page.locator('.assignee-item')).toHaveCount(1, { timeout: 5000 });
     await expect(page.locator('.assignee-name')).toContainText('SelfAssign Tester');

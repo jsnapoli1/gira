@@ -29,7 +29,7 @@ async function setup(request: APIRequestContext): Promise<SetupResult> {
   // Create a swimlane (required for cards)
   const swimlane = await (await request.post(`http://localhost:${PORT}/api/boards/${board.id}/swimlanes`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: { name: 'Test Swimlane', repo_owner: 'test', repo_name: 'repo', designator: 'LT-', color: '#6366f1' },
+    data: { name: 'Test Swimlane', designator: 'LT-', color: '#6366f1' },
   })).json();
 
   // Get columns (response is array directly)

@@ -1186,17 +1186,18 @@ test.describe('Multi-Project — multiple boards per user (API)', () => {
     const boardA = await createBoard(request, token, 'Sprint Iso Board A');
     const boardB = await createBoard(request, token, 'Sprint Iso Board B');
 
-    const sprintRes = await request.post(`${BASE}/api/boards/${boardA.id}/sprints`, {
+    // Sprint creation endpoint: POST /api/sprints?board_id=... (returns 200, not 201).
+    const sprintRes = await request.post(`${BASE}/api/sprints?board_id=${boardA.id}`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: 'Board A Sprint' },
     });
-    expect(sprintRes.status()).toBe(201);
+    expect(sprintRes.status()).toBe(200);
 
-    const boardBSprintsRes = await request.get(`${BASE}/api/boards/${boardB.id}/sprints`, {
+    const boardBSprintsRes = await request.get(`${BASE}/api/sprints?board_id=${boardB.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(boardBSprintsRes.status()).toBe(200);
-    const boardBSprints: any[] = await boardBSprintsRes.json();
+    const boardBSprints: any[] = (await boardBSprintsRes.json()) || [];
     expect(boardBSprints.some((s: any) => s.name === 'Board A Sprint')).toBe(false);
   });
 });
