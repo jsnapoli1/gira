@@ -677,3 +677,444 @@ test.describe('User profile — update (future features)', () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+// Settings page — credential section details
+// ---------------------------------------------------------------------------
+
+test.describe('Settings page — credential section details', () => {
+
+  test('Your API Credentials section has a .section-description paragraph', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-cred-desc-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Cred Desc User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    const credSection = page.locator('.settings-section').filter({
+      has: page.locator('h2:has-text("Your API Credentials")'),
+    });
+    await expect(credSection.locator('.section-description')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('credential item has a .credential-icon element', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-cred-icon-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Cred Icon User', email);
+
+    // Create a credential via API so the list is non-empty
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        provider: 'github',
+        api_token: 'ghp_icon_test',
+        display_name: 'Icon Test Cred',
+      },
+    });
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('.credential-item')).toBeVisible({ timeout: 8000 });
+
+    await expect(page.locator('.credential-item .credential-icon')).toBeVisible();
+  });
+
+  test('credential item shows the display_name in .credential-name', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-cred-name-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Cred Name User', email);
+
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        provider: 'gitea',
+        provider_url: 'https://gitea.example.com',
+        api_token: 'tok-display',
+        display_name: 'My Work Gitea',
+      },
+    });
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('.credential-name:has-text("My Work Gitea")')).toBeVisible({ timeout: 8000 });
+  });
+
+  test('two credentials are both visible in the credentials list', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-cred-two-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Two Creds User', email);
+
+    for (const name of ['First Cred', 'Second Cred']) {
+      await request.post(`${BASE}/api/user/credentials`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          provider: 'github',
+          api_token: `ghp_two_${name.replace(' ', '_')}`,
+          display_name: name,
+        },
+      });
+    }
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+
+    await expect(page.locator('.credentials-list .credential-item')).toHaveCount(2, { timeout: 8000 });
+  });
+
+  test('credential provider label shows "Gitea" in .credential-provider for gitea provider', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-cred-prov-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Provider Label User', email);
+
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        provider: 'gitea',
+        provider_url: 'https://gitea.example.com',
+        api_token: 'tok-prov',
+        display_name: 'Prov Label Test',
+      },
+    });
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('.credential-provider')).toContainText('Gitea', { timeout: 8000 });
+  });
+
+  test('credential persists after page reload', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-cred-persist-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Persist Cred User', email);
+
+    await request.post(`${BASE}/api/user/credentials`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        provider: 'github',
+        api_token: 'ghp_persist_check',
+        display_name: 'Persist Check Cred',
+      },
+    });
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('.credential-name:has-text("Persist Check Cred")')).toBeVisible({ timeout: 8000 });
+
+    await page.reload();
+    await expect(page.locator('.credential-name:has-text("Persist Check Cred")')).toBeVisible({ timeout: 8000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settings page — Add Credential modal details
+// ---------------------------------------------------------------------------
+
+test.describe('Settings page — Add Credential modal details', () => {
+
+  test('credential modal Gitea tab is active by default', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-modal-gitea-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Modal Gitea User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
+
+    await expect(page.locator('.provider-tab.active')).toContainText('Gitea');
+  });
+
+  test('credential modal has displayName optional field', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-modal-dn-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Modal DN User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
+
+    await expect(page.locator('#displayName')).toBeVisible();
+  });
+
+  test('credential modal Save button disabled when no fields filled', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-modal-disabled-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Modal Disabled User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
+
+    await expect(page.locator('button[type="submit"]:has-text("Save")')).toBeDisabled();
+  });
+
+  test('switching to GitHub tab hides providerUrl field', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-modal-gh-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Modal GitHub User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
+
+    await page.click('.provider-tab:has-text("GitHub")');
+    await expect(page.locator('#providerUrl')).not.toBeVisible();
+  });
+
+  test('credential modal providerUrl has type="url" on Gitea tab', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-modal-url-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Modal URL Type User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
+
+    await expect(page.locator('#providerUrl')).toHaveAttribute('type', 'url');
+  });
+
+  test('credential modal closes when X button clicked', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-modal-close-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Modal Close User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
+
+    // Click the X button in the modal header
+    await page.locator('.modal-header button.btn-icon').click();
+    await expect(page.locator('.modal-content.credential-modal')).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('credential count increases by one after adding a credential via UI', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-modal-count-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Modal Count User', email);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('.empty-state')).toBeVisible({ timeout: 8000 });
+
+    // Mock the test-connection endpoint to avoid real network calls
+    await page.route('**/api/user/credentials/test', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'Connected' }),
+      });
+    });
+
+    await page.click('button:has-text("Add Credential")');
+    await expect(page.locator('.modal-content.credential-modal')).toBeVisible({ timeout: 5000 });
+
+    await page.fill('#providerUrl', 'https://gitea.example.com');
+    await page.fill('#apiToken', 'ghp_count_test_token');
+    await page.fill('#displayName', 'Count Test Cred');
+    await page.click('button[type="submit"]:has-text("Save")');
+
+    await expect(page.locator('.modal-content.credential-modal')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.credentials-list .credential-item')).toHaveCount(1, { timeout: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settings page — admin section details
+// ---------------------------------------------------------------------------
+
+test.describe('Settings page — admin section details', () => {
+
+  test('Global Gitea Connection section has a .section-description paragraph (admin)', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-desc-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Admin Desc User', email);
+    await promoteAdmin(request, token);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('.settings-section h2:has-text("Global Gitea Connection")')).toBeVisible({ timeout: 10000 });
+
+    const adminSection = page.locator('.settings-section').filter({
+      has: page.locator('h2:has-text("Global Gitea Connection")'),
+    });
+    await expect(adminSection.locator('.section-description')).toBeVisible();
+  });
+
+  test('admin settings page renders at least 4 .settings-section elements', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-4sec-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Admin 4 Sections', email);
+    await promoteAdmin(request, token);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await page.waitForSelector('.settings-content', { timeout: 10000 });
+
+    const count = await page.locator('.settings-section').count();
+    expect(count).toBeGreaterThanOrEqual(4);
+  });
+
+  test('admin Gitea URL field placeholder is "https://gitea.example.com"', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-ph-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Admin Placeholder User', email);
+    await promoteAdmin(request, token);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('#giteaUrl')).toBeVisible({ timeout: 8000 });
+
+    await expect(page.locator('#giteaUrl')).toHaveAttribute('placeholder', 'https://gitea.example.com');
+  });
+
+  test('admin can type a URL into the Gitea URL field', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-type-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Admin Type User', email);
+    await promoteAdmin(request, token);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('#giteaUrl')).toBeVisible({ timeout: 8000 });
+
+    await page.locator('#giteaUrl').click({ clickCount: 3 });
+    await page.fill('#giteaUrl', 'https://my-gitea.example.com');
+    await expect(page.locator('#giteaUrl')).toHaveValue('https://my-gitea.example.com');
+  });
+
+  test('after saving config the giteaApiKey field is cleared', async ({ page, request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-clear-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Admin Clear Key User', email);
+    await promoteAdmin(request, token);
+
+    await injectToken(page, token);
+    await page.goto('/settings');
+    await expect(page.locator('#giteaUrl')).toBeVisible({ timeout: 8000 });
+
+    await page.fill('#giteaUrl', 'https://gitea.clear-test.example.com');
+    await page.fill('#giteaApiKey', 'temp-secret-key');
+    await expect(page.locator('#giteaApiKey')).toHaveValue('temp-secret-key');
+
+    await page.locator('button[type="submit"]').filter({ hasText: /Configuration/ }).click();
+
+    // Wait for success badge, then verify API key was cleared from UI
+    await expect(page.locator('.status-badge.success').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('#giteaApiKey')).toHaveValue('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settings page — API: admin user management
+// ---------------------------------------------------------------------------
+
+test.describe('Settings page — API: admin user management', () => {
+
+  test('GET /api/admin/users returns 401 without authentication', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/admin/users`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('GET /api/admin/users returns 403 for non-admin users', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-list-403-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Non Admin List User', email);
+
+    const res = await request.get(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('GET /api/admin/users returns array of users for admin', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-list-ok-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'Admin List OK', email);
+    await promoteAdmin(request, token);
+
+    const res = await request.get(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('user list contains the newly promoted admin', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-inlist-${ts}@example.com`;
+    const { token, user } = await signupAPI(request, 'In List Admin', email);
+    await promoteAdmin(request, token);
+
+    const res = await request.get(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const users = await res.json();
+    const entry = users.find((u: { id: number }) => u.id === user.id);
+    expect(entry).toBeDefined();
+    expect(entry.is_admin).toBe(true);
+  });
+
+  test('user list does not expose password_hash for any user', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-admin-nohash-${ts}@example.com`;
+    const { token } = await signupAPI(request, 'No Hash Admin', email);
+    await promoteAdmin(request, token);
+
+    const res = await request.get(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const users = await res.json();
+    for (const u of users) {
+      expect(u.password_hash).toBeUndefined();
+    }
+  });
+
+  test('admin can promote another user to admin via PUT /api/admin/users', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const adminEmail = `test-promote-admin-${ts}@example.com`;
+    const userEmail = `test-promote-user-${ts}@example.com`;
+    const { token: adminToken } = await signupAPI(request, 'Promote Admin', adminEmail);
+    await promoteAdmin(request, adminToken);
+    const { user: targetUser } = await signupAPI(request, 'Target User', userEmail);
+
+    const res = await request.put(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { user_id: targetUser.id, is_admin: true },
+    });
+    expect(res.status()).toBe(200);
+    const updated = await res.json();
+    expect(updated.is_admin).toBe(true);
+  });
+
+  test('POST /api/auth/promote-admin promotes the calling user', async ({ request }) => {
+    const ts = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `test-self-promote-${ts}@example.com`;
+    const { token, user } = await signupAPI(request, 'Self Promote', email);
+    expect(user.is_admin).toBeFalsy();
+
+    const promRes = await request.post(`${BASE}/api/auth/promote-admin`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect([200, 204]).toContain(promRes.status());
+
+    // Verify the user is now admin via the users list
+    const listRes = await request.get(`${BASE}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const users = await listRes.json();
+    const entry = users.find((u: { id: number }) => u.id === user.id);
+    expect(entry?.is_admin).toBe(true);
+  });
+
+  test('POST /api/auth/promote-admin without auth returns 401', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/auth/promote-admin`);
+    expect(res.status()).toBe(401);
+  });
+});
