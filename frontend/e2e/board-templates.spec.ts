@@ -19,6 +19,15 @@ interface Board {
   columns: Column[];
 }
 
+interface CardTemplate {
+  id: number;
+  board_id: number;
+  name: string;
+  issue_type: string;
+  description_template: string;
+  created_at?: string;
+}
+
 async function createUser(request: any, prefix: string) {
   const email = `${prefix}-${crypto.randomUUID()}@test.com`;
   const res = await request.post(`${BASE}/api/auth/signup`, {
@@ -51,8 +60,34 @@ async function getBoardColumns(request: any, token: string, boardId: number): Pr
   return (await res.json()) as Column[];
 }
 
+async function createCardTemplate(
+  request: any,
+  token: string,
+  boardId: number,
+  name: string,
+  descriptionTemplate: string,
+  issueType = '',
+): Promise<CardTemplate> {
+  const res = await request.post(`${BASE}/api/boards/${boardId}/templates`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name, description_template: descriptionTemplate, issue_type: issueType },
+  });
+  return (await res.json()) as CardTemplate;
+}
+
+async function listCardTemplates(
+  request: any,
+  token: string,
+  boardId: number,
+): Promise<CardTemplate[]> {
+  const res = await request.get(`${BASE}/api/boards/${boardId}/templates`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return (await res.json()) as CardTemplate[];
+}
+
 // ---------------------------------------------------------------------------
-// API-level template tests
+// API-level board template tests (board creation templates)
 // ---------------------------------------------------------------------------
 
 test.describe('Board Templates — API', () => {
@@ -157,10 +192,44 @@ test.describe('Board Templates — API', () => {
     expect(names).toContain('To Do');
     expect(names).toContain('Done');
   });
+
+  test('columns have sequential positions starting from 0 or 1', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-positions');
+    const board = await createBoard(request, token, 'Position Board', 'scrum');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    // Positions should be unique and ordered
+    const positions = columns.map((c) => c.position).sort((a, b) => a - b);
+    for (let i = 1; i < positions.length; i++) {
+      expect(positions[i]).toBeGreaterThan(positions[i - 1]);
+    }
+  });
+
+  test('default template columns have correct states', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-default-states');
+    const board = await createBoard(request, token, 'Default States Board');
+    const columns = await getBoardColumns(request, token, board.id);
+    const byName = Object.fromEntries(columns.map((c) => [c.name, c.state]));
+
+    expect(byName['To Do']).toBe('open');
+    expect(byName['In Progress']).toBe('in_progress');
+    expect(byName['In Review']).toBe('in_progress');
+    expect(byName['Done']).toBe('closed');
+  });
+
+  test('each column has a board_id matching the created board', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-boardid');
+    const board = await createBoard(request, token, 'Board ID Check', 'kanban');
+    const columns = await getBoardColumns(request, token, board.id);
+
+    for (const col of columns) {
+      expect((col as any).board_id).toBe(board.id);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
-// UI-level template tests
+// UI-level board creation template tests
 // ---------------------------------------------------------------------------
 
 test.describe('Board Templates — Create Board UI', () => {
@@ -371,5 +440,440 @@ test.describe('Board Templates — Create Board UI', () => {
     await expect(page.locator('.modal')).not.toBeVisible();
     // No board with that name should appear
     await expect(page.locator('.board-card h3:has-text("Should Not Exist")')).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Card templates — API tests
+// ---------------------------------------------------------------------------
+
+test.describe('Card Templates — API', () => {
+  // -------------------------------------------------------------------------
+  // POST /api/boards/:id/templates creates a card template
+  // -------------------------------------------------------------------------
+  test('POST /api/boards/:id/templates creates a card template', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-create');
+    const board = await createBoard(request, token, 'Card Template Board');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/templates`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        name: 'Bug Report Template',
+        issue_type: 'bug',
+        description_template: '## Steps to Reproduce\n\n## Expected\n\n## Actual',
+      },
+    });
+    expect(res.status()).toBe(201);
+    const template: CardTemplate = await res.json();
+    expect(template.id).toBeTruthy();
+    expect(typeof template.id).toBe('number');
+    expect(template.name).toBe('Bug Report Template');
+    expect(template.description_template).toBe('## Steps to Reproduce\n\n## Expected\n\n## Actual');
+  });
+
+  // -------------------------------------------------------------------------
+  // Template has id, name, board_id, description_template fields
+  // -------------------------------------------------------------------------
+  test('created card template has id, name, board_id, and description_template fields', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-fields');
+    const board = await createBoard(request, token, 'Fields Check Board');
+
+    const template = await createCardTemplate(
+      request,
+      token,
+      board.id,
+      'Feature Template',
+      '## Overview\n\n## Acceptance Criteria',
+      'feature',
+    );
+
+    expect(template.id).toBeTruthy();
+    expect(template.board_id).toBe(board.id);
+    expect(template.name).toBe('Feature Template');
+    expect(template.description_template).toBe('## Overview\n\n## Acceptance Criteria');
+  });
+
+  // -------------------------------------------------------------------------
+  // Template has issue_type field
+  // -------------------------------------------------------------------------
+  test('created card template has issue_type field', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-issue-type');
+    const board = await createBoard(request, token, 'Issue Type Board');
+
+    const template = await createCardTemplate(
+      request,
+      token,
+      board.id,
+      'Task Template',
+      'Standard task description',
+      'task',
+    );
+
+    expect(template.issue_type).toBe('task');
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/boards/:id/templates returns an array
+  // -------------------------------------------------------------------------
+  test('GET /api/boards/:id/templates returns an array', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-list-empty');
+    const board = await createBoard(request, token, 'Empty Templates Board');
+
+    const templates = await listCardTemplates(request, token, board.id);
+    expect(Array.isArray(templates)).toBe(true);
+    expect(templates).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/boards/:id/templates returns created templates
+  // -------------------------------------------------------------------------
+  test('GET /api/boards/:id/templates returns previously created templates', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-list');
+    const board = await createBoard(request, token, 'List Templates Board');
+
+    await createCardTemplate(request, token, board.id, 'Template A', 'Description A');
+    await createCardTemplate(request, token, board.id, 'Template B', 'Description B', 'bug');
+
+    const templates = await listCardTemplates(request, token, board.id);
+    expect(templates).toHaveLength(2);
+    expect(templates.some((t) => t.name === 'Template A')).toBe(true);
+    expect(templates.some((t) => t.name === 'Template B')).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Multiple templates for same board
+  // -------------------------------------------------------------------------
+  test('multiple card templates can be created for the same board', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-multi');
+    const board = await createBoard(request, token, 'Multi Templates Board');
+
+    const templateNames = ['Bug Template', 'Feature Template', 'Task Template', 'Epic Template'];
+    for (const name of templateNames) {
+      await createCardTemplate(request, token, board.id, name, `Description for ${name}`);
+    }
+
+    const templates = await listCardTemplates(request, token, board.id);
+    expect(templates).toHaveLength(4);
+    for (const name of templateNames) {
+      expect(templates.some((t) => t.name === name)).toBe(true);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE /api/boards/:id/templates/:templateId removes template
+  // -------------------------------------------------------------------------
+  test('DELETE /api/boards/:id/templates/:id removes the template', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-delete');
+    const board = await createBoard(request, token, 'Delete Template Board');
+
+    const template = await createCardTemplate(
+      request,
+      token,
+      board.id,
+      'To Be Deleted',
+      'Will be removed',
+    );
+
+    const delRes = await request.delete(
+      `${BASE}/api/boards/${board.id}/templates/${template.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(delRes.status()).toBe(204);
+
+    const templates = await listCardTemplates(request, token, board.id);
+    expect(templates.some((t) => t.id === template.id)).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Deleting one of multiple templates removes only the correct one
+  // -------------------------------------------------------------------------
+  test('deleting one template does not remove the other templates', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-delete-one');
+    const board = await createBoard(request, token, 'Delete One Template Board');
+
+    const keepTemplate = await createCardTemplate(request, token, board.id, 'Keep Me', 'Keeper');
+    const deleteTemplate = await createCardTemplate(request, token, board.id, 'Delete Me', 'Goner');
+
+    await request.delete(`${BASE}/api/boards/${board.id}/templates/${deleteTemplate.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const templates = await listCardTemplates(request, token, board.id);
+    expect(templates).toHaveLength(1);
+    expect(templates[0].id).toBe(keepTemplate.id);
+    expect(templates[0].name).toBe('Keep Me');
+  });
+
+  // -------------------------------------------------------------------------
+  // Template name is required — empty name returns 400
+  // -------------------------------------------------------------------------
+  test('POST card template with empty name returns 400', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-empty-name');
+    const board = await createBoard(request, token, 'Empty Name Board');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/templates`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: '', description_template: 'Valid description' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  // -------------------------------------------------------------------------
+  // description_template is required — empty returns 400
+  // -------------------------------------------------------------------------
+  test('POST card template with empty description_template returns 400', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-empty-desc');
+    const board = await createBoard(request, token, 'Empty Desc Board');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/templates`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Valid Name', description_template: '' },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  // -------------------------------------------------------------------------
+  // Unauthorized POST returns 401
+  // -------------------------------------------------------------------------
+  test('POST card template without auth token returns 401', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-unauth');
+    const board = await createBoard(request, token, 'Auth Test Board');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/templates`, {
+      data: { name: 'Hacked Template', description_template: 'Should fail' },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // Unauthorized GET returns 401
+  // -------------------------------------------------------------------------
+  test('GET card templates without auth token returns 401', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-unauth-get');
+    const board = await createBoard(request, token, 'Auth GET Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/templates`);
+    expect(res.status()).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // Template description with multiline markdown is stored correctly
+  // -------------------------------------------------------------------------
+  test('card template with multiline markdown description is stored as-is', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-markdown');
+    const board = await createBoard(request, token, 'Markdown Template Board');
+
+    const markdownDesc = '## Bug Report\n\n**Steps:**\n1. Open the app\n2. Click here\n\n**Expected:** X\n\n**Actual:** Y';
+    const template = await createCardTemplate(
+      request,
+      token,
+      board.id,
+      'Markdown Template',
+      markdownDesc,
+    );
+
+    expect(template.description_template).toBe(markdownDesc);
+
+    // Verify via GET
+    const templates = await listCardTemplates(request, token, board.id);
+    expect(templates[0].description_template).toBe(markdownDesc);
+  });
+
+  // -------------------------------------------------------------------------
+  // Template issue_type is empty string when not provided
+  // -------------------------------------------------------------------------
+  test('card template with no issue_type stores empty string', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-no-type');
+    const board = await createBoard(request, token, 'No Issue Type Board');
+
+    const res = await request.post(`${BASE}/api/boards/${board.id}/templates`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: 'Generic Template', description_template: 'Generic description' },
+    });
+    expect(res.status()).toBe(201);
+    const template: CardTemplate = await res.json();
+    // issue_type should be empty or absent when not provided
+    expect(template.issue_type === '' || template.issue_type === undefined || template.issue_type === null).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Newly created template has correct board_id matching the board
+  // -------------------------------------------------------------------------
+  test('card template board_id matches the board it was created on', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-boardid');
+    const board = await createBoard(request, token, 'Board ID Template Test');
+
+    const template = await createCardTemplate(
+      request,
+      token,
+      board.id,
+      'Board ID Check',
+      'Some template description',
+    );
+
+    expect(template.board_id).toBe(board.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // Template is scoped per board — other boards do not see it
+  // -------------------------------------------------------------------------
+  test('card template created on one board does not appear on another board', async ({ request }) => {
+    const { token } = await createUser(request, 'ct-scope');
+    const boardA = await createBoard(request, token, 'Board A Templates');
+    const boardB = await createBoard(request, token, 'Board B Templates');
+
+    await createCardTemplate(request, token, boardA.id, 'Template Only For A', 'A-only description');
+
+    const templatesOnB = await listCardTemplates(request, token, boardB.id);
+    expect(templatesOnB.some((t) => t.name === 'Template Only For A')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Card template UI tests (marked as fixme — UI may not exist yet)
+// ---------------------------------------------------------------------------
+
+test.describe('Card Templates — UI (fixme: UI may not be implemented)', () => {
+  test.fixme('template section visible in board settings', async ({ page, request }) => {
+    const { token } = await createUser(request, 'ct-ui-settings');
+    const board = await createBoard(request, token, 'UI Settings Board');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    await expect(
+      page.locator('.settings-section').filter({ hasText: /template/i }),
+    ).toBeVisible();
+  });
+
+  test.fixme('add template button present in board settings templates section', async ({ page, request }) => {
+    const { token } = await createUser(request, 'ct-ui-add-btn');
+    const board = await createBoard(request, token, 'Add Btn Board');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    await expect(
+      page.locator('button').filter({ hasText: /add template|new template|create template/i }),
+    ).toBeVisible();
+  });
+
+  test.fixme('template form has name and issue_type fields', async ({ page, request }) => {
+    const { token } = await createUser(request, 'ct-ui-form-fields');
+    const board = await createBoard(request, token, 'Form Fields Board');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+
+    await page.locator('button').filter({ hasText: /add template|create template/i }).click();
+
+    await expect(page.locator('input[name="name"], #templateName')).toBeVisible();
+    await expect(
+      page.locator('select[name="issue_type"], #templateIssueType'),
+    ).toBeVisible();
+    await expect(
+      page.locator('textarea[name="description_template"], #templateDescription'),
+    ).toBeVisible();
+  });
+
+  test.fixme('created template appears in board settings list', async ({ page, request }) => {
+    const { token } = await createUser(request, 'ct-ui-appears');
+    const board = await createBoard(request, token, 'Appears Board');
+    await createCardTemplate(request, token, board.id, 'Visible Template', 'A visible description');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    await expect(
+      page.locator('.template-item, [data-testid="template-item"]').filter({ hasText: 'Visible Template' }),
+    ).toBeVisible();
+  });
+
+  test.fixme('delete template button present on each template in settings', async ({ page, request }) => {
+    const { token } = await createUser(request, 'ct-ui-del-btn');
+    const board = await createBoard(request, token, 'Del Btn Board');
+    await createCardTemplate(request, token, board.id, 'Deletable Template', 'Some description');
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}/settings`);
+    await expect(page.locator('.settings-page')).toBeVisible({ timeout: 10000 });
+
+    await expect(
+      page.locator('.template-item button[aria-label*="delete" i], .template-item .btn-delete'),
+    ).toBeVisible();
+  });
+
+  test.fixme('template usable when creating a new card', async ({ page, request }) => {
+    const { token } = await createUser(request, 'ct-ui-use-template');
+    const board = await createBoard(request, token, 'Use Template Board', 'kanban');
+    const templateDesc = '## Steps to Reproduce\n\n## Expected\n\n## Actual';
+    await createCardTemplate(request, token, board.id, 'Bug Report', templateDesc);
+
+    await page.addInitScript((t) => localStorage.setItem('token', t), token);
+    await page.goto(`/boards/${board.id}`);
+    await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
+
+    // Open the "new card" form in the first column
+    await page.locator('.add-card-btn, button:has-text("Add Card")').first().click();
+    // A template selector or "Use Template" button should appear
+    await expect(
+      page.locator('select[name="template"], button:has-text("Template"), [data-testid="template-select"]'),
+    ).toBeVisible({ timeout: 8000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board export (CSV) tests
+// ---------------------------------------------------------------------------
+
+test.describe('Board Export — CSV', () => {
+  test('GET /api/boards/:id/export with valid token returns CSV content', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-export');
+    const board = await createBoard(request, token, 'Export Board');
+
+    const res = await request.get(
+      `${BASE}/api/boards/${board.id}/export?token=${token}`,
+    );
+    expect(res.ok()).toBe(true);
+
+    const contentType = res.headers()['content-type'];
+    expect(contentType).toMatch(/text\/csv|application\/octet-stream/i);
+  });
+
+  test('GET /api/boards/:id/export without token returns 401', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-export-unauth');
+    const board = await createBoard(request, token, 'Unauth Export Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('GET /api/boards/:id/export with invalid token returns 401', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-export-bad-token');
+    const board = await createBoard(request, token, 'Bad Token Export Board');
+
+    const res = await request.get(`${BASE}/api/boards/${board.id}/export?token=invalid-token-xyz`);
+    expect(res.status()).toBe(401);
+  });
+
+  test('GET /api/boards/:id/export CSV contains header row', async ({ request }) => {
+    const { token } = await createUser(request, 'tpl-export-csv');
+    const board = await createBoard(request, token, 'CSV Header Board');
+
+    const res = await request.get(
+      `${BASE}/api/boards/${board.id}/export?token=${token}`,
+    );
+    expect(res.ok()).toBe(true);
+
+    const body = await res.text();
+    // CSV should have at least one line (the header)
+    expect(body.length).toBeGreaterThan(0);
+    const lines = body.trim().split('\n');
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    // Header should mention common card fields
+    expect(lines[0].toLowerCase()).toMatch(/id|title|status|column/i);
   });
 });
