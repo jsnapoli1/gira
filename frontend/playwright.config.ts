@@ -29,7 +29,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `cd .. && PORT=${backendPort} go run cmd/zira/main.go`,
+      command: `cd .. && PORT=${backendPort} go run cmd/gira/main.go`,
       url: `http://localhost:${backendPort}/api/config/status`,
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
