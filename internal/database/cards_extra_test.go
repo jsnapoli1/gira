@@ -534,3 +534,181 @@ func TestGetCardAssignees(t *testing.T) {
 		t.Errorf("assignees[0].ID = %d, want %d", assignees[0].ID, userID)
 	}
 }
+
+func TestLogWork(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	card, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Test Card",
+		State:        "open",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	err = d.LogWork(card.ID, userID, 60, time.Now(), "Worked on feature")
+	if err != nil {
+		t.Fatalf("LogWork() error = %v", err)
+	}
+}
+
+func TestGetWorkItems(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	card, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Test Card",
+		State:        "open",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	d.LogWork(card.ID, userID, 30, time.Now(), "First entry")
+	d.LogWork(card.ID, userID, 45, time.Now(), "Second entry")
+
+	items, err := d.GetWorkItems(card.ID)
+	if err != nil {
+		t.Fatalf("GetWorkItems() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Errorf("len(items) = %d, want 2", len(items))
+	}
+}
+
+func TestGetTotalTimeLogged(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	card, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Test Card",
+		State:        "open",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	d.LogWork(card.ID, userID, 30, time.Now(), "First")
+	d.LogWork(card.ID, userID, 45, time.Now(), "Second")
+
+	total, err := d.GetTotalTimeLogged(card.ID)
+	if err != nil {
+		t.Fatalf("GetTotalTimeLogged() error = %v", err)
+	}
+	if total != 75 {
+		t.Errorf("total = %d, want 75", total)
+	}
+}
+
+func TestDeleteWorkLog(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	card, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Test Card",
+		State:        "open",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	d.LogWork(card.ID, userID, 60, time.Now(), "To delete")
+
+	items, _ := d.GetWorkItems(card.ID)
+	if len(items) == 0 {
+		t.Fatal("no work items found")
+	}
+
+	err = d.DeleteWorkLog(items[0].ID)
+	if err != nil {
+		t.Fatalf("DeleteWorkLog() error = %v", err)
+	}
+
+	items, _ = d.GetWorkItems(card.ID)
+	if len(items) != 0 {
+		t.Errorf("len(items) = %d, want 0 after deletion", len(items))
+	}
+}
+
+func TestGetWorkLogByID(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	card, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Test Card",
+		State:        "open",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	d.LogWork(card.ID, userID, 60, time.Now(), "Test work")
+
+	items, _ := d.GetWorkItems(card.ID)
+	workLog, err := d.GetWorkLogByID(items[0].ID)
+	if err != nil {
+		t.Fatalf("GetWorkLogByID() error = %v", err)
+	}
+	if workLog == nil {
+		t.Fatal("GetWorkLogByID() returned nil")
+	}
+	if workLog.TimeSpent != 60 {
+		t.Errorf("workLog.TimeSpent = %d, want 60", workLog.TimeSpent)
+	}
+}
+
+func TestGetBoardTimeSummary(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	timeEstimate := 120
+	card, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Test Card",
+		State:        "open",
+		TimeEstimate: &timeEstimate,
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	d.LogWork(card.ID, userID, 60, time.Now(), "Work")
+
+	entries, totalLogged, totalEstimated, err := d.GetBoardTimeSummary(boardID, nil)
+	if err != nil {
+		t.Fatalf("GetBoardTimeSummary() error = %v", err)
+	}
+	if len(entries) == 0 {
+		t.Error("GetBoardTimeSummary() returned empty entries")
+	}
+	if totalLogged != 60 {
+		t.Errorf("totalLogged = %d, want 60", totalLogged)
+	}
+	if totalEstimated != 120 {
+		t.Errorf("totalEstimated = %d, want 120", totalEstimated)
+	}
+}
