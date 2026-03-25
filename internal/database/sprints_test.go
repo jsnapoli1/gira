@@ -2,6 +2,9 @@ package database
 
 import (
 	"testing"
+	"time"
+
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 // createTestSprint is a helper that creates a sprint on the given board.
@@ -137,4 +140,206 @@ func TestAssignCardToSprintCrossBoardValidation(t *testing.T) {
 		t.Errorf("card.SprintID = %v, want nil after clearing", fetched.SprintID)
 	}
 	_ = sprintB // used in cross-board assertions above
+}
+
+func TestListSprintsForBoard(t *testing.T) {
+	d := setupTestDB(t)
+	_, boardID, _, _ := createTestScaffolding(t, d)
+
+	_, err := d.CreateSprint(boardID, "Sprint 1", "Goal 1", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+	_, err = d.CreateSprint(boardID, "Sprint 2", "Goal 2", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+
+	sprints, err := d.ListSprintsForBoard(boardID)
+	if err != nil {
+		t.Fatalf("ListSprintsForBoard() error = %v", err)
+	}
+	if len(sprints) != 2 {
+		t.Errorf("len(sprints) = %d, want 2", len(sprints))
+	}
+}
+
+func TestGetActiveSprint(t *testing.T) {
+	d := setupTestDB(t)
+	_, boardID, _, _ := createTestScaffolding(t, d)
+
+	sprint, err := d.CreateSprint(boardID, "Sprint 1", "", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+
+	active, err := d.GetActiveSprint(boardID)
+	if err != nil {
+		t.Fatalf("GetActiveSprint() error = %v", err)
+	}
+	// No active sprint yet (status is 'planning')
+	if active != nil {
+		t.Error("GetActiveSprint() should return nil for planning sprint")
+	}
+
+	d.StartSprint(sprint.ID)
+
+	active, err = d.GetActiveSprint(boardID)
+	if err != nil {
+		t.Fatalf("GetActiveSprint() error = %v", err)
+	}
+	if active == nil {
+		t.Fatal("GetActiveSprint() returned nil after starting sprint")
+	}
+	if active.Status != "active" {
+		t.Errorf("active.Status = %q, want %q", active.Status, "active")
+	}
+}
+
+func TestUpdateSprint(t *testing.T) {
+	d := setupTestDB(t)
+	_, boardID, _, _ := createTestScaffolding(t, d)
+
+	sprint, err := d.CreateSprint(boardID, "Original", "Old Goal", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+
+	sprint.Name = "Updated"
+	sprint.Goal = "New Goal"
+
+	err = d.UpdateSprint(sprint)
+	if err != nil {
+		t.Fatalf("UpdateSprint() error = %v", err)
+	}
+
+	updated, err := d.GetSprintByID(sprint.ID)
+	if err != nil {
+		t.Fatalf("GetSprintByID() error = %v", err)
+	}
+	if updated.Name != "Updated" {
+		t.Errorf("updated.Name = %q, want %q", updated.Name, "Updated")
+	}
+}
+
+func TestStartAndCompleteSprint(t *testing.T) {
+	d := setupTestDB(t)
+	_, boardID, _, _ := createTestScaffolding(t, d)
+
+	sprint, err := d.CreateSprint(boardID, "Sprint 1", "", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+
+	err = d.StartSprint(sprint.ID)
+	if err != nil {
+		t.Fatalf("StartSprint() error = %v", err)
+	}
+
+	started, _ := d.GetSprintByID(sprint.ID)
+	if started.Status != "active" {
+		t.Errorf("started.Status = %q, want %q", started.Status, "active")
+	}
+
+	err = d.CompleteSprint(sprint.ID)
+	if err != nil {
+		t.Fatalf("CompleteSprint() error = %v", err)
+	}
+
+	completed, _ := d.GetSprintByID(sprint.ID)
+	if completed.Status != "completed" {
+		t.Errorf("completed.Status = %q, want %q", completed.Status, "completed")
+	}
+}
+
+func TestDeleteSprint(t *testing.T) {
+	d := setupTestDB(t)
+	_, boardID, _, _ := createTestScaffolding(t, d)
+
+	sprint, err := d.CreateSprint(boardID, "Deletable", "", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+
+	err = d.DeleteSprint(sprint.ID)
+	if err != nil {
+		t.Fatalf("DeleteSprint() error = %v", err)
+	}
+
+	notFound, _ := d.GetSprintByID(sprint.ID)
+	if notFound != nil {
+		t.Error("sprint should be deleted")
+	}
+}
+
+func TestRecordAndGetSprintMetrics(t *testing.T) {
+	d := setupTestDB(t)
+	_, boardID, _, _ := createTestScaffolding(t, d)
+
+	sprint, err := d.CreateSprint(boardID, "Sprint 1", "", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+
+	metrics := models.SprintMetrics{
+		SprintID:        sprint.ID,
+		Date:            time.Now(),
+		TotalPoints:     10,
+		CompletedPoints: 5,
+		RemainingPoints: 5,
+		TotalCards:      3,
+		CompletedCards:  1,
+	}
+
+	err = d.RecordSprintMetrics(sprint.ID, metrics)
+	if err != nil {
+		t.Fatalf("RecordSprintMetrics() error = %v", err)
+	}
+
+	retrieved, err := d.GetSprintMetrics(sprint.ID)
+	if err != nil {
+		t.Fatalf("GetSprintMetrics() error = %v", err)
+	}
+	if len(retrieved) != 1 {
+		t.Errorf("len(retrieved) = %d, want 1", len(retrieved))
+	}
+	if retrieved[0].TotalPoints != 10 {
+		t.Errorf("retrieved[0].TotalPoints = %d, want 10", retrieved[0].TotalPoints)
+	}
+}
+
+func TestCalculateCurrentSprintMetrics(t *testing.T) {
+	d := setupTestDB(t)
+	_, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	sprint, err := d.CreateSprint(boardID, "Sprint 1", "", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+
+	points := 5
+	_, err = d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		SprintID:     &sprint.ID,
+		GiteaIssueID: 1,
+		Title:        "Card 1",
+		State:        "open",
+		StoryPoints:  &points,
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	metrics, err := d.CalculateCurrentSprintMetrics(sprint.ID)
+	if err != nil {
+		t.Fatalf("CalculateCurrentSprintMetrics() error = %v", err)
+	}
+	if metrics.TotalCards != 1 {
+		t.Errorf("metrics.TotalCards = %d, want 1", metrics.TotalCards)
+	}
+	if metrics.TotalPoints != 5 {
+		t.Errorf("metrics.TotalPoints = %d, want 5", metrics.TotalPoints)
+	}
 }

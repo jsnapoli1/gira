@@ -407,3 +407,130 @@ func TestCreateCard_WithDueDate(t *testing.T) {
 		t.Error("card.DueDate should not be nil")
 	}
 }
+
+func TestBulkUpdatePriority(t *testing.T) {
+	d := setupTestDB(t)
+	_, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	card1, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Card 1",
+		State:        "open",
+		Priority:     "low",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	card2, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 2,
+		Title:        "Card 2",
+		State:        "open",
+		Priority:     "low",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	err = d.BulkUpdatePriority([]int64{card1.ID, card2.ID}, "high")
+	if err != nil {
+		t.Fatalf("BulkUpdatePriority() error = %v", err)
+	}
+
+	updated1, _ := d.GetCardByID(card1.ID)
+	updated2, _ := d.GetCardByID(card2.ID)
+	if updated1.Priority != "high" {
+		t.Errorf("updated1.Priority = %q, want %q", updated1.Priority, "high")
+	}
+	if updated2.Priority != "high" {
+		t.Errorf("updated2.Priority = %q, want %q", updated2.Priority, "high")
+	}
+}
+
+func TestGetActiveSprintsForUser(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, _, _ := createTestScaffolding(t, d)
+
+	sprint, err := d.CreateSprint(boardID, "Active Sprint", "", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateSprint() error = %v", err)
+	}
+
+	d.StartSprint(sprint.ID)
+
+	sprints, err := d.GetActiveSprintsForUser(userID)
+	if err != nil {
+		t.Fatalf("GetActiveSprintsForUser() error = %v", err)
+	}
+	if len(sprints) == 0 {
+		t.Error("GetActiveSprintsForUser() returned empty list")
+	}
+}
+
+func TestRemoveCardAssignee(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	card, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Test Card",
+		State:        "open",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	d.AddCardAssignee(card.ID, userID)
+
+	err = d.RemoveCardAssignee(card.ID, userID)
+	if err != nil {
+		t.Fatalf("RemoveCardAssignee() error = %v", err)
+	}
+
+	assignees, err := d.GetCardAssignees(card.ID)
+	if err != nil {
+		t.Fatalf("GetCardAssignees() error = %v", err)
+	}
+	if len(assignees) != 0 {
+		t.Errorf("len(assignees) = %d, want 0", len(assignees))
+	}
+}
+
+func TestGetCardAssignees(t *testing.T) {
+	d := setupTestDB(t)
+	userID, boardID, columnID, swimlaneID := createTestScaffolding(t, d)
+
+	card, err := d.CreateCard(CreateCardInput{
+		BoardID:      boardID,
+		SwimlaneID:   swimlaneID,
+		ColumnID:     columnID,
+		GiteaIssueID: 1,
+		Title:        "Test Card",
+		State:        "open",
+	})
+	if err != nil {
+		t.Fatalf("CreateCard() error = %v", err)
+	}
+
+	d.AddCardAssignee(card.ID, userID)
+
+	assignees, err := d.GetCardAssignees(card.ID)
+	if err != nil {
+		t.Fatalf("GetCardAssignees() error = %v", err)
+	}
+	if len(assignees) != 1 {
+		t.Errorf("len(assignees) = %d, want 1", len(assignees))
+	}
+	if assignees[0].ID != userID {
+		t.Errorf("assignees[0].ID = %d, want %d", assignees[0].ID, userID)
+	}
+}
