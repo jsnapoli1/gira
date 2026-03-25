@@ -1617,3 +1617,167 @@ func TestHandleGetCardChildren(t *testing.T) {
 		t.Errorf("handleGetCardChildren() status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
+
+// Sprint handler tests
+
+func TestHandleListSprints(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleListSprints)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/sprints?board_id=%d", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleListSprints() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateSprint(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleCreateSprint)
+
+	body := map[string]interface{}{"name": "Sprint 1", "goal": "Complete feature"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/sprints?board_id=%d", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateSprint() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+// Notification handler tests
+
+func TestHandleGetNotifications(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, _ := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetNotifications)
+
+	req := httptest.NewRequest("GET", "/api/notifications", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetNotifications() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+// Credential handler tests
+
+func TestHandleListUserCredentials(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, _ := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleListUserCredentials)
+
+	req := httptest.NewRequest("GET", "/api/user/credentials", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleListUserCredentials() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateUserCredential(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, _ := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleCreateUserCredential)
+
+	body := map[string]interface{}{"provider": "github", "api_token": "test-token", "display_name": "GitHub"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/api/user/credentials", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateUserCredential() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+// Admin handler tests
+
+func TestHandleGetAdminUsers(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, _ := db.CreateUser(testEmail("admin-list"), "hashedpw", "Admin User")
+	db.SetUserAdmin(user.ID, true)
+	token, _ := auth.GenerateToken(user)
+
+	handler := srv.requireAdmin(srv.handleGetAdminUsers)
+
+	req := httptest.NewRequest("GET", "/api/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetAdminUsers() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandlePromoteAdmin(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	admin, _ := db.CreateUser(testEmail("admin-promote"), "hashedpw", "Admin")
+	db.SetUserAdmin(admin.ID, true)
+	token, _ := auth.GenerateToken(admin)
+
+	newUser, _ := db.CreateUser(testEmail("to-promote"), "hashedpw", "To Promote")
+
+	handler := srv.requireAdmin(srv.handlePromoteAdmin)
+
+	body := map[string]interface{}{"user_id": newUser.ID, "is_admin": true}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/api/admin/promote", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handlePromoteAdmin() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
