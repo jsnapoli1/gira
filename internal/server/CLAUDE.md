@@ -16,7 +16,6 @@ Main HTTP server with routing and request handlers.
 | `sprint_handlers.go` | Sprint CRUD, burndown, velocity metrics |
 | `notification_handlers.go` | Notification list, read, delete |
 | `credential_handlers.go` | User credential CRUD and test |
-| `gitea_handlers.go` | Gitea/GitHub proxy (repos, issues, labels, milestones) |
 | `admin_handlers.go` | Admin user management, user listing |
 
 ## Server Structure
@@ -38,7 +37,7 @@ type Server struct {
 - `GET /me` - Current user info
 
 ### Config (`/api/config/*`)
-- `GET/POST /config` - Gitea settings
+- `GET/POST /config` - VCS settings
 - `GET /config/status` - Check if configured
 
 ### Boards (`/api/boards/*`)
@@ -54,10 +53,6 @@ type Server struct {
 - Sprint CRUD
 - Start/complete sprints
 - Metrics and burndown data
-
-### Gitea Proxy (`/api/repos`, `/api/issues`, etc.)
-- Proxies requests to Gitea API
-- Requires authentication
 
 ## Middleware
 

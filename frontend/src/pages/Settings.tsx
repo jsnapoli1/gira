@@ -226,13 +226,13 @@ export function Settings() {
 
           {/* About */}
           <section className="settings-section">
-            <h2>About Zira</h2>
+            <h2>About Gira</h2>
             <div className="about-info">
               <p>
                 <strong>Version:</strong> 1.0.0
               </p>
               <p>
-                Zira is a Jira-like project management tool that integrates with Gitea for issue
+                Gira is a Jira-like project management tool that integrates with VCS providers for issue
                 tracking.
               </p>
             </div>

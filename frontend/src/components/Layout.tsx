@@ -9,7 +9,7 @@ interface LayoutProps {
   children: ReactNode;
 }
 
-const SIDEBAR_COLLAPSED_KEY = 'zira-sidebar-collapsed';
+const SIDEBAR_COLLAPSED_KEY = 'gira-sidebar-collapsed';
 
 export function Layout({ children }: LayoutProps) {
   const { user, logout } = useAuth();
@@ -48,15 +48,15 @@ export function Layout({ children }: LayoutProps) {
     const handleSSENotification = () => {
       loadNotifications();
     };
-    window.addEventListener('zira:notification', handleSSENotification);
-    return () => window.removeEventListener('zira:notification', handleSSENotification);
+    window.addEventListener('gira:notification', handleSSENotification);
+    return () => window.removeEventListener('gira:notification', handleSSENotification);
   }, []);
 
   // Listen for keyboard shortcut toggle dispatched from BoardView
   useEffect(() => {
     const handleToggleShortcuts = () => setShowShortcuts(prev => !prev);
-    window.addEventListener('zira:toggle-shortcuts', handleToggleShortcuts);
-    return () => window.removeEventListener('zira:toggle-shortcuts', handleToggleShortcuts);
+    window.addEventListener('gira:toggle-shortcuts', handleToggleShortcuts);
+    return () => window.removeEventListener('gira:toggle-shortcuts', handleToggleShortcuts);
   }, []);
 
   // Close dropdown on outside click
@@ -163,7 +163,7 @@ export function Layout({ children }: LayoutProps) {
         <div className="sidebar-header">
           <Link to="/" className="logo">
             <LayoutDashboard size={24} />
-            {!collapsed && <span>Zira</span>}
+            {!collapsed && <span>Gira</span>}
           </Link>
         </div>
 

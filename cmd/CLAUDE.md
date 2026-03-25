@@ -1,12 +1,12 @@
 # cmd/ - Application Entry Points
 
-Contains the main entry point for the Zira application.
+Contains the main entry point for the Gira application.
 
 ## Structure
 
 ```
 cmd/
-└── zira/
+└── gira/
     └── main.go    # Application bootstrap
 ```
 
@@ -20,7 +20,7 @@ The entry point performs three steps:
 ## Running
 
 ```bash
-go run ./cmd/zira
+go run ./cmd/gira
 ```
 
 ## Best Practices

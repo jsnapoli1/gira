@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jsnapoli/zira/internal/gitea"
-	"github.com/jsnapoli/zira/internal/github"
+	"github.com/jsnapoli/gira/internal/gitea"
+	"github.com/jsnapoli/gira/internal/github"
 )
 
 func (s *Server) handleRepos(w http.ResponseWriter, r *http.Request) {

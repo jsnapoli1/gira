@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 func (d *DB) CreateSprint(boardID int64, name, goal string, startDate, endDate *time.Time) (*models.Sprint, error) {

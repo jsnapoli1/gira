@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/database"
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/database"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 func (s *Server) handleListSprints(w http.ResponseWriter, r *http.Request) {

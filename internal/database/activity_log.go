@@ -3,7 +3,7 @@ package database
 import (
 	"fmt"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 // LogActivity records an activity log entry. Errors are returned but callers

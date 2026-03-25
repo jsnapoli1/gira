@@ -74,12 +74,12 @@ test.describe('Settings page — structure', () => {
     await expect(page.locator('.settings-section h2:has-text("Your API Credentials")')).toBeVisible();
   });
 
-  test('settings page shows the About Zira section', async ({ page }) => {
+  test('settings page shows the About Gira section', async ({ page }) => {
     await page.goto('/settings');
-    await expect(page.locator('.settings-section h2:has-text("About Zira")')).toBeVisible();
+    await expect(page.locator('.settings-section h2:has-text("About Gira")')).toBeVisible();
   });
 
-  test('About Zira section contains version 1.0.0', async ({ page }) => {
+  test('About Gira section contains version 1.0.0', async ({ page }) => {
     await page.goto('/settings');
     await expect(page.locator('.about-info')).toContainText('Version: 1.0.0');
   });

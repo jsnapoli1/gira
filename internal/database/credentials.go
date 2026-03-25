@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 // CreateOrUpdateUserCredential creates or updates a user credential

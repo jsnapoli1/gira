@@ -794,7 +794,7 @@ test.describe('Label filter — board view', () => {
 
     await page.addInitScript((t: string) => {
       localStorage.setItem('token', t);
-      localStorage.removeItem('zira-filters-expanded');
+      localStorage.removeItem('gira-filters-expanded');
     }, token);
     await page.goto(`/boards/${boardId}`);
     await page.click('.view-btn:has-text("All Cards")');
@@ -831,7 +831,7 @@ test.describe('Label filter — board view', () => {
 
     await page.addInitScript((t: string) => {
       localStorage.setItem('token', t);
-      localStorage.removeItem('zira-filters-expanded');
+      localStorage.removeItem('gira-filters-expanded');
     }, token);
     await page.goto(`/boards/${boardId}`);
     await page.click('.view-btn:has-text("All Cards")');

@@ -1,17 +1,16 @@
-# Zira - Project Management Tool
+# Gira - Project Management Tool
 
-Zira is a Jira-like project management application that integrates with Gitea for issue tracking. It provides a Kanban board interface with sprints, swimlanes, and reporting features.
+Gira is a Jira-like project management application that integrates with VCS providers for issue tracking. It provides a Kanban board interface with sprints, swimlanes, and reporting features.
 
 ## Project Structure
 
 ```
-zira/
-├── cmd/zira/          # Application entry point
+gira/
+├── cmd/gira/          # Application entry point
 ├── internal/          # Go backend packages
 │   ├── auth/          # JWT authentication
 │   ├── config/        # Configuration management
 │   ├── database/      # SQLite database layer
-│   ├── gitea/         # Gitea API client
 │   ├── models/        # Data models
 │   └── server/        # HTTP server and routes
 └── frontend/          # React frontend (Vite + TypeScript)
@@ -24,13 +23,12 @@ zira/
 - **Backend**: Go 1.24+, SQLite, JWT authentication
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
 - **Testing**: Playwright (E2E)
-- **External**: Gitea API integration
 
 ## Quick Start
 
 ```bash
 # Backend
-go run ./cmd/zira
+go run ./cmd/gira
 
 # Frontend (separate terminal)
 cd frontend && npm install && npm run dev
@@ -38,7 +36,7 @@ cd frontend && npm install && npm run dev
 
 ## Deployment
 
-The app is deployed via **Gitea Actions** to **Portainer** (Docker).
+The app is deployed via CI/CD to **Portainer** (Docker).
 
 - Docker image is built and pushed on commits to main
 - Portainer pulls and runs the container
@@ -46,13 +44,11 @@ The app is deployed via **Gitea Actions** to **Portainer** (Docker).
 
 ## Configuration
 
-Set via environment variables or `~/.config/zira/config.json`:
-- `GITEA_URL` - Gitea instance URL
-- `GITEA_API_KEY` - Gitea API token
+Set via environment variables or `~/.config/gira/config.json`:
 - `JWT_SECRET` - JWT signing secret (required in production)
 - `PORT` - Server port (default: 8080)
-- `DB_PATH` - Database file path (default: `~/.config/zira/zira.db`, Docker: `/app/data/zira.db`)
-- `DATA_DIR` - Data directory for attachments (default: `~/.config/zira`, Docker: `/app/data`)
+- `DB_PATH` - Database file path (default: `~/.config/gira/gira.db`, Docker: `/app/data/gira.db`)
+- `DATA_DIR` - Data directory for attachments (default: `~/.config/gira`, Docker: `/app/data`)
 
 ## Best Practices
 
@@ -60,7 +56,7 @@ Set via environment variables or `~/.config/zira/config.json`:
 - Run Playwright tests: `cd frontend && npm test`
 - All new features need E2E test coverage in `frontend/e2e/`
 - Test files follow pattern: `*.spec.ts`
-- Go build check: `go build ./cmd/zira` (must pass before committing)
+- Go build check: `go build ./cmd/gira` (must pass before committing)
 - Run `gofmt -w .` on any modified Go files
 
 ### Code Style
@@ -73,10 +69,9 @@ Set via environment variables or `~/.config/zira/config.json`:
 - Auth: `/api/auth/*`
 - Config: `/api/config/*`
 - Boards/Cards/Sprints: `/api/boards/*`, `/api/cards/*`, `/api/sprints/*`
-- Gitea proxy: `/api/repos`, `/api/issues`, `/api/labels`
 
 ### Database
-- SQLite stored at `~/.config/zira/zira.db`
+- SQLite stored at `~/.config/gira/gira.db`
 - Migrations run automatically on startup
 - Foreign keys enabled
 - **SQLite requires `SetMaxOpenConns(1)`** — concurrent writes cause "database is locked"
@@ -96,12 +91,9 @@ Set via environment variables or `~/.config/zira/config.json`:
 
 - **server.go is the main handler file** (~3000 lines). When adding new handlers, consider placing them in domain-specific files within `internal/server/` (e.g., `board_handlers.go`).
 - **internal/handlers/ is empty** — all handler logic lives in `internal/server/`. Do not add code to `internal/handlers/`.
-- The `Server` struct holds `DB`, `Config`, `Client` (Gitea/GitHub), and the SSE hub. Handlers are methods on `Server`.
+- The `Server` struct holds `DB`, `Config`, and the SSE hub. Handlers are methods on `Server`.
 - Route registration happens in `server.go:Start()`. Routes use `http.ServeMux` with manual path parsing (no third-party router).
 - Middleware pattern: `s.requireAuth(handlerFunc)` wraps handlers. Auth info is stored in request context via `context.go`.
-- The `RepoClient` interface in `server.go` is dead code — do not use it.
-- Always guard Gitea client calls with `s.Config.IsConfigured()` or use `requireConfig` middleware to prevent nil-deref.
-- `updateClient()` is not goroutine-safe — access to `s.Client` and `s.Config` fields should be synchronized.
 
 ### Frontend (React/TypeScript)
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 func (d *DB) CreateSavedFilter(boardID, ownerID int64, name, filterJSON string, isShared bool) (*models.SavedFilter, error) {

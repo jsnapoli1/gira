@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/database"
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/database"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 func (s *Server) handleSearchCards(w http.ResponseWriter, r *http.Request) {
@@ -1192,7 +1192,7 @@ func getAttachmentsDir() string {
 	if err != nil {
 		home = os.TempDir()
 	}
-	return filepath.Join(home, ".config", "zira", "attachments")
+	return filepath.Join(home, ".config", "gira", "attachments")
 }
 
 // Card custom fields handlers

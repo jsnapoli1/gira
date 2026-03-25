@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 func (d *DB) CreateNotification(userID int64, notificationType, title, message, link string) (*models.Notification, error) {

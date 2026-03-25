@@ -1,4 +1,4 @@
-module github.com/jsnapoli/zira
+module github.com/jsnapoli/gira
 
 go 1.24.5
 

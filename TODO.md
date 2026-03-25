@@ -1,4 +1,4 @@
-# Zira Refactoring TODO
+# Gira Refactoring TODO
 
 Items are ordered by priority. Each item should be a self-contained fix that can be completed, tested, and committed independently.
 

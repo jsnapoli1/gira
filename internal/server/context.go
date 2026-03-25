@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 const boardRoleContextKey contextKey = "boardRole"

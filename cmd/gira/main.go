@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/config"
-	"github.com/jsnapoli/zira/internal/database"
-	"github.com/jsnapoli/zira/internal/server"
+	"github.com/jsnapoli/gira/internal/config"
+	"github.com/jsnapoli/gira/internal/database"
+	"github.com/jsnapoli/gira/internal/server"
 )
 
 // version is set at build time via -ldflags

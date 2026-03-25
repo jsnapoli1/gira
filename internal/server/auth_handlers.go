@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/auth"
+	"github.com/jsnapoli/gira/internal/auth"
 )
 
 // Simple in-memory rate limiter for auth endpoints

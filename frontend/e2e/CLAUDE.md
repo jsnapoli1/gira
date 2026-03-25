@@ -1,6 +1,6 @@
 # e2e/ - End-to-End Tests
 
-Playwright tests for the Zira frontend.
+Playwright tests for the Gira frontend.
 
 ## Test Files
 
@@ -11,7 +11,7 @@ Playwright tests for the Zira frontend.
 | `cards.spec.ts` | Card creation, editing, moving |
 | `sprints.spec.ts` | Sprint management |
 | `reports.spec.ts` | Reports page |
-| `settings.spec.ts` | Gitea configuration |
+| `settings.spec.ts` | Configuration |
 | `navigation.spec.ts` | App navigation, logout |
 | `assignees.spec.ts` | Card assignee management |
 

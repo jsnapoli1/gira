@@ -1169,7 +1169,7 @@ test.describe('Sidebar collapsed — keyboard behaviour', () => {
     // Collapse the sidebar before navigating
     await page.addInitScript(() => {
       const existing = localStorage.getItem('token');
-      if (existing) localStorage.setItem('zira-sidebar-collapsed', 'true');
+      if (existing) localStorage.setItem('gira-sidebar-collapsed', 'true');
     });
     await page.goto('/boards');
     await page.waitForSelector('.sidebar', { timeout: 10000 });

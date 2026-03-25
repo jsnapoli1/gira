@@ -146,13 +146,13 @@ test.describe('Settings — UI', () => {
 
   // ── About section ─────────────────────────────────────────────────────────
 
-  test('settings page shows About Zira section with version', async ({ page, request }) => {
+  test('settings page shows About Gira section with version', async ({ page, request }) => {
     const { token } = await createUser(request);
     await page.addInitScript((t) => localStorage.setItem('token', t), token);
 
     await page.goto('/settings');
 
-    await expect(page.locator('.settings-section h2:has-text("About Zira")')).toBeVisible();
+    await expect(page.locator('.settings-section h2:has-text("About Gira")')).toBeVisible();
     await expect(page.locator('.about-info')).toContainText('Version: 1.0.0');
   });
 
@@ -374,7 +374,7 @@ test.describe('Settings — page structure and accessibility', () => {
     await page.goto('/settings');
     await page.waitForSelector('.settings-content', { timeout: 10000 });
 
-    // At minimum: Profile, Your API Credentials, About Zira
+    // At minimum: Profile, Your API Credentials, About Gira
     const sectionCount = await page.locator('.settings-section').count();
     expect(sectionCount).toBeGreaterThanOrEqual(3);
   });
@@ -417,7 +417,7 @@ test.describe('Settings — page structure and accessibility', () => {
     await expect(page.locator('button:has-text("Add Credential")')).toBeVisible({ timeout: 8000 });
   });
 
-  test('About Zira section contains version number', async ({ page, request }) => {
+  test('About Gira section contains version number', async ({ page, request }) => {
     const { token } = await createUser(request);
     await page.addInitScript((t) => localStorage.setItem('token', t), token);
 
@@ -426,13 +426,13 @@ test.describe('Settings — page structure and accessibility', () => {
     await expect(page.locator('.about-info')).toContainText('1.0.0', { timeout: 8000 });
   });
 
-  test('About Zira section describes the product', async ({ page, request }) => {
+  test('About Gira section describes the product', async ({ page, request }) => {
     const { token } = await createUser(request);
     await page.addInitScript((t) => localStorage.setItem('token', t), token);
 
     await page.goto('/settings');
 
-    await expect(page.locator('.about-info')).toContainText('Zira', { timeout: 8000 });
+    await expect(page.locator('.about-info')).toContainText('Gira', { timeout: 8000 });
   });
 });
 
@@ -828,7 +828,7 @@ test.describe('Settings — content details', () => {
     await page.goto('/settings');
     await page.waitForSelector('.settings-content', { timeout: 10000 });
 
-    // Profile, Your API Credentials, Global Gitea Connection, About Zira
+    // Profile, Your API Credentials, Global Gitea Connection, About Gira
     const sectionCount = await page.locator('.settings-section').count();
     expect(sectionCount).toBeGreaterThanOrEqual(4);
   });
@@ -880,7 +880,7 @@ test.describe('Settings — content details', () => {
     await expect(page.locator('#giteaApiKey')).toHaveValue('');
   });
 
-  test('About Zira section describes Gitea integration', async ({ page, request }) => {
+  test('About Gira section describes the integration', async ({ page, request }) => {
     const { token } = await createUser(request);
     await page.addInitScript((t) => localStorage.setItem('token', t), token);
 

@@ -5,7 +5,7 @@
  * re-import behaviour, column mapping, swimlane targeting, empty CSV
  * handling, and wrong file type error handling.
  *
- * Depends on the sample CSV at /Users/jsnapoli1/Documents/open-source/zira/jira.csv
+ * Depends on the sample CSV at /Users/jsnapoli1/Documents/open-source/gira/jira.csv
  * which contains project key "ZRP" with stories like:
  *   "CONFIG: Get all BOMs for uATS1 in ZRP"
  *   "FIX: Issues bulk deleting parts"
@@ -17,7 +17,7 @@ import * as fs from 'fs';
 const PORT = process.env.PORT || '9002';
 const BASE = `http://127.0.0.1:${PORT}`;
 
-const JIRA_CSV_PATH = '/Users/jsnapoli1/Documents/open-source/zira/jira.csv';
+const JIRA_CSV_PATH = '/Users/jsnapoli1/Documents/open-source/gira/jira.csv';
 
 // Project key found in the sample CSV header row (column "Project key").
 const EXPECTED_PROJECT_KEY = 'ZRP';

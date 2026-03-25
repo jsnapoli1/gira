@@ -15,7 +15,7 @@ Handles all database operations using SQLite with foreign key support.
 
 ## Database Location
 
-`~/.config/zira/zira.db`
+`~/.config/gira/gira.db`
 
 ## Schema
 

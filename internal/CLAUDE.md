@@ -1,6 +1,6 @@
 # internal/ - Go Backend Packages
 
-Private packages for the Zira backend. Not importable by external projects.
+Private packages for the Gira backend. Not importable by external projects.
 
 ## Package Overview
 
@@ -9,7 +9,6 @@ Private packages for the Zira backend. Not importable by external projects.
 | `auth` | JWT token generation/validation, password hashing |
 | `config` | Load/save configuration from env vars and files |
 | `database` | SQLite database operations and migrations |
-| `gitea` | HTTP client for Gitea API |
 | `models` | Data structures shared across packages |
 | `server` | HTTP server, routing, and request handlers |
 
@@ -21,16 +20,15 @@ main.go
     └── database.New()
     └── server.New(cfg, db)
             └── auth (middleware)
-            └── gitea.Client
             └── models
 ```
 
 ## Best Practices
 
 ### Testing
-- No unit tests exist currently
-- Add tests in `*_test.go` files alongside source
+- Unit tests exist in `*_test.go` files alongside source
 - Use table-driven tests for Go code
+- Run `go test ./internal/...` to run all tests
 
 ### Error Handling
 - Wrap errors with context: `fmt.Errorf("context: %w", err)`

@@ -602,7 +602,7 @@ test.describe('Board Views', () => {
 
   test.fixme('switching to All Cards view and reloading retains that view', async ({ request, page }) => {
     // View mode is stored in component state only — no localStorage persistence implemented yet.
-    // Once viewMode persistence is added (e.g. localStorage key "zira-view-{boardId}"),
+    // Once viewMode persistence is added (e.g. localStorage key "gira-view-{boardId}"),
     // this test should reload the page and assert .view-btn:has-text("All Cards") is still active.
     const setup = await setupViewBoard(request);
     await page.goto('/login');
@@ -926,7 +926,7 @@ test.describe('Board Views', () => {
   test('gutter collapse button toggles the swimlane label column', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.removeItem('zira-gutter-collapsed'));
+    await page.evaluate(() => localStorage.removeItem('gira-gutter-collapsed'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);
@@ -1017,7 +1017,7 @@ test.describe('Board Views', () => {
     await injectToken(page, setup.token);
 
     // Reset any saved filter state before test
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'false'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'false'));
 
     await page.goto(`/boards/${setup.boardId}`);
     await expect(page.locator('.board-header')).toBeVisible({ timeout: 15000 });
@@ -1039,7 +1039,7 @@ test.describe('Board Views', () => {
   test('filter panel contains assignee filter select', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);
@@ -1063,7 +1063,7 @@ test.describe('Board Views', () => {
   test('filter panel contains label filter select', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);
@@ -1083,7 +1083,7 @@ test.describe('Board Views', () => {
   test('filter URL params update when assignee filter changes', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);
@@ -1118,7 +1118,7 @@ test.describe('Board Views', () => {
   test('clear filters button removes active filters', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     // Navigate with a search query param already applied
@@ -1141,7 +1141,7 @@ test.describe('Board Views', () => {
   }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     // Navigate with a search param
@@ -2115,7 +2115,7 @@ test.describe('Board Views', () => {
   test('filter panel contains a search input when expanded', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);
@@ -2135,7 +2135,7 @@ test.describe('Board Views', () => {
   test('navigating to board with q= param sets filter input value', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}?q=myquery`);
@@ -2158,7 +2158,7 @@ test.describe('Board Views', () => {
   test('filter panel collapse removes .filters-expanded element', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);
@@ -2177,7 +2177,7 @@ test.describe('Board Views', () => {
   test('filter panel persists expanded state across view switches', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-filters-expanded', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-filters-expanded', 'true'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);
@@ -2332,7 +2332,7 @@ test.describe('Board Views', () => {
   test('gutter collapse state is persisted to localStorage', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.removeItem('zira-gutter-collapsed'));
+    await page.evaluate(() => localStorage.removeItem('gira-gutter-collapsed'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);
@@ -2351,14 +2351,14 @@ test.describe('Board Views', () => {
     await expect(boardGrid.first()).toHaveClass(/gutter-collapsed/, { timeout: 5000 });
 
     // The value should be persisted
-    const stored = await page.evaluate(() => localStorage.getItem('zira-gutter-collapsed'));
+    const stored = await page.evaluate(() => localStorage.getItem('gira-gutter-collapsed'));
     expect(stored).toBeTruthy();
   });
 
   test('gutter collapse state restores on page reload', async ({ request, page }) => {
     const setup = await setupViewBoard(request);
     await page.goto('/login');
-    await page.evaluate(() => localStorage.setItem('zira-gutter-collapsed', 'true'));
+    await page.evaluate(() => localStorage.setItem('gira-gutter-collapsed', 'true'));
     await injectToken(page, setup.token);
 
     await page.goto(`/boards/${setup.boardId}`);

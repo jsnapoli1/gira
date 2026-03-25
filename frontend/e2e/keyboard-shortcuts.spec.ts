@@ -254,7 +254,7 @@ test.describe("keyboard shortcut '?' — keyboard shortcuts help modal", () => {
     await expect(page.locator('.shortcuts-modal')).toBeVisible({ timeout: 5000 });
 
     // The shortcuts modal can also be opened via the sidebar Shortcuts button
-    // which dispatches zira:toggle-shortcuts. Pressing '?' again toggles it off.
+    // which dispatches gira:toggle-shortcuts. Pressing '?' again toggles it off.
     await page.keyboard.press('?');
     await expect(page.locator('.shortcuts-modal')).not.toBeVisible({ timeout: 5000 });
   });

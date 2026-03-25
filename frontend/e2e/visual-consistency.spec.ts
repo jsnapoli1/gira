@@ -191,7 +191,7 @@ test.describe('Page structure — sidebar', () => {
     injectToken(page, token);
     await page.goto('/boards');
     // Ensure sidebar is expanded
-    await page.evaluate(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.evaluate(() => localStorage.setItem('gira-sidebar-collapsed', 'false'));
     await page.reload();
 
     await expect(page.locator('.user-name')).toContainText('SidebarName User', { timeout: 10000 });

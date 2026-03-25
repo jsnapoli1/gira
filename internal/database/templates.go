@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 func (d *DB) CreateCardTemplate(boardID int64, name, issueType, descriptionTemplate string) (*models.CardTemplate, error) {

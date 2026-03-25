@@ -73,7 +73,7 @@ async function setupBoard(request: any): Promise<SetupResult> {
 async function navigateToBoard(page: any, boardId: number, token: string, switchToAllCards = true) {
   await page.addInitScript((t: string) => {
     localStorage.setItem('token', t);
-    localStorage.removeItem('zira-filters-expanded');
+    localStorage.removeItem('gira-filters-expanded');
   }, token);
   await page.goto(`/boards/${boardId}`);
   await page.waitForSelector('.board-header', { timeout: 15000 });

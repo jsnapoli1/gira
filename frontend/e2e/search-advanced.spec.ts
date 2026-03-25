@@ -145,7 +145,7 @@ async function navigateToBoard(
 ) {
   await page.addInitScript((t: string) => {
     localStorage.setItem('token', t);
-    localStorage.removeItem('zira-filters-expanded');
+    localStorage.removeItem('gira-filters-expanded');
   }, token);
   await page.goto(`/boards/${boardId}`);
   await page.waitForSelector('.board-header', { timeout: 15000 });

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/auth"
-	"github.com/jsnapoli/zira/internal/database"
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/auth"
+	"github.com/jsnapoli/gira/internal/database"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 // handleDashboard returns a combined dashboard view with boards, assigned cards, and active sprints.

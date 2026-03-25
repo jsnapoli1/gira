@@ -69,12 +69,12 @@ async function addMember(
 
 /**
  * Navigate to the board, inject token, and wait for the .board-page to be visible.
- * Also sets zira-filters-expanded so filter dropdowns are in the DOM.
+ * Also sets gira-filters-expanded so filter dropdowns are in the DOM.
  */
 async function openBoard(page: any, token: string, boardId: number) {
   await page.addInitScript((t: string) => {
     localStorage.setItem('token', t);
-    localStorage.setItem('zira-filters-expanded', 'true');
+    localStorage.setItem('gira-filters-expanded', 'true');
   }, token);
   await page.goto(`/boards/${boardId}`);
   await expect(page.locator('.board-page')).toBeVisible({ timeout: 10000 });
@@ -85,7 +85,7 @@ async function openBoard(page: any, token: string, boardId: number) {
  * re-fetched its data (confirmed by checking the swimlane name is in the DOM).
  *
  * Strategy: after reload we check that the swimlane name appears in the
- * swimlane filter <select>. Because zira-filters-expanded is set to 'true'
+ * swimlane filter <select>. Because gira-filters-expanded is set to 'true'
  * via addInitScript (in openBoard), the filter bar should be present in the
  * DOM on reload. If it is not yet visible (e.g. React hasn't mounted), we
  * wait for it explicitly before polling the option.
@@ -109,7 +109,7 @@ async function addSwimlane(
   await expect(page.locator('.board-page')).toBeVisible({ timeout: 20000 });
 
   // Wait for the filter bar to appear. The addInitScript (from openBoard) sets
-  // zira-filters-expanded=true, so .filters-expanded should render after mount.
+  // gira-filters-expanded=true, so .filters-expanded should render after mount.
   await expect(page.locator('.filters-expanded')).toBeVisible({ timeout: 10000 });
 
   // Wait for the swimlane option to appear in the swimlane filter <select>.

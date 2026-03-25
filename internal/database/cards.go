@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 type CreateCardInput struct {

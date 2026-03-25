@@ -6,16 +6,17 @@ Loads and saves application configuration from environment variables and config 
 
 ```go
 type Config struct {
-    GiteaURL    string  // Gitea instance URL
-    GiteaAPIKey string  // Gitea API token
-    Port        int     // Server port (default: 8080)
+    GiteaURL         string  // Gitea instance URL
+    GiteaAPIKey      string  // Gitea API token
+    GiteaInsecureTLS bool    // Skip TLS verification
+    Port             int     // Server port (default: 9002)
 }
 ```
 
 ## Loading Priority
 
 1. Environment variables (`GITEA_URL`, `GITEA_API_KEY`, `PORT`)
-2. Config file (`~/.config/zira/config.json`)
+2. Config file (`~/.config/gira/config.json`)
 3. Defaults
 
 ## Key Functions
@@ -29,7 +30,7 @@ type Config struct {
 
 ## File Location
 
-- Config: `~/.config/zira/config.json`
+- Config: `~/.config/gira/config.json`
 - Created with 0600 permissions (owner read/write only)
 
 ## Best Practices

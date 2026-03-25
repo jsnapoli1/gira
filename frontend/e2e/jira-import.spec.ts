@@ -1,7 +1,7 @@
 /**
  * jira-import.spec.ts
  *
- * Tests for the Jira CSV import wizard in Zira board settings.
+ * Tests for the Jira CSV import wizard in Gira board settings.
  *
  * Import endpoints:
  *  - POST /api/boards/:id/import/jira         (board-scoped, multipart: file + project_key)
@@ -27,7 +27,7 @@ import * as path from 'path';
 
 const PORT = process.env.PORT || '9002';
 const BASE = `http://127.0.0.1:${PORT}`;
-const JIRA_CSV_PATH = '/Users/jsnapoli1/Documents/open-source/zira/jira.csv';
+const JIRA_CSV_PATH = '/Users/jsnapoli1/Documents/open-source/gira/jira.csv';
 const EXPECTED_PROJECT_KEY = 'ZRP';
 
 // ---------------------------------------------------------------------------

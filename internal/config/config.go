@@ -78,10 +78,10 @@ func (c *Config) configPath() string {
 	if dbPath := os.Getenv("DB_PATH"); dbPath != "" {
 		return filepath.Join(filepath.Dir(dbPath), "config.json")
 	}
-	// Default to ~/.config/zira/config.json for local development
+	// Default to ~/.config/gira/config.json for local development
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = os.TempDir()
 	}
-	return filepath.Join(home, ".config", "zira", "config.json")
+	return filepath.Join(home, ".config", "gira", "config.json")
 }

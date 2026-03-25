@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 // BoardTemplateColumns returns the column definitions for a given board template.

@@ -3,7 +3,7 @@ package database
 import (
 	"fmt"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 // GetWorkflowRules returns all workflow rules for a board.

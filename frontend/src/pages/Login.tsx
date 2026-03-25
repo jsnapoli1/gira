@@ -31,7 +31,7 @@ export function Login() {
       <div className="auth-card">
         <div className="auth-header">
           <LayoutDashboard size={40} className="auth-logo" />
-          <h1>Welcome to Zira</h1>
+          <h1>Welcome to Gira</h1>
           <p>Sign in to your account</p>
         </div>
 

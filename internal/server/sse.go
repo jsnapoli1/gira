@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/auth"
+	"github.com/jsnapoli/gira/internal/auth"
 )
 
 // BoardEvent represents an event sent to clients via SSE

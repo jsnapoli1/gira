@@ -175,7 +175,7 @@ test.describe('Display name in sidebar navigation', () => {
 
     await injectToken(page, token);
     // Ensure sidebar is not collapsed so .user-name is rendered
-    await page.addInitScript(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.addInitScript(() => localStorage.setItem('gira-sidebar-collapsed', 'false'));
     await page.goto('/dashboard');
 
     await expect(page.locator('.user-name')).toContainText('NavDisplayUser');
@@ -187,7 +187,7 @@ test.describe('Display name in sidebar navigation', () => {
     const { token } = await signupAPI(request, displayName, email);
 
     await injectToken(page, token);
-    await page.addInitScript(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.addInitScript(() => localStorage.setItem('gira-sidebar-collapsed', 'false'));
     await page.goto('/dashboard');
 
     await expect(page.locator('.user-name')).toContainText(displayName);
@@ -263,7 +263,7 @@ test.describe('Session persistence', () => {
     const { token } = await signupAPI(request, 'PersistUser', email);
 
     await injectToken(page, token);
-    await page.addInitScript(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.addInitScript(() => localStorage.setItem('gira-sidebar-collapsed', 'false'));
     await page.goto('/dashboard');
     await expect(page).toHaveURL(/\/dashboard/);
 

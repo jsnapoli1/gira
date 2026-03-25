@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jsnapoli/zira/internal/auth"
-	"github.com/jsnapoli/zira/internal/config"
-	"github.com/jsnapoli/zira/internal/database"
-	"github.com/jsnapoli/zira/internal/gitea"
-	"github.com/jsnapoli/zira/internal/github"
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/auth"
+	"github.com/jsnapoli/gira/internal/config"
+	"github.com/jsnapoli/gira/internal/database"
+	"github.com/jsnapoli/gira/internal/gitea"
+	"github.com/jsnapoli/gira/internal/github"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 type Server struct {

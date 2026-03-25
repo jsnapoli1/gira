@@ -85,22 +85,22 @@ export function BoardView() {
 
   // Collapsible filter bar state
   const [filtersExpanded, setFiltersExpanded] = useState(() => {
-    const saved = localStorage.getItem('zira-filters-expanded');
+    const saved = localStorage.getItem('gira-filters-expanded');
     return saved === 'true';
   });
   const [pinnedFilters, setPinnedFilters] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem('zira-pinned-filters');
+    const saved = localStorage.getItem('gira-pinned-filters');
     return saved ? new Set(JSON.parse(saved)) : new Set(['search']);
   });
 
   // Persist filter expansion state
   useEffect(() => {
-    localStorage.setItem('zira-filters-expanded', String(filtersExpanded));
+    localStorage.setItem('gira-filters-expanded', String(filtersExpanded));
   }, [filtersExpanded]);
 
   // Persist pinned filters
   useEffect(() => {
-    localStorage.setItem('zira-pinned-filters', JSON.stringify([...pinnedFilters]));
+    localStorage.setItem('gira-pinned-filters', JSON.stringify([...pinnedFilters]));
   }, [pinnedFilters]);
 
   const togglePinnedFilter = (filter: string) => {
@@ -123,11 +123,11 @@ export function BoardView() {
 
   // Collapsed gutter (swimlane label sidebar)
   const [gutterCollapsed, setGutterCollapsed] = useState(() => {
-    return localStorage.getItem('zira-gutter-collapsed') === 'true';
+    return localStorage.getItem('gira-gutter-collapsed') === 'true';
   });
   const toggleGutter = () => {
     setGutterCollapsed(prev => {
-      localStorage.setItem('zira-gutter-collapsed', String(!prev));
+      localStorage.setItem('gira-gutter-collapsed', String(!prev));
       return !prev;
     });
   };
@@ -232,7 +232,7 @@ export function BoardView() {
 
   // When an SSE notification event arrives, dispatch a custom DOM event so Layout can refresh
   const handleNotification = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('zira:notification'));
+    window.dispatchEvent(new CustomEvent('gira:notification'));
   }, []);
 
   // Connect to SSE for real-time board updates
@@ -273,7 +273,7 @@ export function BoardView() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       switch (e.key) {
         case '?':
-          window.dispatchEvent(new CustomEvent('zira:toggle-shortcuts'));
+          window.dispatchEvent(new CustomEvent('gira:toggle-shortcuts'));
           break;
         case 'n':
           if (board?.swimlanes?.[0] && board?.columns?.[0]) {

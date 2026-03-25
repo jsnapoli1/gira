@@ -314,7 +314,7 @@ test.describe('Navigation Extended — sidebar collapse/expand', () => {
     const { token } = await createUser(request, 'navext-collapse');
     await page.addInitScript((t: string) => (
       localStorage.setItem('token', t),
-      localStorage.removeItem('zira-sidebar-collapsed')
+      localStorage.removeItem('gira-sidebar-collapsed')
     ), token);
     await page.goto('/boards');
 
@@ -329,7 +329,7 @@ test.describe('Navigation Extended — sidebar collapse/expand', () => {
     const { token } = await createUser(request, 'navext-expand');
     await page.addInitScript((t: string) => (
       localStorage.setItem('token', t),
-      localStorage.removeItem('zira-sidebar-collapsed')
+      localStorage.removeItem('gira-sidebar-collapsed')
     ), token);
     await page.goto('/boards');
 
@@ -344,14 +344,14 @@ test.describe('Navigation Extended — sidebar collapse/expand', () => {
     const { token } = await createUser(request, 'navext-persist-collapse');
     await page.addInitScript((t: string) => {
       localStorage.setItem('token', t);
-      localStorage.removeItem('zira-sidebar-collapsed');
+      localStorage.removeItem('gira-sidebar-collapsed');
     }, token);
     await page.goto('/boards');
 
     await page.locator('.sidebar-toggle').click();
     await expect(page.locator('.sidebar')).toHaveClass(/collapsed/, { timeout: 5000 });
 
-    const storedValue = await page.evaluate(() => localStorage.getItem('zira-sidebar-collapsed'));
+    const storedValue = await page.evaluate(() => localStorage.getItem('gira-sidebar-collapsed'));
     expect(storedValue).toBe('true');
   });
 
@@ -359,7 +359,7 @@ test.describe('Navigation Extended — sidebar collapse/expand', () => {
     const { token } = await createUser(request, 'navext-collapsed-icons');
     await page.addInitScript((t: string) => {
       localStorage.setItem('token', t);
-      localStorage.removeItem('zira-sidebar-collapsed');
+      localStorage.removeItem('gira-sidebar-collapsed');
     }, token);
     await page.goto('/boards');
 
@@ -379,7 +379,7 @@ test.describe('Navigation Extended — sidebar collapse/expand', () => {
     const { token } = await createUser(request, 'navext-collapsed-nav');
     await page.addInitScript((t: string) => {
       localStorage.setItem('token', t);
-      localStorage.removeItem('zira-sidebar-collapsed');
+      localStorage.removeItem('gira-sidebar-collapsed');
     }, token);
     await page.goto('/boards');
 
@@ -396,7 +396,7 @@ test.describe('Navigation Extended — sidebar collapse/expand', () => {
     const { token } = await createUser(request, 'navext-persist-reload');
     await page.addInitScript((t: string) => {
       localStorage.setItem('token', t);
-      localStorage.removeItem('zira-sidebar-collapsed');
+      localStorage.removeItem('gira-sidebar-collapsed');
     }, token);
     await page.goto('/boards');
 

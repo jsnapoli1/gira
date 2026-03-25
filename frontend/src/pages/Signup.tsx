@@ -45,7 +45,7 @@ export function Signup() {
         <div className="auth-header">
           <LayoutDashboard size={40} className="auth-logo" />
           <h1>Create Account</h1>
-          <p>Join Zira to manage your projects</p>
+          <p>Join Gira to manage your projects</p>
         </div>
 
         {error && <div className="auth-error">{error}</div>}

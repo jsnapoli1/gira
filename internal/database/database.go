@@ -50,7 +50,7 @@ func getDBPath() string {
 	if err != nil {
 		home = os.TempDir()
 	}
-	return filepath.Join(home, ".config", "zira", "zira.db")
+	return filepath.Join(home, ".config", "gira", "gira.db")
 }
 
 func (d *DB) migrate() error {

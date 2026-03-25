@@ -31,9 +31,9 @@ test.describe('Unauthenticated access', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('login page shows Welcome to Zira heading', async ({ page }) => {
+  test('login page shows Welcome to Gira heading', async ({ page }) => {
     await page.goto('/login');
-    await expect(page.locator('h1')).toContainText('Welcome to Zira');
+    await expect(page.locator('h1')).toContainText('Welcome to Gira');
   });
 
   test('login page shows email and password fields', async ({ page }) => {
@@ -389,7 +389,7 @@ test.describe('Display name shown in sidebar after login', () => {
     await expect(page).toHaveURL(/\/(boards|dashboard)/);
 
     // Ensure sidebar is expanded so .user-name is rendered
-    await page.evaluate(() => localStorage.setItem('zira-sidebar-collapsed', 'false'));
+    await page.evaluate(() => localStorage.setItem('gira-sidebar-collapsed', 'false'));
     await page.reload();
 
     await expect(page.locator('.user-name')).toContainText('SidebarNameUser');

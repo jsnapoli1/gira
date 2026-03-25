@@ -3,7 +3,7 @@ package database
 import (
 	"fmt"
 
-	"github.com/jsnapoli/zira/internal/models"
+	"github.com/jsnapoli/gira/internal/models"
 )
 
 // AddWatcher adds a user as a watcher of a card.

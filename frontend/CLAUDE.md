@@ -1,6 +1,6 @@
 # frontend/ - React Frontend
 
-Vite-powered React application with TypeScript for the Zira UI.
+Vite-powered React application with TypeScript for the Gira UI.
 
 ## Tech Stack
 
@@ -47,7 +47,7 @@ npm run test:headed  # Tests in browser
 | `/boards/:id` | Board view | Private |
 | `/boards/:id/settings` | Board settings | Private |
 | `/reports` | Reports | Private |
-| `/settings` | Gitea config | Private |
+| `/settings` | Configuration | Private |
 
 ## Best Practices
 
