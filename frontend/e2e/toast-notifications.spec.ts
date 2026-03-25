@@ -647,12 +647,23 @@ test.describe('Toast — work log added', () => {
       return;
     }
 
-    await timeInput.fill('2');
+    // Use pressSequentially to fire proper React key events on the controlled input.
+    await timeInput.click();
+    await timeInput.pressSequentially('2');
 
     const submitBtn = page.locator(
       '.time-tracking-actions .btn-primary, .time-tracking-actions button:has-text("Log")',
     ).first();
-    await submitBtn.click();
+    await expect(submitBtn).toBeEnabled({ timeout: 3000 });
+
+    const [worklogRes] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('/worklogs') && r.request().method() === 'POST',
+        { timeout: 10000 },
+      ),
+      submitBtn.click(),
+    ]);
+    expect(worklogRes.status()).toBe(201);
 
     await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.toast-success .toast-message')).toContainText('Work log added');
@@ -690,10 +701,14 @@ test.describe('Toast — work log failure', () => {
       }
     });
 
-    await timeInput.fill('3');
+    // Use pressSequentially to fire proper React key events on the controlled input.
+    await timeInput.click();
+    await timeInput.pressSequentially('3');
+
     const submitBtn = page.locator(
       '.time-tracking-actions .btn-primary, .time-tracking-actions button:has-text("Log")',
     ).first();
+    await expect(submitBtn).toBeEnabled({ timeout: 3000 });
     await submitBtn.click();
 
     await expect(page.locator('.toast-error')).toBeVisible({ timeout: 5000 });

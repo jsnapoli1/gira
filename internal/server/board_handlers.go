@@ -526,6 +526,39 @@ func (s *Server) handleAddBoardMember(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+func (s *Server) handleUpdateBoardMember(w http.ResponseWriter, r *http.Request) {
+	board, r := s.loadBoardAndRole(w, r)
+	if board == nil {
+		return
+	}
+	boardRole := getBoardRoleFromContext(r.Context())
+	if !boardRole.CanEditBoard() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+	userID, err := strconv.ParseInt(r.PathValue("userId"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Role == "" {
+		http.Error(w, "role is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.UpdateBoardMemberRole(board.ID, userID, req.Role); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) handleRemoveBoardMember(w http.ResponseWriter, r *http.Request) {
 	board, r := s.loadBoardAndRole(w, r)
 	if board == nil {
@@ -539,6 +572,10 @@ func (s *Server) handleRemoveBoardMember(w http.ResponseWriter, r *http.Request)
 	userID, err := strconv.ParseInt(r.PathValue("userId"), 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+	if userID == board.OwnerID {
+		http.Error(w, "Cannot remove the board owner", http.StatusForbidden)
 		return
 	}
 	if err := s.DB.RemoveBoardMember(board.ID, userID); err != nil {
@@ -559,6 +596,9 @@ func (s *Server) handleGetBoardCards(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if cards == nil {
+		cards = []models.Card{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(cards)

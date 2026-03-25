@@ -82,6 +82,50 @@ func (s *Server) handleCreateSprint(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(sprint)
 }
 
+// handleCreateBoardSprint creates a sprint via the board-scoped route POST /api/boards/{id}/sprints.
+func (s *Server) handleCreateBoardSprint(w http.ResponseWriter, r *http.Request) {
+	boardIDStr := r.PathValue("id")
+	boardID, err := strconv.ParseInt(boardIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid board ID", http.StatusBadRequest)
+		return
+	}
+
+	if !s.checkBoardMembership(w, r, boardID, models.BoardRoleMember) {
+		return
+	}
+
+	var req struct {
+		Name      string `json:"name"`
+		Goal      string `json:"goal"`
+		StartDate string `json:"start_date"`
+		EndDate   string `json:"end_date"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	var startDate, endDate *time.Time
+	if req.StartDate != "" {
+		if t, err := time.Parse("2006-01-02", req.StartDate); err == nil {
+			startDate = &t
+		}
+	}
+	if req.EndDate != "" {
+		if t, err := time.Parse("2006-01-02", req.EndDate); err == nil {
+			endDate = &t
+		}
+	}
+	sprint, err := s.DB.CreateSprint(boardID, req.Name, req.Goal, startDate, endDate)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(sprint)
+}
+
 // loadSprint parses the sprint ID from the path value and loads the sprint.
 // Returns the sprint or nil if an error was written.
 func (s *Server) loadSprint(w http.ResponseWriter, r *http.Request) *models.Sprint {

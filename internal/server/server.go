@@ -194,6 +194,7 @@ func (s *Server) Start() error {
 
 	mux.HandleFunc("GET /api/boards/{id}/members", s.requireAuth(s.handleGetBoardMembers))
 	mux.HandleFunc("POST /api/boards/{id}/members", s.requireAuth(s.handleAddBoardMember))
+	mux.HandleFunc("PUT /api/boards/{id}/members/{userId}", s.requireAuth(s.handleUpdateBoardMember))
 	mux.HandleFunc("DELETE /api/boards/{id}/members/{userId}", s.requireAuth(s.handleRemoveBoardMember))
 
 	mux.HandleFunc("GET /api/boards/{id}/cards", s.requireAuth(s.handleGetBoardCards))
@@ -240,6 +241,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/boards/{id}", s.requireAuth(s.handleGetBoard))
 	mux.HandleFunc("PUT /api/boards/{id}", s.requireAuth(s.handleUpdateBoard))
 	mux.HandleFunc("DELETE /api/boards/{id}", s.requireAuth(s.handleDeleteBoard))
+
+	// Board-scoped sprint creation (alias)
+	mux.HandleFunc("POST /api/boards/{id}/sprints", s.requireAuth(s.handleCreateBoardSprint))
 
 	// Sprint routes
 	mux.HandleFunc("GET /api/sprints", s.requireAuth(s.handleListSprints))

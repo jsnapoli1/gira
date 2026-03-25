@@ -963,6 +963,24 @@ func (s *Server) handleAddCardLabel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	if req.LabelID == 0 {
+		http.Error(w, "label_id is required", http.StatusBadRequest)
+		return
+	}
+	// Verify the label exists and belongs to the same board
+	label, err := s.DB.GetLabelByID(req.LabelID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if label == nil {
+		http.Error(w, "Label not found", http.StatusNotFound)
+		return
+	}
+	if label.BoardID != card.BoardID {
+		http.Error(w, "Label does not belong to this board", http.StatusBadRequest)
+		return
+	}
 	if err := s.DB.AddLabelToCard(card.ID, req.LabelID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1489,12 +1507,23 @@ func (s *Server) handleCreateCardLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate required fields
+	if req.TargetCardID == 0 {
+		http.Error(w, "target_card_id is required", http.StatusBadRequest)
+		return
+	}
+	if req.LinkType == "" {
+		http.Error(w, "link_type is required", http.StatusBadRequest)
+		return
+	}
+
 	// Validate link type
 	validTypes := map[string]bool{
-		"blocks":        true,
-		"is_blocked_by": true,
-		"relates_to":    true,
-		"duplicates":    true,
+		"blocks":           true,
+		"is_blocked_by":    true,
+		"relates_to":       true,
+		"duplicates":       true,
+		"is_duplicated_by": true,
 	}
 	if !validTypes[req.LinkType] {
 		http.Error(w, "Invalid link type", http.StatusBadRequest)

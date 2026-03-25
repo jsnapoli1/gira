@@ -25,6 +25,11 @@ import { test, expect } from '@playwright/test';
 const PORT = process.env.PORT || 9002;
 const BASE = `http://127.0.0.1:${PORT}`;
 
+// Tests in this file use addSwimlane() which reloads the page and waits for
+// data to reload — each call takes ~5-10s. Tests with multiple addSwimlane
+// calls can exceed the default 30s timeout, so we raise it for the whole file.
+test.setTimeout(90000);
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -101,7 +106,7 @@ async function addSwimlane(
   ).json();
 
   await page.reload();
-  await expect(page.locator('.board-page')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.board-page')).toBeVisible({ timeout: 20000 });
 
   // Wait for the filter bar to appear. The addInitScript (from openBoard) sets
   // zira-filters-expanded=true, so .filters-expanded should render after mount.
@@ -115,7 +120,7 @@ async function addSwimlane(
     .filter({ has: page.locator('option:text-is("All swimlanes")') })
     .first();
   await expect(swimlaneSelect.locator(`option`).filter({ hasText: name })).toBeAttached({
-    timeout: 15000,
+    timeout: 8000,
   });
 
   return swimlane;

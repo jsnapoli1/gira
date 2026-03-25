@@ -33,3 +33,9 @@ logs/
 .DS_Store
 Thumbs.db
 /.claude
+
+# Build info
+*.tsbuildinfo
+
+# Test data
+jira.csv

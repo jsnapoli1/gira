@@ -409,6 +409,14 @@ func (d *DB) RemoveBoardMember(boardID, userID int64) error {
 	return err
 }
 
+func (d *DB) UpdateBoardMemberRole(boardID, userID int64, role string) error {
+	_, err := d.Exec(
+		`UPDATE board_members SET role = ? WHERE board_id = ? AND user_id = ?`,
+		role, boardID, userID,
+	)
+	return err
+}
+
 func (d *DB) GetBoardMembers(boardID int64) ([]models.BoardMember, error) {
 	rows, err := d.Query(
 		`SELECT id, board_id, user_id, role, created_at FROM board_members WHERE board_id = ?`,
