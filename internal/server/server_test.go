@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -344,5 +345,262 @@ func TestCorsMiddleware(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200 for OPTIONS, got %d", w.Code)
+	}
+}
+
+func TestHandleSignup(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	tests := []struct {
+		name       string
+		body       map[string]interface{}
+		wantStatus int
+	}{
+		{
+			name:       "valid signup",
+			body:       map[string]interface{}{"email": "signup@test.com", "password": "password123", "display_name": "Test User"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing email",
+			body:       map[string]interface{}{"password": "password123", "display_name": "Test User"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing password",
+			body:       map[string]interface{}{"email": "no-pw@test.com", "display_name": "Test User"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "duplicate email",
+			body:       map[string]interface{}{"email": "signup@test.com", "password": "password123", "display_name": "Duplicate"},
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "invalid json",
+			body:       nil,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body *bytes.Buffer
+			if tt.body != nil {
+				jsonBody, _ := json.Marshal(tt.body)
+				body = bytes.NewBuffer(jsonBody)
+			} else {
+				body = bytes.NewBufferString("invalid json")
+			}
+
+			req := httptest.NewRequest("POST", "/api/auth/signup", body)
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			srv.handleSignup(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("handleSignup() status = %d, want %d", w.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestHandleLogin(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	// Create a test user
+	hash, _ := auth.HashPassword("password123")
+	db.CreateUser("login-test@test.com", hash, "Login User")
+
+	tests := []struct {
+		name       string
+		body       map[string]interface{}
+		wantStatus int
+	}{
+		{
+			name:       "valid login",
+			body:       map[string]interface{}{"email": "login-test@test.com", "password": "password123"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "wrong password",
+			body:       map[string]interface{}{"email": "login-test@test.com", "password": "wrongpassword"},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "non-existent user",
+			body:       map[string]interface{}{"email": "nobody@test.com", "password": "password123"},
+			wantStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jsonBody, _ := json.Marshal(tt.body)
+			req := httptest.NewRequest("POST", "/api/auth/login", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			srv.handleLogin(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("handleLogin() status = %d, want %d", w.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestHandleMe(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, _ := db.CreateUser("me@test.com", "hashedpw", "Me User")
+	token, _ := auth.GenerateToken(user)
+
+	// Use the requireAuth middleware wrapper to set the user context
+	handler := srv.requireAuth(srv.handleMe)
+
+	req := httptest.NewRequest("GET", "/api/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleMe() status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["email"] != "me@test.com" {
+		t.Errorf("handleMe() email = %v, want me@test.com", resp["email"])
+	}
+}
+
+func TestHandleConfigGet(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleConfigGet(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleConfigGet() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleConfigStatus(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest("GET", "/api/config/status", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleConfigStatus(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleConfigStatus() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestCheckAuthRateLimit(t *testing.T) {
+	// Loopback addresses should always be allowed
+	if !checkAuthRateLimit("127.0.0.1:8080") {
+		t.Error("checkAuthRateLimit() should allow loopback IPv4")
+	}
+	if !checkAuthRateLimit("[::1]:8080") {
+		t.Error("checkAuthRateLimit() should allow loopback IPv6")
+	}
+	if !checkAuthRateLimit("::ffff:127.0.0.1:8080") {
+		t.Error("checkAuthRateLimit() should allow IPv4-mapped loopback")
+	}
+}
+
+func TestHandleListBoards(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, _ := db.CreateUser("boards@test.com", "hashedpw", "Boards User")
+	token, _ := auth.GenerateToken(user)
+
+	handler := srv.requireAuth(srv.handleListBoards)
+
+	req := httptest.NewRequest("GET", "/api/boards", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleListBoards() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateBoard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, _ := db.CreateUser("create-board@test.com", "hashedpw", "Board Creator")
+	token, _ := auth.GenerateToken(user)
+
+	handler := srv.requireAuth(srv.handleCreateBoard)
+
+	body := map[string]interface{}{"name": "Test Board", "description": "Test Description"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/api/boards", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateBoard() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleUsers(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, _ := db.CreateUser("users@test.com", "hashedpw", "Users List")
+	token, _ := auth.GenerateToken(user)
+
+	handler := srv.requireAuth(srv.handleUsers)
+
+	req := httptest.NewRequest("GET", "/api/users", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleUsers() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleDashboard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, _ := db.CreateUser("dashboard@test.com", "hashedpw", "Dashboard User")
+	token, _ := auth.GenerateToken(user)
+
+	handler := srv.requireAuth(srv.handleDashboard)
+
+	req := httptest.NewRequest("GET", "/api/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleDashboard() status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
