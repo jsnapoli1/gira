@@ -604,3 +604,1016 @@ func TestHandleDashboard(t *testing.T) {
 		t.Errorf("handleDashboard() status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
+
+// Helper to create a test user with board
+func setupTestBoard(t *testing.T, srv *Server, db *database.DB) (*models.User, string, *models.Board) {
+	t.Helper()
+	user, _ := db.CreateUser(testEmail("board-test"), "hashedpw", "Board Test")
+	token, _ := auth.GenerateToken(user)
+	board, _ := db.CreateBoard("Test Board", "Description", user.ID)
+	return user, token, board
+}
+
+func TestHandleGetBoard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetBoard)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetBoard() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleUpdateBoard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleUpdateBoard)
+
+	body := map[string]interface{}{"name": "Updated Board", "description": "Updated Description"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("PUT", fmt.Sprintf("/api/boards/%d", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleUpdateBoard() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleDeleteBoard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleDeleteBoard)
+
+	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/boards/%d", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("handleDeleteBoard() status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleGetBoardSwimlanes(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetBoardSwimlanes)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/swimlanes", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetBoardSwimlanes() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateBoardSwimlane(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleCreateBoardSwimlane)
+
+	body := map[string]interface{}{"name": "Test Swimlane", "repo_owner": "owner", "repo_name": "repo", "designator": "TEST"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/boards/%d/swimlanes", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateBoardSwimlane() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleGetBoardColumns(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetBoardColumns)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/columns", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetBoardColumns() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateBoardColumn(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleCreateBoardColumn)
+
+	body := map[string]interface{}{"name": "New Column", "state": "open"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/boards/%d/columns", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateBoardColumn() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleGetBoardMembers(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetBoardMembers)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/members", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetBoardMembers() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleAddBoardMember(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	newUser, _ := db.CreateUser(testEmail("new-member"), "hashedpw", "New Member")
+	_ = user
+
+	handler := srv.requireAuth(srv.handleAddBoardMember)
+
+	body := map[string]interface{}{"user_id": newUser.ID, "role": "member"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/boards/%d/members", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleAddBoardMember() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleGetBoardCards(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetBoardCards)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/cards", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetBoardCards() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetBoardLabels(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetBoardLabels)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/labels", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetBoardLabels() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateBoardLabel(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleCreateBoardLabel)
+
+	body := map[string]interface{}{"name": "Bug", "color": "#ff0000"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/boards/%d/labels", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateBoardLabel() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleGetBoardCustomFields(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetBoardCustomFields)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/custom-fields", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetBoardCustomFields() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateBoardCustomField(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleCreateBoardCustomField)
+
+	body := map[string]interface{}{"name": "Priority", "field_type": "select", "options": "high,low", "required": true}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/boards/%d/custom-fields", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateBoardCustomField() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleListSavedFilters(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleListSavedFilters)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/filters", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleListSavedFilters() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleListCardTemplates(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleListCardTemplates)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/templates", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleListCardTemplates() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateCardTemplate(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleCreateCardTemplate)
+
+	body := map[string]interface{}{"name": "Bug Template", "issue_type": "bug", "description_template": "Steps to reproduce:"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/boards/%d/templates", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateCardTemplate() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleListIssueTypes(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleListIssueTypes)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/issue-types", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleListIssueTypes() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateIssueType(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleCreateIssueType)
+
+	body := map[string]interface{}{"name": "Bug", "icon": "bug", "color": "#ff0000"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/boards/%d/issue-types", board.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateIssueType() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleGetWorkflow(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleGetWorkflow)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/boards/%d/workflow", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetWorkflow() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+// Card handler tests
+
+func TestHandleCreateCard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	// Create a swimlane for the board
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	// Get board with columns
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+
+	handler := srv.requireAuth(srv.handleCreateCard)
+
+	body := map[string]interface{}{
+		"board_id":    board.ID,
+		"swimlane_id": swimlane.ID,
+		"column_id":   boardWithDetails.Columns[0].ID,
+		"title":       "Test Card",
+		"description": "Test Description",
+		"priority":    "high",
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/api/cards", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateCard() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleGetCard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCard)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCard() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleUpdateCard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleUpdateCard)
+
+	body := map[string]interface{}{"title": "Updated Card", "description": "Updated Description"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("PATCH", fmt.Sprintf("/api/cards/%d", card.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleUpdateCard() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleDeleteCard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleDeleteCard)
+
+	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/cards/%d", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("handleDeleteCard() status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleSearchCards(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	handler := srv.requireAuth(srv.handleSearchCards)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/search?board_id=%d", board.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleSearchCards() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetCardComments(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardComments)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/comments", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardComments() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleCreateCardComment(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleCreateCardComment)
+
+	body := map[string]interface{}{"body": "Test comment"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/cards/%d/comments", card.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleCreateCardComment() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleGetCardAssignees(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardAssignees)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/assignees", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardAssignees() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleAddCardAssignee(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleAddCardAssignee)
+
+	body := map[string]interface{}{"user_id": user.ID}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/cards/%d/assignees", card.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("handleAddCardAssignee() status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestHandleGetCardLabels(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardLabels)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/labels", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardLabels() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetCardAttachments(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardAttachments)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/attachments", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardAttachments() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetCardWorkLogs(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardWorkLogs)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/worklogs", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardWorkLogs() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetCardActivity(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardActivity)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/activity", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardActivity() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetCardLinks(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardLinks)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/links", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardLinks() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetCardWatchers(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardWatchers)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/watchers", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardWatchers() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetCardCustomFields(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardCustomFields)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/custom-fields", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardCustomFields() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGetCardChildren(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleGetCardChildren)
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/cards/%d/children", card.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleGetCardChildren() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
