@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -106,5 +108,162 @@ func TestHashAndCheckPassword(t *testing.T) {
 	}
 	if CheckPassword("wrongpassword", hash) {
 		t.Error("CheckPassword() returned true for wrong password")
+	}
+}
+
+func TestExtractTokenFromRequest(t *testing.T) {
+	tests := []struct {
+		name          string
+		authHeader    string
+		expectedToken string
+	}{
+		{
+			name:          "valid bearer token",
+			authHeader:    "Bearer my-jwt-token",
+			expectedToken: "my-jwt-token",
+		},
+		{
+			name:          "empty header",
+			authHeader:    "",
+			expectedToken: "",
+		},
+		{
+			name:          "invalid format - no bearer prefix",
+			authHeader:    "my-jwt-token",
+			expectedToken: "",
+		},
+		{
+			name:          "invalid format - too many parts",
+			authHeader:    "Bearer token extra",
+			expectedToken: "",
+		},
+		{
+			name:          "case insensitive bearer",
+			authHeader:    "bearer my-jwt-token",
+			expectedToken: "my-jwt-token",
+		},
+		{
+			name:          "BEARER uppercase",
+			authHeader:    "BEARER my-jwt-token",
+			expectedToken: "my-jwt-token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+
+			token := ExtractTokenFromRequest(req)
+			if token != tt.expectedToken {
+				t.Errorf("ExtractTokenFromRequest() = %q, want %q", token, tt.expectedToken)
+			}
+		})
+	}
+}
+
+func TestGetJWTSecret_WithEnvVar(t *testing.T) {
+	originalSecret := os.Getenv("JWT_SECRET")
+	defer os.Setenv("JWT_SECRET", originalSecret)
+
+	testSecret := "my-custom-secret-for-testing"
+	os.Setenv("JWT_SECRET", testSecret)
+
+	secret := getJWTSecret()
+	if string(secret) != testSecret {
+		t.Errorf("getJWTSecret() = %q, want %q", string(secret), testSecret)
+	}
+}
+
+func TestGetJWTSecret_Default(t *testing.T) {
+	originalSecret := os.Getenv("JWT_SECRET")
+	defer os.Setenv("JWT_SECRET", originalSecret)
+
+	os.Unsetenv("JWT_SECRET")
+
+	secret := getJWTSecret()
+	if string(secret) != "gira-default-secret-change-in-production" {
+		t.Errorf("getJWTSecret() = %q, want default secret", string(secret))
+	}
+}
+
+func TestGenerateToken_AdminUser(t *testing.T) {
+	user := &models.User{
+		ID:      1,
+		Email:   "admin@example.com",
+		IsAdmin: true,
+	}
+
+	tokenString, err := GenerateToken(user)
+	if err != nil {
+		t.Fatalf("GenerateToken() error = %v", err)
+	}
+
+	claims, err := ValidateToken(tokenString)
+	if err != nil {
+		t.Fatalf("ValidateToken() error = %v", err)
+	}
+
+	if !claims.IsAdmin {
+		t.Error("claims.IsAdmin should be true for admin user")
+	}
+}
+
+func TestGenerateToken_NonAdminUser(t *testing.T) {
+	user := &models.User{
+		ID:      2,
+		Email:   "user@example.com",
+		IsAdmin: false,
+	}
+
+	tokenString, err := GenerateToken(user)
+	if err != nil {
+		t.Fatalf("GenerateToken() error = %v", err)
+	}
+
+	claims, err := ValidateToken(tokenString)
+	if err != nil {
+		t.Fatalf("ValidateToken() error = %v", err)
+	}
+
+	if claims.IsAdmin {
+		t.Error("claims.IsAdmin should be false for non-admin user")
+	}
+}
+
+func TestClaims_Structure(t *testing.T) {
+	claims := Claims{
+		UserID:  100,
+		Email:   "claims@example.com",
+		IsAdmin: true,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   "100",
+		},
+	}
+
+	if claims.UserID != 100 {
+		t.Errorf("claims.UserID = %d, want 100", claims.UserID)
+	}
+	if claims.Email != "claims@example.com" {
+		t.Errorf("claims.Email = %q, want 'claims@example.com'", claims.Email)
+	}
+	if !claims.IsAdmin {
+		t.Error("claims.IsAdmin should be true")
+	}
+}
+
+func TestValidateToken_UnexpectedSigningMethod(t *testing.T) {
+	// Create a token with RS256 instead of HS256
+	// We can't actually sign with RS256 without a key, so we'll create an invalid token
+	// that has RS256 in the header but is not properly signed
+	tokenString := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ.invalid"
+
+	_, err := ValidateToken(tokenString)
+	if err != ErrInvalidToken {
+		t.Errorf("ValidateToken() with RS256 error = %v, want %v", err, ErrInvalidToken)
 	}
 }

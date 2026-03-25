@@ -143,3 +143,82 @@ func TestConfigPath(t *testing.T) {
 		t.Errorf("expected config path %q, got %q", expected, path)
 	}
 }
+
+func TestLoad_WithGiteaInsecureTLS(t *testing.T) {
+	os.Setenv("GITEA_INSECURE_TLS", "true")
+	os.Setenv("GITEA_URL", "https://gitea.example.com")
+	os.Setenv("GITEA_API_KEY", "test-key")
+	defer func() {
+		os.Unsetenv("GITEA_INSECURE_TLS")
+		os.Unsetenv("GITEA_URL")
+		os.Unsetenv("GITEA_API_KEY")
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if !cfg.GiteaInsecureTLS {
+		t.Error("expected GiteaInsecureTLS to be true")
+	}
+}
+
+func TestLoad_WithGiteaInsecureTLS_False(t *testing.T) {
+	os.Setenv("GITEA_INSECURE_TLS", "false")
+	defer os.Unsetenv("GITEA_INSECURE_TLS")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.GiteaInsecureTLS {
+		t.Error("expected GiteaInsecureTLS to be false")
+	}
+}
+
+func TestConfigPath_NoDB_PATH(t *testing.T) {
+	// Ensure DB_PATH is not set
+	os.Unsetenv("DB_PATH")
+
+	cfg := &Config{}
+	path := cfg.configPath()
+
+	// Should return a path ending with .config/gira/config.json
+	if !filepath.IsAbs(path) {
+		t.Errorf("expected absolute path, got %q", path)
+	}
+	if filepath.Base(path) != "config.json" {
+		t.Errorf("expected path to end with config.json, got %q", path)
+	}
+}
+
+func TestSaveToFile_CreateDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Use a nested directory that doesn't exist
+	dbPath := filepath.Join(tmpDir, "nested", "dir", "test.db")
+	os.Setenv("DB_PATH", dbPath)
+	defer os.Unsetenv("DB_PATH")
+
+	cfg := &Config{
+		GiteaURL:    "https://test.com",
+		GiteaAPIKey: "key",
+		Port:        8080,
+	}
+
+	err := cfg.SaveToFile()
+	if err != nil {
+		t.Fatalf("SaveToFile() should create directories, got error: %v", err)
+	}
+
+	// Verify file was created
+	loadedCfg := &Config{}
+	if err := loadedCfg.LoadFromFile(); err != nil {
+		t.Fatalf("LoadFromFile() error: %v", err)
+	}
+
+	if loadedCfg.GiteaURL != cfg.GiteaURL {
+		t.Errorf("expected GiteaURL %q, got %q", cfg.GiteaURL, loadedCfg.GiteaURL)
+	}
+}
