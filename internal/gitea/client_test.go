@@ -287,3 +287,68 @@ func TestDoRequest_ErrorResponse(t *testing.T) {
 		t.Error("GetRepos() should return error for 401 response")
 	}
 }
+
+func TestGetIssues_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-api-key", false)
+	_, err := client.GetIssues("owner", "repo")
+	if err == nil {
+		t.Error("GetIssues() should return error for invalid JSON")
+	}
+}
+
+func TestGetLabels_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-api-key", false)
+	_, err := client.GetLabels("owner", "repo")
+	if err == nil {
+		t.Error("GetLabels() should return error for invalid JSON")
+	}
+}
+
+func TestGetMilestones_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-api-key", false)
+	_, err := client.GetMilestones("owner", "repo")
+	if err == nil {
+		t.Error("GetMilestones() should return error for invalid JSON")
+	}
+}
+
+func TestGetIssueComments_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-api-key", false)
+	_, err := client.GetIssueComments("owner", "repo", 1)
+	if err == nil {
+		t.Error("GetIssueComments() should return error for invalid JSON")
+	}
+}
+
+func TestCreateIssueComment_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-api-key", false)
+	_, err := client.CreateIssueComment("owner", "repo", 1, "body")
+	if err == nil {
+		t.Error("CreateIssueComment() should return error for invalid JSON")
+	}
+}
