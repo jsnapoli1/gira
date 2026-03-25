@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -257,12 +259,36 @@ func TestClaims_Structure(t *testing.T) {
 }
 
 func TestValidateToken_UnexpectedSigningMethod(t *testing.T) {
-	// Create a token with RS256 instead of HS256
-	// We can't actually sign with RS256 without a key, so we'll create an invalid token
-	// that has RS256 in the header but is not properly signed
-	tokenString := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ.invalid"
+	// Create an RSA private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate RSA key: %v", err)
+	}
 
-	_, err := ValidateToken(tokenString)
+	// Create a token signed with RS256 instead of HS256
+	claims := Claims{
+		UserID:  1,
+		Email:   "test@example.com",
+		IsAdmin: false,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   "1",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatalf("failed to sign RSA token: %v", err)
+	}
+
+	// Try to validate with our HS256 validator - should fail with unexpected signing method
+	_, err = ValidateToken(tokenString)
+	if err == nil {
+		t.Error("ValidateToken() should fail with RSA token")
+	}
+	// The error should be ErrInvalidToken because the signing method check triggers
 	if err != ErrInvalidToken {
 		t.Errorf("ValidateToken() with RS256 error = %v, want %v", err, ErrInvalidToken)
 	}
