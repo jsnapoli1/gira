@@ -1732,6 +1732,80 @@ func TestHandleCreateUserCredential(t *testing.T) {
 	}
 }
 
+// More card handler tests
+
+func TestHandleMoveCard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleMoveCard)
+
+	body := map[string]interface{}{"column_id": boardWithDetails.Columns[1].ID, "state": "in_progress"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/cards/%d/move", card.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleMoveCard() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleReorderCard(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	swimlane, _ := db.CreateSwimlane(board.ID, "Default", "owner", "repo", "TEST-", "#6366f1")
+
+	card, _ := db.CreateCard(database.CreateCardInput{
+		BoardID:    board.ID,
+		SwimlaneID: swimlane.ID,
+		ColumnID:   boardWithDetails.Columns[0].ID,
+		Title:      "Test Card",
+		State:      "open",
+	})
+
+	handler := srv.requireAuth(srv.handleReorderCard)
+
+	body := map[string]interface{}{"position": 1000.0}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/cards/%d/reorder", card.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", card.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleReorderCard() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
 // Admin handler tests
 
 func TestHandleGetAdminUsers(t *testing.T) {
