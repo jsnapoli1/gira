@@ -1,4 +1,4 @@
-# Zira
+# Gira
 
 A Jira-like project management and issue tracking application that integrates with Gitea. Manage your projects with Kanban boards, sprints, and comprehensive reporting.
 
