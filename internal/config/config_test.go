@@ -222,3 +222,59 @@ func TestSaveToFile_CreateDirectory(t *testing.T) {
 		t.Errorf("expected GiteaURL %q, got %q", cfg.GiteaURL, loadedCfg.GiteaURL)
 	}
 }
+
+func TestConfigPath_HomeDirError(t *testing.T) {
+	// Save and restore HOME environment variable
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+
+	// Unset HOME and DB_PATH to trigger the error path
+	os.Unsetenv("HOME")
+	os.Unsetenv("DB_PATH")
+
+	cfg := &Config{}
+	path := cfg.configPath()
+
+	// Should fall back to temp directory
+	if !filepath.IsAbs(path) {
+		t.Errorf("expected absolute path, got %q", path)
+	}
+	if filepath.Base(path) != "config.json" {
+		t.Errorf("expected path to end with config.json, got %q", path)
+	}
+}
+
+func TestLoadFromFile_NonExistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "nonexistent", "test.db")
+	os.Setenv("DB_PATH", dbPath)
+	defer os.Unsetenv("DB_PATH")
+
+	cfg := &Config{}
+	err := cfg.LoadFromFile()
+
+	// Should return error for non-existent file
+	if err == nil {
+		t.Error("LoadFromFile() should return error for non-existent file")
+	}
+}
+
+func TestLoadFromFile_InvalidJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	os.Setenv("DB_PATH", filepath.Join(tmpDir, "test.db"))
+	defer os.Unsetenv("DB_PATH")
+
+	// Write invalid JSON
+	if err := os.WriteFile(configPath, []byte("invalid json {"), 0600); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	cfg := &Config{}
+	err := cfg.LoadFromFile()
+
+	// Should return error for invalid JSON
+	if err == nil {
+		t.Error("LoadFromFile() should return error for invalid JSON")
+	}
+}
