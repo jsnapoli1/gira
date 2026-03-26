@@ -1855,3 +1855,169 @@ func TestHandlePromoteAdmin(t *testing.T) {
 		t.Errorf("handlePromoteAdmin() status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
+
+// Board handler tests for 0% coverage functions
+
+func TestHandleDeleteBoardSwimlane(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	swimlane, _ := db.CreateSwimlane(board.ID, "Test Swimlane", "owner", "repo", "TEST-", "#6366f1")
+
+	handler := srv.requireAuth(srv.handleDeleteBoardSwimlane)
+
+	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/boards/%d/swimlanes/%d", board.ID, swimlane.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	req.SetPathValue("swimlaneId", fmt.Sprintf("%d", swimlane.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("handleDeleteBoardSwimlane() status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleReorderBoardSwimlane(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	swimlane, _ := db.CreateSwimlane(board.ID, "Test Swimlane", "owner", "repo", "TEST-", "#6366f1")
+
+	handler := srv.requireAuth(srv.handleReorderBoardSwimlane)
+
+	body := map[string]interface{}{"position": 5}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("PUT", fmt.Sprintf("/api/boards/%d/swimlanes/%d/reorder", board.ID, swimlane.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	req.SetPathValue("swimlaneId", fmt.Sprintf("%d", swimlane.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleReorderBoardSwimlane() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleDeleteBoardColumn(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	if len(boardWithDetails.Columns) == 0 {
+		t.Fatal("board has no columns")
+	}
+
+	handler := srv.requireAuth(srv.handleDeleteBoardColumn)
+
+	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/boards/%d/columns/%d", board.ID, boardWithDetails.Columns[0].ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	req.SetPathValue("columnId", fmt.Sprintf("%d", boardWithDetails.Columns[0].ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("handleDeleteBoardColumn() status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
+
+func TestHandleReorderBoardColumn(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	boardWithDetails, _ := db.GetBoardByID(board.ID)
+	if len(boardWithDetails.Columns) == 0 {
+		t.Fatal("board has no columns")
+	}
+
+	handler := srv.requireAuth(srv.handleReorderBoardColumn)
+
+	body := map[string]interface{}{"position": 5}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("PUT", fmt.Sprintf("/api/boards/%d/columns/%d/reorder", board.ID, boardWithDetails.Columns[0].ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	req.SetPathValue("columnId", fmt.Sprintf("%d", boardWithDetails.Columns[0].ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleReorderBoardColumn() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleUpdateBoardMember(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	newUser, _ := db.CreateUser(testEmail("update-member"), "hashedpw", "New Member")
+	db.AddBoardMember(board.ID, newUser.ID, "member")
+
+	handler := srv.requireAuth(srv.handleUpdateBoardMember)
+
+	body := map[string]interface{}{"role": "admin"}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("PUT", fmt.Sprintf("/api/boards/%d/members/%d", board.ID, newUser.ID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	req.SetPathValue("userId", fmt.Sprintf("%d", newUser.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("handleUpdateBoardMember() status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleRemoveBoardMember(t *testing.T) {
+	srv, db := setupTestServer(t)
+	defer db.Close()
+
+	user, token, board := setupTestBoard(t, srv, db)
+	_ = user
+
+	newUser, _ := db.CreateUser(testEmail("remove-member"), "hashedpw", "Remove Member")
+	db.AddBoardMember(board.ID, newUser.ID, "member")
+
+	handler := srv.requireAuth(srv.handleRemoveBoardMember)
+
+	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/boards/%d/members/%d", board.ID, newUser.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", fmt.Sprintf("%d", board.ID))
+	req.SetPathValue("userId", fmt.Sprintf("%d", newUser.ID))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("handleRemoveBoardMember() status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+}
